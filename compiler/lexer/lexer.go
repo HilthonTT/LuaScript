@@ -1,0 +1,432 @@
+package lexer
+
+import (
+	"context"
+
+	"github.com/hilthontt/sakura-lang/compiler/token"
+	"github.com/looplab/fsm"
+)
+
+// FSM States
+const (
+	stateIdle        = "idle"
+	stateIdent       = "ident"
+	stateInteger     = "integer"
+	stateFloat       = "float"
+	stateString      = "string"
+	stateLongString  = "long_string"
+	stateComment     = "comment"
+	stateLongComment = "long_comment"
+)
+
+// FSM Events
+const (
+	evStartIdent      = "start_ident"
+	evStartInt        = "start_int"
+	evStartFloat      = "start_float"
+	evStartString     = "start_string"
+	evStartLongString = "start_long_string"
+	evStartComment    = "start_comment"
+	evIntToFloat      = "int_to_float"
+	evCommentToLong   = "comment_to_long"
+	evDone            = "done"
+)
+
+type Lexer struct {
+	input        []rune
+	position     int
+	readPosition int
+	ch           rune
+	line         int
+	FSM          *fsm.FSM
+	ctx          context.Context
+}
+
+func New(input string) *Lexer {
+	l := &Lexer{
+		input: []rune(input),
+		line:  1,
+		ctx:   context.Background(),
+	}
+
+	l.FSM = fsm.NewFSM(
+		stateIdle,
+		fsm.Events{
+			{Name: evStartIdent, Src: []string{stateIdle}, Dst: stateIdent},
+			{Name: evStartInt, Src: []string{stateIdle}, Dst: stateInteger},
+			{Name: evStartFloat, Src: []string{stateIdle}, Dst: stateFloat},
+			{Name: evStartString, Src: []string{stateIdle}, Dst: stateString},
+			{Name: evStartLongString, Src: []string{stateIdle}, Dst: stateLongString},
+			{Name: evStartComment, Src: []string{stateIdle}, Dst: stateComment},
+			{Name: evIntToFloat, Src: []string{stateInteger}, Dst: stateFloat},
+			{Name: evCommentToLong, Src: []string{stateComment}, Dst: stateLongComment},
+			{Name: evDone, Src: []string{
+				stateIdent, stateInteger, stateFloat,
+				stateString, stateLongString,
+				stateComment, stateLongComment,
+			}, Dst: stateIdle},
+		},
+		fsm.Callbacks{},
+	)
+
+	l.readChar()
+
+	return l
+}
+
+func (l *Lexer) NextToken() token.Token {
+	l.skipWhitespace()
+	line := l.line
+
+	switch l.ch {
+	case '+':
+		return l.singleToken(token.Plus, "+")
+	case '-':
+		if l.peekChar() == '-' {
+			l.FSM.Event(l.ctx, evStartComment)
+			l.absorbComment() // may internally fire evCommentToLong
+			l.FSM.Event(l.ctx, evDone)
+			return l.NextToken()
+		}
+
+		return l.singleToken(token.Minus, "-")
+	case '*':
+		return l.singleToken(token.Asterisk, "*")
+	case '/':
+		if l.peekChar() == '/' {
+			l.readChar()
+			return l.makeToken(token.FloorDiv, "//", line)
+		}
+		return l.singleToken(token.Slash, "/")
+	case '%':
+		return l.singleToken(token.Percent, "%")
+	case '^':
+		return l.singleToken(token.Caret, "^")
+	case '#':
+		return l.singleToken(token.Hash, "#")
+	case '&':
+		return l.singleToken(token.Ampersand, "&")
+	case '|':
+		return l.singleToken(token.Pipe, "|")
+	case '~':
+		if l.peekChar() == '=' {
+			l.readChar()
+			return l.makeToken(token.NotEq, "~=", line)
+		}
+		return l.singleToken(token.Tilde, "~")
+	case '<':
+		if l.peekChar() == '=' {
+			l.readChar()
+			return l.makeToken(token.LTE, "<=", line)
+		}
+		if l.peekChar() == '<' {
+			l.readChar()
+			return l.makeToken(token.LShift, "<<", line)
+		}
+		return l.singleToken(token.LT, "<")
+	case '>':
+		if l.peekChar() == '=' {
+			l.readChar()
+			return l.makeToken(token.GTE, ">=", line)
+		}
+		if l.peekChar() == '>' {
+			l.readChar()
+			return l.makeToken(token.RShift, ">>", line)
+		}
+		return l.singleToken(token.GT, ">")
+	case '=':
+		if l.peekChar() == '=' {
+			l.readChar()
+			return l.makeToken(token.Eq, "==", line)
+		}
+		return l.singleToken(token.Assign, "=")
+	case '.':
+		if l.peekChar() == '.' {
+			l.readChar()
+			if l.peekChar() == '.' {
+				l.readChar()
+				return l.makeToken(token.Vararg, "...", line)
+			}
+			return l.makeToken(token.Concat, "..", line)
+		}
+		if isDigit(l.peekChar()) {
+			// .5 case - starts as float immediately
+			l.FSM.Event(l.ctx, evStartFloat)
+			tok := l.readDotFloat(line)
+			l.FSM.Event(l.ctx, evDone)
+			return tok
+		}
+		return l.singleToken(token.Dot, ".")
+	case ':':
+		if l.peekChar() == ':' {
+			l.readChar()
+			return l.makeToken(token.Label, "::", line)
+		}
+		return l.singleToken(token.Colon, ":")
+	case ',':
+		return l.singleToken(token.Comma, ",")
+	case ';':
+		return l.singleToken(token.Semicolon, ";")
+	case '(':
+		return l.singleToken(token.LParen, "(")
+	case ')':
+		return l.singleToken(token.RParen, ")")
+	case '{':
+		return l.singleToken(token.LBrace, "{")
+	case '}':
+		return l.singleToken(token.RBrace, "}")
+	case ']':
+		return l.singleToken(token.RBracket, "]")
+	case '[':
+		if l.peekChar() == '[' {
+			l.readChar()
+			l.readChar()
+			l.FSM.Event(l.ctx, evStartLongString)
+			lit := l.readLongString()
+			l.FSM.Event(l.ctx, evDone)
+			return token.Token{Type: token.String, Literal: lit, Line: line}
+		}
+		return l.singleToken(token.LBracket, "[")
+	case '"', '\'':
+		l.FSM.Event(l.ctx, evStartString)
+		lit := l.readString(l.ch)
+		l.FSM.Event(l.ctx, evDone)
+		return token.Token{Type: token.String, Literal: lit, Line: line}
+	case 0:
+		return token.Token{Type: token.EOF, Literal: "", Line: line}
+	default:
+		if isLetter(l.ch) {
+			l.FSM.Event(l.ctx, evStartIdent)
+			lit := string(l.readIdentifier())
+			l.FSM.Event(l.ctx, evDone)
+			typ := token.LookupIdent(lit)
+			return token.Token{Type: typ, Literal: lit, Line: line}
+		}
+		if isDigit(l.ch) {
+			l.FSM.Event(l.ctx, evStartInt)
+			tok := l.readNumberToken(line)
+			l.FSM.Event(l.ctx, evDone)
+			return tok
+		}
+		tok := token.Token{Type: token.Illegal, Literal: string(l.ch), Line: line}
+		l.readChar()
+		return tok
+	}
+}
+
+// readNumberToken handles integers, floats, and hex. Called when l.ch is a digit.
+// Fires evIntToFloat internally if a '.' is encountered mid-read.
+func (l *Lexer) readNumberToken(line int) token.Token {
+	// Hex: 0x...
+	if l.ch == '0' && (l.peekChar() == 'x' || l.peekChar() == 'X') {
+		l.readChar()
+		l.readChar()
+		start := l.position
+		for isHexDigit(l.ch) {
+			l.readChar()
+		}
+		return token.Token{Type: token.Int, Literal: "0x" + string(l.input[start:l.position]), Line: line}
+	}
+
+	start := l.position
+	for isDigit(l.ch) {
+		l.readChar()
+	}
+
+	// Integer becomes float on '.'
+	if l.ch == '.' && isDigit(l.peekChar()) {
+		l.FSM.Event(l.ctx, evIntToFloat) // interger -> float
+		l.readChar()                     // consume '.'
+		for isDigit(l.ch) {
+			l.readChar()
+		}
+		l.readExponent()
+		return token.Token{Type: token.Float, Literal: string(l.input[start:l.position]), Line: line}
+	}
+
+	return token.Token{Type: token.Int, Literal: string(l.input[start:l.position]), Line: line}
+}
+
+// readDotFloat handles floats starting with '.' (e.g. .5). Called when l.ch == '.'.
+func (l *Lexer) readDotFloat(line int) token.Token {
+	start := l.position
+	l.readChar() // consume '.'
+	for isDigit(l.ch) {
+		l.readChar()
+	}
+	l.readExponent()
+	return token.Token{Type: token.Float, Literal: string(l.input[start:l.position]), Line: line}
+}
+
+// readExponent reads an optional e/E exponent from the current position.
+func (l *Lexer) readExponent() {
+	if l.ch == 'e' || l.ch == 'E' {
+		l.readChar()
+		if l.ch == '+' || l.ch == '-' {
+			l.readChar()
+		}
+		for isDigit(l.ch) {
+			l.readChar()
+		}
+	}
+}
+
+// absorbComment skips a Lua comment. Called when l.ch is on the first '-'
+// and peekChar() == '-'. Fires evCommentToLong internally for --[[ style.
+func (l *Lexer) absorbComment() {
+	l.readChar() // consume second '-'
+	l.readChar() // move past --
+
+	if l.ch == '[' && l.peekChar() == '[' {
+		l.FSM.Event(l.ctx, evCommentToLong) // comment → long_comment
+		l.readChar()
+		l.readChar()
+		l.readLongString()
+		return
+	}
+
+	// Short comment: skip to end of line
+	for l.ch != '\n' && l.ch != 0 {
+		l.readChar()
+	}
+}
+
+// readLongString reads a [[...]] long string. Called after [[ has been consumed.
+func (l *Lexer) readLongString() string {
+	result := ""
+
+	for {
+		if l.ch == 0 {
+			break
+		}
+
+		if l.ch == ']' && l.peekChar() == ']' {
+			l.readChar()
+			l.readChar()
+			break
+		}
+
+		if l.ch == '\n' {
+			l.line++
+		}
+		result += string(l.ch)
+		l.readChar()
+	}
+
+	return result
+}
+
+func (l *Lexer) readIdentifier() []rune {
+	position := l.position
+	for isLetter(l.ch) || isDigit(l.ch) {
+		l.readChar()
+	}
+	return l.input[position:l.position]
+}
+
+func (l *Lexer) readString(ch rune) string {
+	l.readChar() // skip opening quote
+
+	if l.ch == ch {
+		l.readChar()
+		return ""
+	}
+
+	result := ""
+
+	for {
+		if isEscapedChar(l.ch) {
+			result += escapedCharResult(l.peekChar())
+			l.readChar()
+		} else {
+			result += string(l.ch)
+		}
+		l.readChar()
+		if l.ch == ch || l.peekChar() == 0 {
+			break
+		}
+	}
+
+	l.readChar() // move past closing quote
+
+	return result
+}
+
+func (l *Lexer) skipWhitespace() {
+	for l.ch == ' ' || l.ch == '\t' || l.ch == '\r' || l.ch == '\n' {
+		if l.ch == '\n' {
+			l.line++
+		}
+		l.readChar()
+	}
+}
+
+func (l *Lexer) singleToken(t token.Type, lit string) token.Token {
+	tok := token.Token{Type: t, Literal: lit, Line: l.line}
+	l.readChar()
+	return tok
+}
+
+func (l *Lexer) makeToken(t token.Type, lit string, line int) token.Token {
+	tok := token.Token{Type: t, Literal: lit, Line: line}
+	l.readChar()
+	return tok
+}
+
+func (l *Lexer) readChar() {
+	if l.readPosition >= len(l.input) {
+		// ascii code's null
+		l.ch = 0
+	} else {
+		l.ch = l.input[l.readPosition]
+	}
+	l.position = l.readPosition
+	l.readPosition++
+}
+
+func (l *Lexer) peekChar() rune {
+	if l.readPosition >= len(l.input) {
+		return 0
+	}
+
+	return l.input[l.readPosition]
+}
+
+func isDigit(ch rune) bool {
+	return '0' <= ch && ch <= '9'
+}
+
+func isLetter(ch rune) bool {
+	return ('a' <= ch && ch <= 'z') || ('A' <= ch && ch <= 'Z') || ch == '_'
+}
+
+func isHexDigit(ch rune) bool {
+	return isDigit(ch) || ('a' <= ch && ch <= 'f') || ('A' <= ch && ch <= 'F')
+}
+
+func isEscapedChar(ch rune) bool {
+	return ch == '\\'
+}
+
+func escapedCharResult(peeked rune) string {
+	switch peeked {
+	case 'n':
+		return "\n"
+	case 't':
+		return "\t"
+	case 'r':
+		return "\r"
+	case 'v':
+		return "\v"
+	case 'f':
+		return "\f"
+	case '\\':
+		return "\\"
+	case '"':
+		return "\""
+	case '\'':
+		return "'"
+	default:
+		return "\\" + string(peeked)
+	}
+}
