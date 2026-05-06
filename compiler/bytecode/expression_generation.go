@@ -1,0 +1,343 @@
+package bytecode
+
+import (
+	"fmt"
+
+	"github.com/hilthontt/sakura-lang/compiler/ast"
+)
+
+// compileExpression emits code that leaves exactly one value on top of the
+// stack. Multi-value producers (call, method-call, vararg) are clamped to a
+// single result here. Use compileExpressionMulti for last-position contexts
+// that want the full multi-value expansion.
+func (g *Generator) compileExpression(is *InstructionSet, exp ast.Expression) {
+	if exp == nil {
+		return
+	}
+	line := exp.Line()
+	switch e := exp.(type) {
+	case *ast.NilLiteral:
+		is.define(LoadNil, line, 1)
+	case *ast.BooleanLiteral:
+		if e.Value {
+			is.define(LoadTrue, line)
+		} else {
+			is.define(LoadFalse, line)
+		}
+	case *ast.IntegerLiteral:
+		is.define(LoadInt, line, e.Value)
+	case *ast.FloatLiteral:
+		is.define(LoadFloat, line, e.Value)
+	case *ast.StringLiteral:
+		is.define(LoadString, line, e.Value)
+	case *ast.VarargExpression:
+		is.define(LoadVararg, line, 1)
+	case *ast.Identifier:
+		g.compileLoadName(is, e.Name, line)
+	case *ast.FunctionExpression:
+		g.compileFunctionExpression(is, e)
+	case *ast.TableConstructor:
+		g.compileTableConstructor(is, e)
+	case *ast.IndexExpression:
+		g.compileIndexLoad(is, e)
+	case *ast.CallExpression:
+		g.compileCall(is, e, 1)
+	case *ast.MethodCallExpression:
+		g.compileMethodCall(is, e, 1)
+	case *ast.BinaryExpression:
+		g.compileBinary(is, e)
+	case *ast.UnaryExpression:
+		g.compileUnary(is, e)
+	case *ast.ParenExpression:
+		// `(...)` adjusts a multi-value to exactly one — clamp by routing
+		// through compileExpression (which already clamps).
+		g.compileExpression(is, e.Inner)
+	default:
+		panic(fmt.Sprintf("bytecode: unsupported expression %T", exp))
+	}
+}
+
+// compileExpressionMulti emits an expression in a context that can absorb
+// multiple results. nresults==-1 means "all results"; otherwise that exact
+// number must end up on the stack.
+func (g *Generator) compileExpressionMulti(is *InstructionSet, exp ast.Expression, nresults int) {
+	if exp == nil {
+		return
+	}
+	switch e := exp.(type) {
+	case *ast.CallExpression:
+		g.compileCall(is, e, nresults)
+	case *ast.MethodCallExpression:
+		g.compileMethodCall(is, e, nresults)
+	case *ast.VarargExpression:
+		is.define(LoadVararg, e.Line(), nresults)
+	default:
+		// Single-value expressions just push one; pad with nils if more
+		// results are demanded, or accept the single value if any count.
+		g.compileExpression(is, exp)
+		if nresults > 1 {
+			is.define(LoadNil, exp.Line(), nresults-1)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Variable references
+// ---------------------------------------------------------------------------
+
+// compileLoadName resolves `name` and emits the appropriate Get* instruction.
+func (g *Generator) compileLoadName(is *InstructionSet, name string, line int) {
+	if slot, ok := g.current.locals.lookupLocal(name); ok {
+		is.define(GetLocal, line, slot)
+		return
+	}
+	if idx, ok := g.resolveUpvalue(g.current, name); ok {
+		is.define(GetUpvalue, line, idx)
+		return
+	}
+	is.define(GetGlobal, line, name)
+}
+
+// compileStoreName emits the Set* instruction for an identifier target. The
+// value to store is expected to be on top of the stack.
+func (g *Generator) compileStoreName(is *InstructionSet, name string, line int) {
+	if slot, ok := g.current.locals.lookupLocal(name); ok {
+		is.define(SetLocal, line, slot)
+		return
+	}
+	if idx, ok := g.resolveUpvalue(g.current, name); ok {
+		is.define(SetUpvalue, line, idx)
+		return
+	}
+	is.define(SetGlobal, line, name)
+}
+
+// resolveUpvalue walks ancestor function contexts looking for `name`. When
+// found, it registers a passthrough upvalue chain and returns the index into
+// ctx's upvalue table. The boolean reports whether resolution succeeded.
+func (g *Generator) resolveUpvalue(ctx *funcCtx, name string) (int, bool) {
+	if ctx.parent == nil {
+		return 0, false
+	}
+	if slot, ok := ctx.parent.locals.lookupLocal(name); ok {
+		return addUpvalue(ctx, name, true, slot), true
+	}
+	if parentIdx, ok := g.resolveUpvalue(ctx.parent, name); ok {
+		return addUpvalue(ctx, name, false, parentIdx), true
+	}
+	return 0, false
+}
+
+func addUpvalue(ctx *funcCtx, name string, inStack bool, index int) int {
+	for i, u := range ctx.upvals {
+		if u.Name == name && u.InStack == inStack && u.Index == index {
+			return i
+		}
+	}
+	ctx.upvals = append(ctx.upvals, UpvalueDesc{Name: name, InStack: inStack, Index: index})
+	return len(ctx.upvals) - 1
+}
+
+// ---------------------------------------------------------------------------
+// Indexing
+// ---------------------------------------------------------------------------
+
+func (g *Generator) compileIndexLoad(is *InstructionSet, e *ast.IndexExpression) {
+	g.compileExpression(is, e.Object)
+	if e.IsDot {
+		if s, ok := e.Index.(*ast.StringLiteral); ok {
+			is.define(GetField, e.Line(), s.Value)
+			return
+		}
+	}
+	g.compileExpression(is, e.Index)
+	is.define(GetTable, e.Line())
+}
+
+// compileIndexStorePrep pushes Object (and Index, if bracketed) so the caller
+// can then push the value and emit the matching SetField/SetTable. Returns
+// true if SetField may be used (dot form with literal string key) along with
+// the field name.
+func (g *Generator) compileIndexStorePrep(is *InstructionSet, e *ast.IndexExpression) (useField bool, fieldKey string) {
+	if e.IsDot {
+		if s, ok := e.Index.(*ast.StringLiteral); ok {
+			g.compileExpression(is, e.Object)
+			return true, s.Value
+		}
+	}
+	g.compileExpression(is, e.Object)
+	g.compileExpression(is, e.Index)
+	return false, ""
+}
+
+// ---------------------------------------------------------------------------
+// Calls
+// ---------------------------------------------------------------------------
+
+func (g *Generator) compileCall(is *InstructionSet, e *ast.CallExpression, nresults int) {
+	g.compileExpression(is, e.Func)
+	g.compileCallArgs(is, e.Args, e.Line())
+	is.define(Call, e.Line(), len(e.Args), nresults)
+}
+
+func (g *Generator) compileMethodCall(is *InstructionSet, e *ast.MethodCallExpression, nresults int) {
+	g.compileExpression(is, e.Object) // [..., obj]
+	is.define(Self, e.Line(), e.Method) // [..., method, obj]
+	g.compileCallArgs(is, e.Args, e.Line())
+	is.define(Call, e.Line(), len(e.Args)+1, nresults)
+}
+
+// compileCallArgs emits each argument. The last argument, if it is a
+// multi-value producer (call, methodcall, vararg), is expanded so the call
+// receives every result.
+func (g *Generator) compileCallArgs(is *InstructionSet, args []ast.Expression, _ int) {
+	for i, a := range args {
+		if i == len(args)-1 && isMultiValue(a) {
+			g.compileExpressionMulti(is, a, -1)
+			return
+		}
+		g.compileExpression(is, a)
+	}
+}
+
+func isMultiValue(e ast.Expression) bool {
+	switch e.(type) {
+	case *ast.CallExpression, *ast.MethodCallExpression, *ast.VarargExpression:
+		return true
+	}
+	return false
+}
+
+// ---------------------------------------------------------------------------
+// Function expression
+// ---------------------------------------------------------------------------
+
+func (g *Generator) compileFunctionExpression(is *InstructionSet, e *ast.FunctionExpression) {
+	parent := g.pushFunction(fmt.Sprintf("anon@%d", e.Line()), e.Params, e.IsVararg, e.Line())
+	if e.Body != nil {
+		g.compileBlock(g.current.is, e.Body)
+	}
+	idx := g.popFunction(parent, e.Line())
+	is.define(Closure, e.Line(), idx)
+}
+
+// ---------------------------------------------------------------------------
+// Table constructor
+// ---------------------------------------------------------------------------
+
+func (g *Generator) compileTableConstructor(is *InstructionSet, t *ast.TableConstructor) {
+	arrayHint, hashHint := 0, 0
+	for _, f := range t.Fields {
+		if f.Key == nil {
+			arrayHint++
+		} else {
+			hashHint++
+		}
+	}
+	is.define(NewTable, t.Line(), arrayHint, hashHint)
+
+	arrayIdx := 1
+	for _, f := range t.Fields {
+		// Each field needs the table to remain on top after the field is
+		// stored; SetTable/SetField consume the table, so we Dup first.
+		is.define(Dup, t.Line())
+		switch {
+		case f.Key == nil:
+			// Array-positional entry.
+			is.define(LoadInt, t.Line(), int64(arrayIdx))
+			arrayIdx++
+			g.compileExpression(is, f.Value)
+			is.define(SetTable, t.Line())
+		case f.IsBracketed:
+			g.compileExpression(is, f.Key)
+			g.compileExpression(is, f.Value)
+			is.define(SetTable, t.Line())
+		default:
+			// Record entry: Key is an *Identifier; treat name as field key.
+			ident, ok := f.Key.(*ast.Identifier)
+			if !ok {
+				panic("table record key must be *ast.Identifier")
+			}
+			g.compileExpression(is, f.Value)
+			is.define(SetField, t.Line(), ident.Name)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Operators
+// ---------------------------------------------------------------------------
+
+func (g *Generator) compileBinary(is *InstructionSet, e *ast.BinaryExpression) {
+	switch e.Op {
+	case "and":
+		// a and b: keep a if falsy, else evaluate b.
+		g.compileExpression(is, e.Left)
+		end := &anchor{}
+		ji := is.define(JumpIfFalseKeep, e.Line(), end)
+		g.current.recordPending(ji)
+		g.compileExpression(is, e.Right)
+		end.line = is.count
+		return
+	case "or":
+		g.compileExpression(is, e.Left)
+		end := &anchor{}
+		ji := is.define(JumpIfTrueKeep, e.Line(), end)
+		g.current.recordPending(ji)
+		g.compileExpression(is, e.Right)
+		end.line = is.count
+		return
+	}
+
+	g.compileExpression(is, e.Left)
+	g.compileExpression(is, e.Right)
+	op, ok := binaryOpcodes[e.Op]
+	if !ok {
+		panic(fmt.Sprintf("bytecode: unknown binary operator %q", e.Op))
+	}
+	if op == Concat {
+		// Concat carries an explicit count; pairwise emission uses 2.
+		is.define(op, e.Line(), 2)
+		return
+	}
+	is.define(op, e.Line())
+}
+
+func (g *Generator) compileUnary(is *InstructionSet, e *ast.UnaryExpression) {
+	g.compileExpression(is, e.Operand)
+	op, ok := unaryOpcodes[e.Op]
+	if !ok {
+		panic(fmt.Sprintf("bytecode: unknown unary operator %q", e.Op))
+	}
+	is.define(op, e.Line())
+}
+
+var binaryOpcodes = map[string]uint8{
+	"+":  Add,
+	"-":  Sub,
+	"*":  Mul,
+	"/":  Div,
+	"//": FloorDiv,
+	"%":  Mod,
+	"^":  Pow,
+	"..": Concat, // emitted as Concat with implied count 2 (handled at exec time)
+	"==": Eq,
+	"~=": NotEq,
+	"<":  Lt,
+	"<=": Le,
+	">":  Gt,
+	">=": Ge,
+	"&":  BitAnd,
+	"|":  BitOr,
+	"~":  BitXor,
+	"<<": Shl,
+	">>": Shr,
+}
+
+var unaryOpcodes = map[string]uint8{
+	"-":   Neg,
+	"not": Not,
+	"#":   Len,
+	"~":   BitNot,
+}
+
