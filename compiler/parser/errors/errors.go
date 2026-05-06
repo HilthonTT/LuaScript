@@ -1,82 +1,57 @@
+// Package errors defines the typed parser error used throughout the
+// sakura-lang front-end. Lua 5.4 has a small, focused set of failure modes,
+// so the categories here are intentionally narrow.
 package errors
 
-import (
-	"fmt"
+import "fmt"
 
-	"github.com/hilthontt/sakura-lang/compiler/parser/arguments"
-)
-
-// Enums for different kinds of syntax errors
+// Enums for different kinds of syntax errors.
 const (
 	_ = iota
 
-	// EndOfFileError represents normal EOF error
+	// EndOfFileError represents a normal EOF reached while expecting more input.
 	EndOfFileError
-	// UnexpectedTokenError  means that token is not what we expected
+	// UnexpectedTokenError means a token did not match what the grammar expected.
 	UnexpectedTokenError
-	// UnexpectedEndError means we get unexpected "end" keyword (this is mainly created for REPL)
+	// UnexpectedEndError means an `end` keyword appeared with nothing to close
+	// (used by the REPL to detect "still typing" vs. "real syntax error").
 	UnexpectedEndError
-	// MethodDefinitionError means there's an error on method definition's method name
-	MethodDefinitionError
-	// InvalidAssignmentError means user assigns value to wrong type of expressions
+	// InvalidAssignmentError means the LHS of an `=` is not a valid var.
 	InvalidAssignmentError
-	// SyntaxError means there's a grammatical in the source code
+	// SyntaxError is the catch-all for grammatical mistakes.
 	SyntaxError
-	// ArgumentError means there's a method parameter's definition error
-	ArgumentError
 )
 
-// Error represents parser's parsing error
+// Error represents a parser failure with a human-readable message and a
+// machine-readable category.
 type Error struct {
-	// Message contains the readable message of error
 	Message string
 	ErrType int
 }
 
-// IsEOF checks if error is end of file error
-func (e *Error) IsEOF() bool {
-	return e.ErrType == EndOfFileError
+// IsEOF reports whether the error is an end-of-file marker.
+func (e *Error) IsEOF() bool { return e.ErrType == EndOfFileError }
+
+// IsUnexpectedEnd reports whether the error is an unmatched `end`.
+func (e *Error) IsUnexpectedEnd() bool { return e.ErrType == UnexpectedEndError }
+
+// IsUnexpectedToken reports whether the error is the generic "unexpected
+// token" category.
+func (e *Error) IsUnexpectedToken() bool { return e.ErrType == UnexpectedTokenError }
+
+// IsUnexpectedEmptyLine reports whether the error is an unmatched `end`
+// arising from REPL input with no preceding statements.
+func (e *Error) IsUnexpectedEmptyLine(stmtCount int) bool {
+	return e.IsUnexpectedEnd() && stmtCount == 0
 }
 
-// IsUnexpectedEnd checks if error is unexpected "end" keyword error
-func (e *Error) IsUnexpectedEnd() bool {
-	return e.ErrType == UnexpectedEndError
-}
-
-// IsUnexpectedToken checks if error is unexpected token error
-func (e *Error) IsUnexpectedToken() bool {
-	return e.ErrType == UnexpectedTokenError
-}
-
-// IsUnexpectedCase checks if error is a token error for 'case' statement
-func (e *Error) IsUnexpectedCase() bool {
-	return e.ErrType == UnexpectedTokenError && len(e.Message) >= 49 && e.Message[0:49] == "expected next token to be WHEN, got EOF() instead"
-}
-
-// IsUnexpectedWhen checks if error is a token error for 'case'atement
-func (e *Error) IsUnexpectedWhen() bool {
-	return e.ErrType == UnexpectedTokenError && len(e.Message) >= 21 && e.Message[0:21] == "unexpected when Line:"
-}
-
-// IsUnexpectedEmptyLine checks if error is an 'end' with empty line
-func (e *Error) IsUnexpectedEmptyLine(len int) bool {
-	return e.IsUnexpectedEnd() && len == 0
-}
-
-// InitError is a helper function for easily initializing error object
+// InitError builds an Error from a message and category.
 func InitError(msg string, errType int) *Error {
 	return &Error{Message: msg, ErrType: errType}
 }
 
-// NewArgumentError is a helper function the helps initializing argument errors
-func NewArgumentError(formerArgType, laterArgType int, argLiteral string, line int) *Error {
-	formerArg := arguments.Types[formerArgType]
-	laterArg := arguments.Types[laterArgType]
-	msg := fmt.Sprintf("%s \"%s\" should be defined before %s. Line: %d", formerArg, argLiteral, laterArg, line)
-	return InitError(msg, ArgumentError)
-}
-
-// NewTypeParsingError is a helper function the helps initializing type parsing errors
+// NewTypeParsingError reports a literal that could not be converted to its
+// declared numeric type (e.g. an integer literal too large for int64).
 func NewTypeParsingError(tokenLiteral, targetType string, line int) *Error {
 	msg := fmt.Sprintf("could not parse %q as %s. Line: %d", tokenLiteral, targetType, line)
 	return InitError(msg, SyntaxError)

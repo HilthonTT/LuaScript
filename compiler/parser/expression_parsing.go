@@ -1,8 +1,504 @@
 package parser
 
-import "github.com/hilthontt/sakura-lang/compiler/ast"
-
-type (
-	prefixParseFn func() ast.Expression
-	infixParseFn  func(ast.Expression) ast.Expression
+import (
+	"github.com/hilthontt/sakura-lang/compiler/ast"
+	"github.com/hilthontt/sakura-lang/compiler/parser/errors"
+	"github.com/hilthontt/sakura-lang/compiler/parser/precedence"
+	"github.com/hilthontt/sakura-lang/compiler/token"
 )
+
+// ---------------------------------------------------------------------------
+// Pratt-style expression parser.
+//
+// parseExpression(minPrec) reads the prefix (atom or unary) and then keeps
+// folding infix operators of strictly higher precedence than `minPrec`.
+// Right-associative operators (.. and ^) recurse on the RHS with `prec - 1`
+// so an equal-precedence `^` will be absorbed instead of stopping the loop.
+//
+// Postfix forms — calls, method-calls, indexes, and table/string-call args —
+// are folded by the same loop because they sit at the highest level (Call).
+// ---------------------------------------------------------------------------
+
+// parseExpression is the public entrypoint with the lowest precedence floor.
+func (p *Parser) parseExpression() ast.Expression {
+	return p.parseExpressionPrec(precedence.Lowest)
+}
+
+func (p *Parser) parseExpressionPrec(minPrec int) ast.Expression {
+	left := p.parsePrefix()
+	if left == nil {
+		return nil
+	}
+	for {
+		// Postfix call forms `f"str"` and `f{tbl}` start with a token that
+		// has no infix entry but should still attach as a call at Call prec.
+		if precedence.Call > minPrec && (p.curTokenIs(token.LBrace) || p.curTokenIs(token.String)) {
+			left = p.parseCallWithSingleArg(left)
+			continue
+		}
+		curPrec, ok := precedence.LookupTable[p.curToken.Type]
+		if !ok || curPrec <= minPrec {
+			break
+		}
+		left = p.parseInfix(left, curPrec)
+		if left == nil {
+			return nil
+		}
+	}
+	return left
+}
+
+// parsePrefix parses an atom or unary prefix expression.
+func (p *Parser) parsePrefix() ast.Expression {
+	switch p.curToken.Type {
+	case token.Nil:
+		exp := &ast.NilLiteral{BaseNode: baseAt(p.curToken)}
+		p.nextToken()
+		return exp
+	case token.True:
+		exp := &ast.BooleanLiteral{BaseNode: baseAt(p.curToken), Value: true}
+		p.nextToken()
+		return exp
+	case token.False:
+		exp := &ast.BooleanLiteral{BaseNode: baseAt(p.curToken), Value: false}
+		p.nextToken()
+		return exp
+	case token.Int:
+		return p.parseIntegerLiteral()
+	case token.Float:
+		return p.parseFloatLiteral()
+	case token.String:
+		// A string literal occurring at expression-prefix position is just
+		// itself; the postfix-loop later may attach it as a single-arg call.
+		exp := &ast.StringLiteral{BaseNode: baseAt(p.curToken), Value: p.curToken.Literal}
+		p.nextToken()
+		return exp
+	case token.Vararg:
+		exp := &ast.VarargExpression{BaseNode: baseAt(p.curToken)}
+		p.nextToken()
+		return exp
+	case token.Ident:
+		exp := &ast.Identifier{BaseNode: baseAt(p.curToken), Name: p.curToken.Literal}
+		p.nextToken()
+		return exp
+	case token.LParen:
+		return p.parseParenExpression()
+	case token.LBrace:
+		return p.parseTableConstructor()
+	case token.Function:
+		return p.parseFunctionExpression()
+	case token.Minus, token.Not, token.Hash, token.Tilde:
+		return p.parseUnaryExpression()
+	}
+	p.errorf(errors.SyntaxError,
+		"unexpected token %s(%q) at start of expression. Line: %d",
+		p.curToken.Type, p.curToken.Literal, p.curToken.Line)
+	return nil
+}
+
+// parseInfix dispatches on the *current* token (which is the operator) and
+// returns the folded expression. The caller has already consulted precedence
+// and decided to fold, so this routine just reads the operator and the RHS.
+func (p *Parser) parseInfix(left ast.Expression, opPrec int) ast.Expression {
+	switch p.curToken.Type {
+	case token.LParen:
+		return p.parseCall(left)
+	case token.LBracket:
+		return p.parseIndexBracket(left)
+	case token.Dot:
+		return p.parseIndexDot(left)
+	case token.Colon:
+		return p.parseMethodCall(left)
+	}
+	return p.parseBinaryExpression(left, opPrec)
+}
+
+// parseParenExpression handles `( exp )`. Lua uses parentheses to *adjust*
+// a multi-value expression down to exactly one result, so the wrapper node
+// is preserved (see ast.ParenExpression).
+func (p *Parser) parseParenExpression() ast.Expression {
+	openTok := p.curToken
+	p.nextToken() // consume '('
+	inner := p.parseExpression()
+	if !p.expectCur(token.RParen) {
+		return nil
+	}
+	p.nextToken() // consume ')'
+	return &ast.ParenExpression{BaseNode: baseAt(openTok), Inner: inner}
+}
+
+func (p *Parser) parseUnaryExpression() ast.Expression {
+	tok := p.curToken
+	op := unaryOpString(tok.Type)
+	p.nextToken()
+	// Lua unary precedence binds tighter than every binary except ^,
+	// which is right-associative and binds tighter still. Recursing at
+	// `Unary` precedence handles both correctly.
+	operand := p.parseExpressionPrec(precedence.Unary)
+	if operand == nil {
+		return nil
+	}
+	return &ast.UnaryExpression{BaseNode: baseAt(tok), Op: op, Operand: operand}
+}
+
+func unaryOpString(t token.Type) string {
+	switch t {
+	case token.Minus:
+		return "-"
+	case token.Not:
+		return "not"
+	case token.Hash:
+		return "#"
+	case token.Tilde:
+		return "~"
+	}
+	return ""
+}
+
+func (p *Parser) parseBinaryExpression(left ast.Expression, opPrec int) ast.Expression {
+	tok := p.curToken
+	op := binaryOpString(tok.Type)
+	if op == "" {
+		p.errorf(errors.SyntaxError,
+			"token %s(%q) is not a binary operator. Line: %d",
+			tok.Type, tok.Literal, tok.Line)
+		return nil
+	}
+	p.nextToken() // consume operator
+	rhsPrec := opPrec
+	if precedence.IsRightAssoc(tok.Type) {
+		rhsPrec = opPrec - 1
+	}
+	right := p.parseExpressionPrec(rhsPrec)
+	if right == nil {
+		return nil
+	}
+	return &ast.BinaryExpression{
+		BaseNode: baseAt(tok),
+		Op:       op,
+		Left:     left,
+		Right:    right,
+	}
+}
+
+func binaryOpString(t token.Type) string {
+	switch t {
+	case token.Plus:
+		return "+"
+	case token.Minus:
+		return "-"
+	case token.Asterisk:
+		return "*"
+	case token.Slash:
+		return "/"
+	case token.FloorDiv:
+		return "//"
+	case token.Percent:
+		return "%"
+	case token.Caret:
+		return "^"
+	case token.Concat:
+		return ".."
+	case token.Eq:
+		return "=="
+	case token.NotEq:
+		return "~="
+	case token.LT:
+		return "<"
+	case token.LTE:
+		return "<="
+	case token.GT:
+		return ">"
+	case token.GTE:
+		return ">="
+	case token.Ampersand:
+		return "&"
+	case token.Pipe:
+		return "|"
+	case token.Tilde:
+		return "~"
+	case token.LShift:
+		return "<<"
+	case token.RShift:
+		return ">>"
+	case token.And:
+		return "and"
+	case token.Or:
+		return "or"
+	}
+	return ""
+}
+
+func (p *Parser) parseCall(callee ast.Expression) ast.Expression {
+	openTok := p.curToken
+	p.nextToken() // consume '('
+	args := []ast.Expression{}
+	if !p.curTokenIs(token.RParen) {
+		args = p.parseExpressionList()
+	}
+	if !p.expectCur(token.RParen) {
+		return nil
+	}
+	p.nextToken() // consume ')'
+	return &ast.CallExpression{BaseNode: baseAt(openTok), Func: callee, Args: args}
+}
+
+// parseCallWithSingleArg handles the sugar `f"str"` and `f{tbl}`. The current
+// token is either `String` or `LBrace`.
+func (p *Parser) parseCallWithSingleArg(callee ast.Expression) ast.Expression {
+	tok := p.curToken
+	var arg ast.Expression
+	switch p.curToken.Type {
+	case token.String:
+		arg = &ast.StringLiteral{BaseNode: baseAt(tok), Value: tok.Literal}
+		p.nextToken()
+	case token.LBrace:
+		arg = p.parseTableConstructor()
+	}
+	if arg == nil {
+		return nil
+	}
+	return &ast.CallExpression{BaseNode: baseAt(tok), Func: callee, Args: []ast.Expression{arg}}
+}
+
+func (p *Parser) parseIndexBracket(obj ast.Expression) ast.Expression {
+	tok := p.curToken
+	p.nextToken() // consume '['
+	idx := p.parseExpression()
+	if !p.expectCur(token.RBracket) {
+		return nil
+	}
+	p.nextToken() // consume ']'
+	return &ast.IndexExpression{
+		BaseNode: baseAt(tok),
+		Object:   obj,
+		Index:    idx,
+		IsDot:    false,
+	}
+}
+
+func (p *Parser) parseIndexDot(obj ast.Expression) ast.Expression {
+	tok := p.curToken
+	p.nextToken() // consume '.'
+	if !p.expectCur(token.Ident) {
+		return nil
+	}
+	name := p.curToken.Literal
+	nameTok := p.curToken
+	p.nextToken() // consume Name
+	return &ast.IndexExpression{
+		BaseNode: baseAt(tok),
+		Object:   obj,
+		Index:    &ast.StringLiteral{BaseNode: baseAt(nameTok), Value: name},
+		IsDot:    true,
+	}
+}
+
+// parseMethodCall handles `obj:method(args)` (and `obj:method"str"`,
+// `obj:method{tbl}`). Lua's grammar requires `:` to be immediately followed
+// by Name and then a call-args group.
+func (p *Parser) parseMethodCall(obj ast.Expression) ast.Expression {
+	tok := p.curToken
+	p.nextToken() // consume ':'
+	if !p.expectCur(token.Ident) {
+		return nil
+	}
+	method := p.curToken.Literal
+	p.nextToken() // consume method name
+
+	args := []ast.Expression{}
+	switch p.curToken.Type {
+	case token.LParen:
+		p.nextToken()
+		if !p.curTokenIs(token.RParen) {
+			args = p.parseExpressionList()
+		}
+		if !p.expectCur(token.RParen) {
+			return nil
+		}
+		p.nextToken()
+	case token.String:
+		strTok := p.curToken
+		args = []ast.Expression{
+			&ast.StringLiteral{BaseNode: baseAt(strTok), Value: strTok.Literal},
+		}
+		p.nextToken()
+	case token.LBrace:
+		tbl := p.parseTableConstructor()
+		if tbl == nil {
+			return nil
+		}
+		args = []ast.Expression{tbl}
+	default:
+		p.errorf(errors.SyntaxError,
+			"expected call arguments after `:%s`, got %s. Line: %d",
+			method, p.curToken.Type, p.curToken.Line)
+		return nil
+	}
+
+	return &ast.MethodCallExpression{
+		BaseNode: baseAt(tok),
+		Object:   obj,
+		Method:   method,
+		Args:     args,
+	}
+}
+
+func (p *Parser) parseExpressionList() []ast.Expression {
+	exprs := []ast.Expression{p.parseExpression()}
+	for p.curTokenIs(token.Comma) {
+		p.nextToken()
+		exprs = append(exprs, p.parseExpression())
+	}
+	return exprs
+}
+
+// parseFunctionExpression parses `function ( parlist ) block end`. The
+// leading `function` keyword is the current token on entry.
+func (p *Parser) parseFunctionExpression() ast.Expression {
+	tok := p.curToken // 'function'
+	p.nextToken()     // consume 'function'
+	return p.parseFunctionBody(tok)
+}
+
+// parseFunctionBody handles `(parlist) block end`. `headerTok` is the
+// position the resulting node should report (typically the `function`
+// keyword, or for `local function f` the keyword `function` of the
+// rewritten form).
+func (p *Parser) parseFunctionBody(headerTok token.Token) *ast.FunctionExpression {
+	if !p.expectCur(token.LParen) {
+		return nil
+	}
+	p.nextToken() // consume '('
+
+	params, isVararg := p.parseParamList()
+	if p.error != nil {
+		return nil
+	}
+
+	if !p.expectCur(token.RParen) {
+		return nil
+	}
+	p.nextToken() // consume ')'
+
+	body := p.parseBlock()
+	if p.error != nil {
+		return nil
+	}
+	if !p.expectCur(token.End) {
+		return nil
+	}
+	p.nextToken() // consume 'end'
+
+	return &ast.FunctionExpression{
+		BaseNode: baseAt(headerTok),
+		Params:   params,
+		IsVararg: isVararg,
+		Body:     body,
+	}
+}
+
+// parseParamList reads `[ Name {, Name} [, ...] | ... ]`. The current token
+// on entry is the first parameter (or `)` for the empty list, which the
+// caller short-circuits before calling here).
+func (p *Parser) parseParamList() ([]*ast.Identifier, bool) {
+	if p.curTokenIs(token.RParen) {
+		return nil, false
+	}
+	if p.curTokenIs(token.Vararg) {
+		p.nextToken()
+		return nil, true
+	}
+	params := []*ast.Identifier{}
+	for {
+		if !p.curTokenIs(token.Ident) {
+			p.errorf(errors.SyntaxError,
+				"expected parameter name, got %s(%q). Line: %d",
+				p.curToken.Type, p.curToken.Literal, p.curToken.Line)
+			return nil, false
+		}
+		params = append(params, &ast.Identifier{
+			BaseNode: baseAt(p.curToken),
+			Name:     p.curToken.Literal,
+		})
+		p.nextToken()
+		if !p.curTokenIs(token.Comma) {
+			break
+		}
+		p.nextToken() // consume ','
+		if p.curTokenIs(token.Vararg) {
+			p.nextToken()
+			return params, true
+		}
+	}
+	return params, false
+}
+
+// parseTableConstructor reads `{ [field {fieldsep field} [fieldsep]] }`.
+// The current token on entry is `{`.
+func (p *Parser) parseTableConstructor() ast.Expression {
+	tok := p.curToken
+	p.nextToken() // consume '{'
+
+	tc := &ast.TableConstructor{BaseNode: baseAt(tok)}
+	if p.curTokenIs(token.RBrace) {
+		p.nextToken()
+		return tc
+	}
+
+	for {
+		field, ok := p.parseTableField()
+		if !ok {
+			return nil
+		}
+		tc.Fields = append(tc.Fields, field)
+
+		// fieldsep: ',' or ';'. Trailing one is allowed.
+		if p.curTokenIs(token.Comma) || p.curTokenIs(token.Semicolon) {
+			p.nextToken()
+			if p.curTokenIs(token.RBrace) {
+				break
+			}
+			continue
+		}
+		break
+	}
+	if !p.expectCur(token.RBrace) {
+		return nil
+	}
+	p.nextToken() // consume '}'
+	return tc
+}
+
+func (p *Parser) parseTableField() (ast.TableField, bool) {
+	// `[exp] = exp` form
+	if p.curTokenIs(token.LBracket) {
+		p.nextToken() // consume '['
+		key := p.parseExpression()
+		if !p.expectCur(token.RBracket) {
+			return ast.TableField{}, false
+		}
+		p.nextToken() // consume ']'
+		if !p.expectCur(token.Assign) {
+			return ast.TableField{}, false
+		}
+		p.nextToken() // consume '='
+		val := p.parseExpression()
+		return ast.TableField{Key: key, Value: val, IsBracketed: true}, true
+	}
+	// `Name = exp` form — only when curToken is Ident AND peek is '='.
+	if p.curTokenIs(token.Ident) && p.peekTokenIs(token.Assign) {
+		nameTok := p.curToken
+		key := &ast.Identifier{BaseNode: baseAt(nameTok), Name: nameTok.Literal}
+		p.nextToken() // consume Name
+		p.nextToken() // consume '='
+		val := p.parseExpression()
+		return ast.TableField{Key: key, Value: val}, true
+	}
+	// Otherwise positional: `exp`.
+	val := p.parseExpression()
+	if val == nil {
+		return ast.TableField{}, false
+	}
+	return ast.TableField{Value: val}, true
+}
