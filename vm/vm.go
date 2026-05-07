@@ -45,6 +45,7 @@ func New() *VM {
 	registerStdlib(v)
 	registerCoroutineLibrary(v)
 	registerLibraryModules(v)
+	registerLoader(v)
 	return v
 }
 
