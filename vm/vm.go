@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/hilthontt/sakura-lang/compiler/bytecode"
+	"github.com/hilthontt/sakura-lang/compiler/parser"
 )
 
 // VM is the top-level interpreter state. It owns the operand stack, the
@@ -33,6 +34,8 @@ type VM struct {
 
 	frames   []*CallFrame
 	openUpvs []*Upvalue // sorted ascending by Index; head of the open-upvalue chain
+
+	mode parser.Mode
 }
 
 // New creates a fresh VM with an empty globals table.
@@ -41,6 +44,7 @@ func New() *VM {
 		Stack:      make([]Value, 0, 256),
 		Globals:    NewTable(0, 32),
 		mainThread: &Thread{},
+		mode:       parser.NormalMode,
 	}
 	registerStdlib(v)
 	registerCoroutineLibrary(v)
@@ -69,6 +73,31 @@ func (v *VM) Run(main *bytecode.InstructionSet) (err error) {
 	cl := &Closure{Proto: main}
 	v.callClosure(cl, nil, 0)
 	return nil
+}
+
+// RunMainChunkWithResults is like Run but keeps every value the chunk
+// returned and hands them back to the caller. The REPL uses it to print
+// the value of bare expressions like Lua's interactive `lua` does.
+func (v *VM) RunMainChunkWithResults(main *bytecode.InstructionSet) (results []Value, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			switch e := r.(type) {
+			case luaError:
+				err = e
+			case error:
+				err = e
+			default:
+				err = fmt.Errorf("vm panic: %v", r)
+			}
+		}
+	}()
+
+	base := len(v.Stack)
+	cl := &Closure{Proto: main}
+	v.callClosure(cl, nil, -1)
+	results = append([]Value(nil), v.Stack[base:]...)
+	v.Stack = v.Stack[:base]
+	return results, nil
 }
 
 // callClosure pushes a new frame for `cl` with `args` and runs until that
@@ -156,13 +185,17 @@ func computeMaxLocalSlots(p *bytecode.InstructionSet) int {
 	return maxSlot + 1
 }
 
-func (v *VM) push(x Value) { v.Stack = append(v.Stack, x) }
+func (v *VM) push(x Value) {
+	v.Stack = append(v.Stack, x)
+}
+
 func (v *VM) pop() Value {
 	n := len(v.Stack) - 1
 	x := v.Stack[n]
 	v.Stack = v.Stack[:n]
 	return x
 }
+
 func (v *VM) popN(n int) {
 	if n <= 0 {
 		return

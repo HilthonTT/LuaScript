@@ -1,8 +1,6 @@
 package compiler
 
 import (
-	"fmt"
-
 	"github.com/hilthontt/sakura-lang/compiler/ast"
 	"github.com/hilthontt/sakura-lang/compiler/bytecode"
 	"github.com/hilthontt/sakura-lang/compiler/lexer"
@@ -10,15 +8,25 @@ import (
 )
 
 func CompileToInstructions(input string, pm parser.Mode) ([]*bytecode.InstructionSet, error) {
+	return CompileToInstructionsWith(bytecode.NewGenerator(), input, pm)
+}
+
+// CompileToInstructionsWith is the REPL-friendly variant: callers pass in a
+// generator they own, allowing it to live across multiple compile calls. The
+// generator's prior chunk output is cleared on entry; any other state the
+// caller has stashed on it is preserved.
+func CompileToInstructionsWith(g *bytecode.Generator, input string, pm parser.Mode) ([]*bytecode.InstructionSet, error) {
 	l := lexer.New(input)
 	p := parser.New(l)
 	p.Mode = pm
 
 	program, err := p.ParseProgram()
 	if err != nil {
-		return nil, fmt.Errorf("%s", err.Message)
+		// Return the typed parser error directly so REPL callers can
+		// inspect its category via err.IsEOF() etc.
+		return nil, err
 	}
-	g := bytecode.NewGenerator()
+	g.ResetInstructionSets()
 	g.InitTopLevelScope(program)
 
 	// Per Lua's BNF a chunk is a block, and a block carries its trailing

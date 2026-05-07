@@ -148,7 +148,8 @@ func (p *Parser) expectPeek(t token.Type) bool {
 }
 
 // expectCur asserts the current token type without advancing. Records an
-// error and returns false on mismatch.
+// error and returns false on mismatch. EOF promotion to EndOfFileError is
+// handled centrally in errorf.
 func (p *Parser) expectCur(t token.Type) bool {
 	if p.curTokenIs(t) {
 		return true
@@ -160,16 +161,32 @@ func (p *Parser) expectCur(t token.Type) bool {
 }
 
 func (p *Parser) peekError(t token.Type) {
-	p.errorf(errors.UnexpectedTokenError,
+	cat := errors.UnexpectedTokenError
+	if p.peekTokenIs(token.EOF) {
+		cat = errors.EndOfFileError
+	}
+	p.errorf(cat,
 		"expected next token to be %s, got %s(%q) instead. Line: %d",
 		t, p.peekToken.Type, p.peekToken.Literal, p.peekToken.Line)
 }
 
 // errorf records a parser error with the given category and message. Once
 // an error is set, parsing should unwind to ParseProgram (which returns it).
+//
+// When the cursor is sitting on EOF and the caller would otherwise raise a
+// generic SyntaxError or UnexpectedTokenError, errorf promotes the category
+// to EndOfFileError so the REPL's IsEOF() check fires for truncated input.
+// `end`-mismatch (UnexpectedEndError) and assignment-LHS errors are left
+// alone — they aren't fixable by typing more.
 func (p *Parser) errorf(category int, format string, args ...any) {
 	if p.error != nil {
 		return // keep the first error
+	}
+	if p.curTokenIs(token.EOF) {
+		switch category {
+		case errors.SyntaxError, errors.UnexpectedTokenError:
+			category = errors.EndOfFileError
+		}
 	}
 	p.error = errors.InitError(fmt.Sprintf(format, args...), category)
 }

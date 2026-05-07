@@ -29,6 +29,11 @@ type Error struct {
 	ErrType int
 }
 
+// Error implements the error interface, returning the message verbatim.
+// Having this here lets callers return *Error directly as an `error` while
+// preserving the typed-introspection helpers (IsEOF etc.) for the REPL.
+func (e *Error) Error() string { return e.Message }
+
 // IsEOF reports whether the error is an end-of-file marker.
 func (e *Error) IsEOF() bool { return e.ErrType == EndOfFileError }
 
