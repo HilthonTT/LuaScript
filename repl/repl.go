@@ -10,10 +10,9 @@ import (
 	"github.com/hilthontt/sakura-lang/compiler"
 	"github.com/hilthontt/sakura-lang/compiler/parser"
 	parserrors "github.com/hilthontt/sakura-lang/compiler/parser/errors"
+	"github.com/hilthontt/sakura-lang/version"
 	"github.com/hilthontt/sakura-lang/vm"
 )
-
-const version = "dev"
 
 type replState int
 
@@ -35,7 +34,7 @@ type REPL struct {
 
 func (r *REPL) Start() {
 	fmt.Fprint(r.out, Logo)
-	fmt.Fprintf(r.out, "  Sakura REPL %s\n", version)
+	fmt.Fprintf(r.out, "  Sakura REPL %s\n", version.Version)
 	fmt.Fprintln(r.out, "Type 'help' for commands, Ctrl+D to exit.")
 
 	r.runREPL()
@@ -226,7 +225,7 @@ func (r *REPL) printResults(results []vm.Value) {
 
 func (r *REPL) printHelp() {
 	fmt.Print(Logo)
-	fmt.Printf("  Version: %s\n\n", version)
+	fmt.Printf("  Version: %s\n\n", version.Version)
 	fmt.Println("REPL Commands:")
 	fmt.Println("  help     - show this help")
 	fmt.Println("  exit     - exit REPL (Ctrl+D also works)")
@@ -241,26 +240,6 @@ func newCompleter() *readline.PrefixCompleter {
 		items = append(items, readline.PcItem(k))
 	}
 	return readline.NewPrefixCompleter(items...)
-}
-
-func braceDepth(line string) int {
-	depth := 0
-	inStr := false
-	for _, ch := range line {
-		if ch == '"' {
-			inStr = !inStr
-		}
-		if inStr {
-			continue
-		}
-		if ch == '{' {
-			depth++
-		}
-		if ch == '}' {
-			depth--
-		}
-	}
-	return depth
 }
 
 func asParserErr(err error, target **parserrors.Error) bool {
