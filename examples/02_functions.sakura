@@ -1,0 +1,41 @@
+-- Functions, closures, upvalues, multi-return.
+
+-- Recursion.
+local function fact(n)
+    if n <= 1 then return 1 end
+    return n * fact(n - 1)
+end
+print("fact(10) =", fact(10))
+
+-- Closures capture upvalues by reference.
+local function counter()
+    local n = 0
+    return function()
+        n = n + 1
+        return n
+    end
+end
+
+local next = counter()
+print(next(), next(), next())   -- 1   2   3
+
+-- Multi-return — Lua spreads the call across the assignment targets.
+local function divmod(a, b)
+    return a // b, a % b
+end
+local q, r = divmod(17, 5)
+print("17 / 5 =", q, "remainder", r)
+
+-- Higher-order functions.
+local function map(t, f)
+    local out = {}
+    for i, v in ipairs(t) do
+        out[i] = f(v)
+    end
+    return out
+end
+
+local doubled = map({1, 2, 3, 4}, function(x) return x * 2 end)
+for _, v in ipairs(doubled) do
+    print(v)
+end

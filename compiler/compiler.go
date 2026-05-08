@@ -5,6 +5,7 @@ import (
 	"github.com/hilthontt/sakura-lang/compiler/bytecode"
 	"github.com/hilthontt/sakura-lang/compiler/lexer"
 	"github.com/hilthontt/sakura-lang/compiler/parser"
+	"github.com/hilthontt/sakura-lang/compiler/typecheck"
 )
 
 func CompileToInstructions(input string, pm parser.Mode) ([]*bytecode.InstructionSet, error) {
@@ -15,6 +16,15 @@ func CompileToInstructions(input string, pm parser.Mode) ([]*bytecode.Instructio
 // generator they own, allowing it to live across multiple compile calls. The
 // generator's prior chunk output is cleared on entry; any other state the
 // caller has stashed on it is preserved.
+//
+// The pipeline runs lex → parse → typecheck → bytecode. The type-check
+// pass is gated by Luau-style mode directives in the source:
+//   - `--!nocheck` skips the pass entirely.
+//   - `--!strict` enables strict mode (implicit-`any` errors etc.).
+//   - Anything else (default `--!nonstrict`) runs the gradual checker.
+//
+// Type errors are returned as a *typecheck.TypeErrors with the same
+// shape as parser errors (single error value, multi-line via Error()).
 func CompileToInstructionsWith(g *bytecode.Generator, input string, pm parser.Mode) ([]*bytecode.InstructionSet, error) {
 	l := lexer.New(input)
 	p := parser.New(l)
@@ -27,6 +37,14 @@ func CompileToInstructionsWith(g *bytecode.Generator, input string, pm parser.Mo
 		// inspect its category via err.IsEOF() etc.
 		return nil, err
 	}
+
+	if l.ModeDirective != "nocheck" {
+		opts := typecheck.Options{Strict: l.ModeDirective == "strict"}
+		if errs := typecheck.Check(program, opts); len(errs) > 0 {
+			return nil, &typecheck.TypeErrors{Errors: errs}
+		}
+	}
+
 	g.ResetInstructionSets()
 	g.InitTopLevelScope(program)
 

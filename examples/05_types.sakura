@@ -1,0 +1,51 @@
+-- Luau-style gradual types. Annotations are optional; untyped code is
+-- implicitly `any` (gradual escape hatch). The checker runs by default;
+-- start a file with `--!nocheck` to skip it.
+
+-- Primitive annotations on locals.
+local count: number = 42
+local name: string = "Ada"
+local emphatic: boolean = true
+
+-- Optional sugar (`T?` ≡ `T | nil`).
+local maybe: string? = nil
+
+-- Unions.
+local id: number | string = "user-7"
+
+-- Function annotations: parameters, return type, multi-return.
+local function add(a: number, b: number): number
+    return a + b
+end
+
+local function divmod(a: number, b: number): (number, number)
+    return a // b, a % b
+end
+
+print("add(2, 3) =", add(2, 3))
+
+local q, r = divmod(17, 5)
+print("divmod(17, 5) =", q, r)
+
+-- Type aliases — including structural table shapes.
+type Point = { x: number, y: number }
+type Callback = (number) -> string
+type Numbers = { number }        -- array-shorthand for {[number]: number}
+
+local origin: Point = { x = 0, y = 0 }
+print("origin =", origin.x, origin.y)
+
+-- Type assertion: programmer-controlled cast. Runtime no-op.
+local payload: any = 7
+local n: number = payload :: number
+print("after assertion:", n + 1)
+
+-- Mixing typed and untyped freely is the whole point of gradual:
+-- `untyped()` returns `any`, which flows into a typed slot via the
+-- escape-hatch rule.
+local function untyped(x) return x * 2 end
+local doubled: number = untyped(21)
+print("doubled =", doubled)
+
+-- For uses of `count` and the rest so the linter doesn't shadow them.
+print(count, name, emphatic, maybe, id)

@@ -45,8 +45,45 @@ func (p *Parser) parseStatement() ast.Statement {
 		return nil
 	}
 
+	// `type Name = T` — a type-alias statement. `type` is intentionally
+	// NOT a reserved keyword (matching Luau) so existing code that uses
+	// `type` as a variable name keeps compiling. The disambiguator is
+	// peek == Ident, which is unambiguous: `type x` is meaningless as a
+	// statement otherwise.
+	if p.curTokenIs(token.Ident) && p.curToken.Literal == "type" && p.peekTokenIs(token.Ident) {
+		return p.parseTypeAliasStatement()
+	}
+
 	// Otherwise: assignment or function-call statement.
 	return p.parseExprOrAssignStatement()
+}
+
+// parseTypeAliasStatement reads `type Name = T`. The cursor is on the
+// `type` identifier on entry.
+func (p *Parser) parseTypeAliasStatement() ast.Statement {
+	tok := p.curToken
+	p.nextToken() // consume 'type'
+
+	if !p.expectCur(token.Ident) {
+		return nil
+	}
+	name := p.curToken.Literal
+	p.nextToken() // consume Name
+
+	if !p.expectCur(token.Assign) {
+		return nil
+	}
+	p.nextToken() // consume '='
+
+	target := p.parseType()
+	if target == nil {
+		return nil
+	}
+	return &ast.TypeAliasStatement{
+		BaseNode: baseAt(tok),
+		Name:     name,
+		Target:   target,
+	}
 }
 
 // parseReturnStatement reads `return [explist] [;]`. The caller must guard
@@ -113,6 +150,15 @@ func (p *Parser) parseLocalStatement() ast.Statement {
 		}
 		ln := ast.LocalName{Name: p.curToken.Literal}
 		p.nextToken()
+		// Optional Luau-style `: Type` annotation. Read BEFORE the
+		// `<attrib>` block — `local x: T <const>` is the accepted order.
+		if p.curTokenIs(token.Colon) {
+			p.nextToken() // consume ':'
+			ln.Type = p.parseType()
+			if ln.Type == nil {
+				return nil
+			}
+		}
 		// Optional `<attrib>` — Lua 5.4 supports `<const>` and `<close>`.
 		if p.curTokenIs(token.LT) {
 			p.nextToken()

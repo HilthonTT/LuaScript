@@ -86,13 +86,25 @@ func (*Identifier) expressionNode()        {}
 func (i *Identifier) TokenLiteral() string { return i.Token.Literal }
 func (i *Identifier) String() string       { return i.Name }
 
+// TypedParam is one entry in a FunctionExpression's parameter list. Type is
+// nil for unannotated parameters; the type checker treats those as `any` in
+// gradual mode and as an implicit-any error in strict mode.
+type TypedParam struct {
+	Name *Identifier
+	Type TypeNode
+}
+
 // FunctionExpression is `function(params) body end`. IsVararg is true when
-// the parameter list ends in `...`.
+// the parameter list ends in `...`. ReturnTypes carries the optional
+// `: T` / `: (T1, T2)` annotation between `)` and the body. VarargType is
+// the optional `...: T` annotation. All type fields are nil-safe.
 type FunctionExpression struct {
 	*BaseNode
-	Params   []*Identifier
-	IsVararg bool
-	Body     *Block
+	Params      []TypedParam
+	IsVararg    bool
+	VarargType  TypeNode
+	ReturnTypes []TypeNode
+	Body        *Block
 }
 
 func (*FunctionExpression) expressionNode()         {}
@@ -102,13 +114,37 @@ func (fe *FunctionExpression) String() string {
 	out.WriteString("function(")
 	parts := make([]string, 0, len(fe.Params)+1)
 	for _, p := range fe.Params {
-		parts = append(parts, p.String())
+		if p.Type != nil {
+			parts = append(parts, p.Name.String()+": "+p.Type.String())
+		} else {
+			parts = append(parts, p.Name.String())
+		}
 	}
 	if fe.IsVararg {
-		parts = append(parts, "...")
+		if fe.VarargType != nil {
+			parts = append(parts, "...: "+fe.VarargType.String())
+		} else {
+			parts = append(parts, "...")
+		}
 	}
 	out.WriteString(strings.Join(parts, ", "))
-	out.WriteString(")\n")
+	out.WriteString(")")
+	if len(fe.ReturnTypes) > 0 {
+		out.WriteString(": ")
+		switch len(fe.ReturnTypes) {
+		case 1:
+			out.WriteString(fe.ReturnTypes[0].String())
+		default:
+			rets := make([]string, len(fe.ReturnTypes))
+			for i, r := range fe.ReturnTypes {
+				rets[i] = r.String()
+			}
+			out.WriteString("(")
+			out.WriteString(strings.Join(rets, ", "))
+			out.WriteString(")")
+		}
+	}
+	out.WriteString("\n")
 	if fe.Body != nil {
 		out.WriteString(fe.Body.String())
 	}

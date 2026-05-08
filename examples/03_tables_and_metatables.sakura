@@ -1,0 +1,34 @@
+-- Tables, methods, metatables. The `__index` and `__add` metamethods
+-- give you objects, dispatch, and operator overloading.
+
+-- Plain table as a record.
+local point = { x = 1, y = 2 }
+print("point =", point.x, point.y)
+
+-- Table as an array; ipairs walks 1..n until a hole.
+local primes = { 2, 3, 5, 7, 11 }
+for i, p in ipairs(primes) do
+    print(i, "->", p)
+end
+
+-- Vec with operator overloading via __add.
+local Vec = {}
+Vec.__index = Vec
+
+function Vec.new(x, y)
+    return setmetatable({ x = x, y = y }, Vec)
+end
+
+function Vec.__add(a, b)
+    return Vec.new(a.x + b.x, a.y + b.y)
+end
+
+function Vec:length()
+    return math.sqrt(self.x * self.x + self.y * self.y)
+end
+
+local v1 = Vec.new(3, 0)
+local v2 = Vec.new(0, 4)
+local v3 = v1 + v2
+print("v3 =", v3.x, v3.y)
+print("|v3| =", v3:length())

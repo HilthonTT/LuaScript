@@ -52,6 +52,9 @@ func (g *Generator) compileExpression(is *InstructionSet, exp ast.Expression) {
 		// `(...)` adjusts a multi-value to exactly one — clamp by routing
 		// through compileExpression (which already clamps).
 		g.compileExpression(is, e.Inner)
+	case *ast.TypeAssertionExpression:
+		// Types are erased — `expr :: T` evaluates to whatever expr does.
+		g.compileExpression(is, e.Expr)
 	default:
 		panic(fmt.Sprintf("bytecode: unsupported expression %T", exp))
 	}

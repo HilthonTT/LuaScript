@@ -1,0 +1,21 @@
+--!strict
+-- `--!strict` opts a file into stricter checks. The first thing strict
+-- mode flags is implicit-any parameters: every function parameter must
+-- carry an annotation.
+
+-- Annotations make this strict-clean.
+local function greet(name: string, count: number): string
+    local result: string = ""
+    for i = 1, count do
+        result = result .. "hi " .. name .. " "
+    end
+    return result
+end
+
+print(greet("Ada", 3))
+
+-- Try un-commenting the line below — strict mode rejects unannotated
+-- params with a clear error message (`parameter "n" has no type
+-- annotation (--!strict)`).
+--
+-- local function bad(n) return n * 2 end

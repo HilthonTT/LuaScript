@@ -41,6 +41,10 @@ func (g *Generator) compileStatement(is *InstructionSet, stmt ast.Statement) {
 		g.compileLocalFunction(is, s)
 	case *ast.FunctionDeclaration:
 		g.compileFunctionDecl(is, s)
+	case *ast.TypeAliasStatement:
+		// Types are erased before codegen — type aliases produce no bytecode.
+		// The type checker reads them from the AST in its own pre-pass.
+		_ = s
 	case *ast.IfStatement:
 		g.compileIf(is, s)
 	case *ast.WhileStatement:
@@ -238,10 +242,12 @@ func (g *Generator) compileFunctionDecl(is *InstructionSet, s *ast.FunctionDecla
 	// implicit self, so we synthesize the parameter list here.
 	fn := s.Func
 	if s.MethodName != "" {
-		selfParam := &ast.Identifier{BaseNode: &ast.BaseNode{Token: s.Func.Token}, Name: "self"}
+		selfParam := ast.TypedParam{
+			Name: &ast.Identifier{BaseNode: &ast.BaseNode{Token: s.Func.Token}, Name: "self"},
+		}
 		fn = &ast.FunctionExpression{
 			BaseNode: s.Func.BaseNode,
-			Params:   append([]*ast.Identifier{selfParam}, s.Func.Params...),
+			Params:   append([]ast.TypedParam{selfParam}, s.Func.Params...),
 			IsVararg: s.Func.IsVararg,
 			Body:     s.Func.Body,
 		}

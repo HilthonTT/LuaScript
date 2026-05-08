@@ -36,6 +36,14 @@ func (p *Parser) parseExpressionPrec(minPrec int) ast.Expression {
 			left = p.parseCallWithSingleArg(left)
 			continue
 		}
+		// `::` overlaps with goto-label statements (`::name::`). Peek
+		// two tokens past the `::` — if the shape is `:: Ident ::` we're
+		// at the head of a label statement, not a type assertion, so
+		// stop expression parsing and let the statement dispatcher claim
+		// the tokens.
+		if p.curTokenIs(token.Label) && p.peekTokenIs(token.Ident) && p.peek2Token().Type == token.Label {
+			break
+		}
 		curPrec, ok := precedence.LookupTable[p.curToken.Type]
 		if !ok || curPrec <= minPrec {
 			break
@@ -109,8 +117,29 @@ func (p *Parser) parseInfix(left ast.Expression, opPrec int) ast.Expression {
 		return p.parseIndexDot(left)
 	case token.Colon:
 		return p.parseMethodCall(left)
+	case token.Label:
+		// Type assertion `expr :: T` — postfix at Call precedence so it
+		// binds tightly enough to leave surrounding operators alone.
+		return p.parseTypeAssertion(left)
 	}
 	return p.parseBinaryExpression(left, opPrec)
+}
+
+// parseTypeAssertion folds `:: T` onto an already-parsed expression. The
+// runtime is unaffected; the type checker treats the result as T. Cursor
+// is on `::` on entry.
+func (p *Parser) parseTypeAssertion(left ast.Expression) ast.Expression {
+	tok := p.curToken
+	p.nextToken() // consume '::'
+	t := p.parseType()
+	if t == nil {
+		return nil
+	}
+	return &ast.TypeAssertionExpression{
+		BaseNode: baseAt(tok),
+		Expr:     left,
+		Type:     t,
+	}
 }
 
 // parseParenExpression handles `( exp )`. Lua uses parentheses to *adjust*
@@ -371,7 +400,7 @@ func (p *Parser) parseFunctionBody(headerTok token.Token) *ast.FunctionExpressio
 	}
 	p.nextToken() // consume '('
 
-	params, isVararg := p.parseParamList()
+	params, isVararg, varargType := p.parseParamList()
 	if p.error != nil {
 		return nil
 	}
@@ -380,6 +409,16 @@ func (p *Parser) parseFunctionBody(headerTok token.Token) *ast.FunctionExpressio
 		return nil
 	}
 	p.nextToken() // consume ')'
+
+	// Optional Luau-style return-type annotation: `: T` or `: (T1, T2)`.
+	var returnTypes []ast.TypeNode
+	if p.curTokenIs(token.Colon) {
+		p.nextToken() // consume ':'
+		returnTypes = p.parseReturnTypeList()
+		if p.error != nil {
+			return nil
+		}
+	}
 
 	body := p.parseBlock()
 	if p.error != nil {
@@ -391,47 +430,68 @@ func (p *Parser) parseFunctionBody(headerTok token.Token) *ast.FunctionExpressio
 	p.nextToken() // consume 'end'
 
 	return &ast.FunctionExpression{
-		BaseNode: baseAt(headerTok),
-		Params:   params,
-		IsVararg: isVararg,
-		Body:     body,
+		BaseNode:    baseAt(headerTok),
+		Params:      params,
+		IsVararg:    isVararg,
+		VarargType:  varargType,
+		ReturnTypes: returnTypes,
+		Body:        body,
 	}
 }
 
-// parseParamList reads `[ Name {, Name} [, ...] | ... ]`. The current token
-// on entry is the first parameter (or `)` for the empty list, which the
-// caller short-circuits before calling here).
-func (p *Parser) parseParamList() ([]*ast.Identifier, bool) {
+// parseParamList reads `[ Param {, Param} [, Vararg] | Vararg ]` where
+// Param = Name [: Type] and Vararg = '...' [: Type]. The current token on
+// entry is the first parameter (or `)` for the empty list, which the caller
+// short-circuits before calling here).
+//
+// Returns the param list, an IsVararg flag, and (for the typed-vararg case)
+// the vararg's annotated type — nil when absent or unannotated.
+func (p *Parser) parseParamList() ([]ast.TypedParam, bool, ast.TypeNode) {
 	if p.curTokenIs(token.RParen) {
-		return nil, false
+		return nil, false, nil
 	}
 	if p.curTokenIs(token.Vararg) {
 		p.nextToken()
-		return nil, true
+		return nil, true, p.maybeParseColonType()
 	}
-	params := []*ast.Identifier{}
+	params := []ast.TypedParam{}
 	for {
 		if !p.curTokenIs(token.Ident) {
 			p.errorf(errors.SyntaxError,
 				"expected parameter name, got %s(%q). Line: %d",
 				p.curToken.Type, p.curToken.Literal, p.curToken.Line)
-			return nil, false
+			return nil, false, nil
 		}
-		params = append(params, &ast.Identifier{
+		ident := &ast.Identifier{
 			BaseNode: baseAt(p.curToken),
 			Name:     p.curToken.Literal,
-		})
+		}
 		p.nextToken()
+		typ := p.maybeParseColonType()
+		if p.error != nil {
+			return nil, false, nil
+		}
+		params = append(params, ast.TypedParam{Name: ident, Type: typ})
 		if !p.curTokenIs(token.Comma) {
 			break
 		}
 		p.nextToken() // consume ','
 		if p.curTokenIs(token.Vararg) {
 			p.nextToken()
-			return params, true
+			return params, true, p.maybeParseColonType()
 		}
 	}
-	return params, false
+	return params, false, nil
+}
+
+// maybeParseColonType consumes `: T` if the cursor sits on `:`. Returns nil
+// if there's no annotation, or on parser error.
+func (p *Parser) maybeParseColonType() ast.TypeNode {
+	if !p.curTokenIs(token.Colon) {
+		return nil
+	}
+	p.nextToken() // consume ':'
+	return p.parseType()
 }
 
 // parseTableConstructor reads `{ [field {fieldsep field} [fieldsep]] }`.

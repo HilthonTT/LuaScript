@@ -54,9 +54,12 @@ func (a *AssignStatement) String() string {
 
 // LocalName is one entry in a `local` declaration. Attrib is "" for a plain
 // local, or "const" / "close" for the Lua 5.4 attributes (`<const>`, `<close>`).
+// Type is the optional Luau-style annotation (`local x: number`); nil if
+// unannotated.
 type LocalName struct {
 	Name   string
 	Attrib string
+	Type   TypeNode
 }
 
 // LocalStatement is `local namelist [= explist]`.
@@ -73,11 +76,14 @@ func (ls *LocalStatement) String() string {
 	out.WriteString("local ")
 	parts := make([]string, len(ls.Names))
 	for i, n := range ls.Names {
-		if n.Attrib != "" {
-			parts[i] = n.Name + " <" + n.Attrib + ">"
-		} else {
-			parts[i] = n.Name
+		s := n.Name
+		if n.Type != nil {
+			s += ": " + n.Type.String()
 		}
+		if n.Attrib != "" {
+			s += " <" + n.Attrib + ">"
+		}
+		parts[i] = s
 	}
 	out.WriteString(strings.Join(parts, ", "))
 	if len(ls.Values) > 0 {

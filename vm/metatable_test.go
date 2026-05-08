@@ -232,7 +232,10 @@ func TestClassPatternViaMetatables(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestArithOnTableWithoutMetamethodErrors(t *testing.T) {
-	msg := runErr(t, `r = ({}) + 1`)
+	// `--!nocheck` opts out of static type checking — this test exercises
+	// the VM's runtime arithmetic error path on a deliberately invalid
+	// program.
+	msg := runErr(t, "--!nocheck\nr = ({}) + 1")
 	if !strings.Contains(msg, "arithmetic") {
 		t.Errorf("error = %q, want it to mention arithmetic", msg)
 	}

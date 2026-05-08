@@ -48,6 +48,14 @@ const (
 	// Assignment
 	Assign = "="
 
+	// Type-syntax operators (Luau-style annotations).
+	// `Question` is the postfix-optional sugar (`T?` ≡ `T | nil`).
+	// `Arrow` separates a function type's params from its return (`(A) -> B`).
+	// `::` is already represented by Label and is reused for type assertions
+	// (`expr :: T`); the parser disambiguates by context.
+	Question = "?"
+	Arrow    = "->"
+
 	// Logical (keywords in Lua, but typed for AST use)
 	And = "AND"
 	Or  = "OR"

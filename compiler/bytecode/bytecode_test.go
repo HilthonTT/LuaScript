@@ -860,7 +860,10 @@ func TestFunctionParametersBecomeLocals(t *testing.T) {
 	// local f = function(a, b) return a end   → proto has GetLocal(0)
 	fe := &ast.FunctionExpression{
 		BaseNode: base(1),
-		Params:   []*ast.Identifier{ident("a", 1), ident("b", 1)},
+		Params: []ast.TypedParam{
+			{Name: ident("a", 1)},
+			{Name: ident("b", 1)},
+		},
 		Body: &ast.Block{
 			BaseNode: base(1),
 			Return: &ast.ReturnStatement{

@@ -82,6 +82,13 @@ var LookupTable = map[token.Type]int{
 	token.LBracket: Call,
 	token.LParen:   Call,
 	token.Colon:    Call,
+
+	// Type assertion `expr :: T` is a postfix that binds at Call level so
+	// `a + b :: T` parses as `a + (b :: T)`, matching Luau. The same `::`
+	// token represents goto labels in statement position; the parser
+	// disambiguates by context (label statements never enter expression
+	// parsing).
+	token.Label: Call,
 }
 
 // IsRightAssoc reports whether the operator at this token type associates

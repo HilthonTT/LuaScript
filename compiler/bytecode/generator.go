@@ -96,8 +96,10 @@ func (g *Generator) endInstructions(is *InstructionSet, sourceLine int) {
 }
 
 // pushFunction starts emitting a nested function's body. Returns the parent
-// context so the caller can restore it after compilation.
-func (g *Generator) pushFunction(name string, params []*ast.Identifier, isVararg bool, sourceLine int) *funcCtx {
+// context so the caller can restore it after compilation. Type annotations
+// on params are ignored here — the bytecode is type-erased; the type
+// checker reads annotations from the AST directly before this pass runs.
+func (g *Generator) pushFunction(name string, params []ast.TypedParam, isVararg bool, sourceLine int) *funcCtx {
 	is := &InstructionSet{name: name, isType: FunctionDef, IsVararg: isVararg, NumParams: len(params)}
 	child := &funcCtx{
 		parent: g.current,
@@ -107,7 +109,7 @@ func (g *Generator) pushFunction(name string, params []*ast.Identifier, isVararg
 	}
 	// Declare each parameter as a local in the new function's root scope.
 	for _, p := range params {
-		child.locals.define(p.Name)
+		child.locals.define(p.Name.Name)
 	}
 	parent := g.current
 	g.current = child

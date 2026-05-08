@@ -466,14 +466,17 @@ func TestPcallReturnsResultsOnSuccess(t *testing.T) {
 }
 
 func TestArithOnStringRaises(t *testing.T) {
-	msg := runErr(t, `r = {} + 1`)
+	// `--!nocheck` opts the input out of static type checking — this test
+	// exercises the VM's runtime arithmetic error path on a deliberately
+	// invalid program.
+	msg := runErr(t, "--!nocheck\nr = {} + 1")
 	if !strings.Contains(msg, "arithmetic") {
 		t.Errorf("error = %q, want it to mention arithmetic", msg)
 	}
 }
 
 func TestCallNonFunctionRaises(t *testing.T) {
-	msg := runErr(t, `local x = 1 x()`)
+	msg := runErr(t, "--!nocheck\nlocal x = 1 x()")
 	if !strings.Contains(msg, "call") {
 		t.Errorf("error = %q, want it to mention 'call'", msg)
 	}

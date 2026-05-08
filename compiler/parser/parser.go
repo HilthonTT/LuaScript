@@ -35,6 +35,11 @@ type Parser struct {
 
 	curToken  token.Token
 	peekToken token.Token
+	// peek2 holds a one-token-ahead-of-peek lookahead, populated lazily by
+	// peek2Token() and consumed by the next nextToken() call. The Lua 5.4
+	// grammar is mostly LL(2)-or-less, but the Luau-style type-assertion
+	// vs goto-label disambiguation needs to look two tokens past `::`.
+	peek2     *token.Token
 }
 
 // New constructs a parser ready to consume the supplied lexer's tokens.
@@ -130,7 +135,24 @@ func (p *Parser) skipSemicolons() {
 
 func (p *Parser) nextToken() {
 	p.curToken = p.peekToken
-	p.peekToken = p.Lexer.NextToken()
+	if p.peek2 != nil {
+		p.peekToken = *p.peek2
+		p.peek2 = nil
+	} else {
+		p.peekToken = p.Lexer.NextToken()
+	}
+}
+
+// peek2Token returns the token immediately after peekToken without
+// advancing the cursor. The first call consumes one token from the lexer
+// and buffers it; subsequent calls return the same buffered token until a
+// nextToken() call drains the buffer.
+func (p *Parser) peek2Token() token.Token {
+	if p.peek2 == nil {
+		t := p.Lexer.NextToken()
+		p.peek2 = &t
+	}
+	return *p.peek2
 }
 
 func (p *Parser) curTokenIs(t token.Type) bool  { return p.curToken.Type == t }

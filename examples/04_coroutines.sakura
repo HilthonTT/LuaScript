@@ -1,0 +1,35 @@
+-- Coroutines: cooperative scheduling via create / resume / yield.
+
+local function producer()
+    for i = 1, 5 do
+        coroutine.yield("item " .. i)
+    end
+    return "done"
+end
+
+local co = coroutine.create(producer)
+
+while true do
+    local ok, value = coroutine.resume(co)
+    if not ok then
+        print("error:", value)
+        break
+    end
+    print(coroutine.status(co), "->", value)
+    if coroutine.status(co) == "dead" then
+        break
+    end
+end
+
+-- coroutine.wrap is the iterator-friendly form.
+local function range(n)
+    return coroutine.wrap(function()
+        for i = 1, n do coroutine.yield(i) end
+    end)
+end
+
+print()
+print("range via wrap:")
+for v in range(4) do
+    print(v)
+end

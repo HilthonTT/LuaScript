@@ -2,6 +2,7 @@ package lexer
 
 import (
 	"context"
+	"strings"
 
 	"github.com/hilthontt/sakura-lang/compiler/token"
 	"github.com/looplab/fsm"
@@ -40,6 +41,14 @@ type Lexer struct {
 	line         int
 	FSM          *fsm.FSM
 	ctx          context.Context
+
+	// ModeDirective captures a Luau-style type-mode pragma found in a
+	// leading comment of the file: "strict", "nonstrict", or "nocheck".
+	// Empty string means none was set. First directive wins. Recognised
+	// only in comments that appear before any non-comment token has been
+	// produced (matches Luau's "file head" rule).
+	ModeDirective string
+	hasYielded    bool // set true once any non-EOF token has been returned
 }
 
 func New(input string) *Lexer {
@@ -75,6 +84,14 @@ func New(input string) *Lexer {
 }
 
 func (l *Lexer) NextToken() token.Token {
+	tok := l.nextToken()
+	if tok.Type != token.EOF {
+		l.hasYielded = true
+	}
+	return tok
+}
+
+func (l *Lexer) nextToken() token.Token {
 	l.skipWhitespace()
 	line := l.line
 
@@ -86,7 +103,11 @@ func (l *Lexer) NextToken() token.Token {
 			l.FSM.Event(l.ctx, evStartComment)
 			l.absorbComment() // may internally fire evCommentToLong
 			l.FSM.Event(l.ctx, evDone)
-			return l.NextToken()
+			return l.nextToken()
+		}
+		if l.peekChar() == '>' {
+			l.readChar()
+			return l.makeToken(token.Arrow, "->", line)
 		}
 
 		return l.singleToken(token.Minus, "-")
@@ -163,6 +184,8 @@ func (l *Lexer) NextToken() token.Token {
 			return l.makeToken(token.Label, "::", line)
 		}
 		return l.singleToken(token.Colon, ":")
+	case '?':
+		return l.singleToken(token.Question, "?")
 	case ',':
 		return l.singleToken(token.Comma, ",")
 	case ';':
@@ -273,6 +296,10 @@ func (l *Lexer) readExponent() {
 
 // absorbComment skips a Lua comment. Called when l.ch is on the first '-'
 // and peekChar() == '-'. Fires evCommentToLong internally for --[[ style.
+//
+// A Luau-style mode directive (`--!strict`, `--!nonstrict`, `--!nocheck`)
+// appearing in a comment that comes BEFORE any real token has been emitted
+// is captured into l.ModeDirective. First directive wins.
 func (l *Lexer) absorbComment() {
 	l.readChar() // consume second '-'
 	l.readChar() // move past --
@@ -282,6 +309,23 @@ func (l *Lexer) absorbComment() {
 		l.readChar()
 		l.readChar()
 		l.readLongString()
+		return
+	}
+
+	// Mode-directive recognition: only valid in leading comments before any
+	// non-comment token has been produced. We scan to the end of the line
+	// in any case, so directive parsing is purely a side effect.
+	if !l.hasYielded && l.ch == '!' && l.ModeDirective == "" {
+		l.readChar() // consume '!'
+		start := l.position
+		for l.ch != '\n' && l.ch != 0 {
+			l.readChar()
+		}
+		word := strings.TrimSpace(string(l.input[start:l.position]))
+		switch word {
+		case "strict", "nonstrict", "nocheck":
+			l.ModeDirective = word
+		}
 		return
 	}
 

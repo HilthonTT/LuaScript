@@ -10,6 +10,7 @@ import (
 	"github.com/hilthontt/sakura-lang/compiler"
 	"github.com/hilthontt/sakura-lang/compiler/parser"
 	parserrors "github.com/hilthontt/sakura-lang/compiler/parser/errors"
+	"github.com/hilthontt/sakura-lang/compiler/typecheck"
 	"github.com/hilthontt/sakura-lang/version"
 	"github.com/hilthontt/sakura-lang/vm"
 )
@@ -123,6 +124,16 @@ func (r *REPL) bye() {
 }
 
 func (r *REPL) printError(err error) {
+	// Surface type-check errors on a per-line basis with a distinct
+	// `type-error:` prefix so users can tell them apart from runtime
+	// errors. Runtime/parse errors keep the standard `sakura:` prefix.
+	if te, ok := err.(*typecheck.TypeErrors); ok {
+		for _, e := range te.Errors {
+			fmt.Fprintf(os.Stderr, "%stype-error:%s %s\n",
+				colorErr, colorReset, e.Format())
+		}
+		return
+	}
 	fmt.Fprintf(os.Stderr, "%ssakura:%s %v\n", colorErr, colorReset, err)
 }
 
@@ -256,6 +267,10 @@ func (r *REPL) printHelp() {
 	fmt.Fprintf(r.out, "  %s•%s incomplete input opens a continuation prompt (%s   …%s)\n",
 		colorDim, colorReset, colorErr, colorReset)
 	fmt.Fprintf(r.out, "  %s•%s top-level %slocal x = v%s persists across REPL inputs\n",
+		colorDim, colorReset, colorBold, colorReset)
+	fmt.Fprintf(r.out, "  %s•%s Luau-style types are checked: %slocal x: number = 1%s, %stype P = {x: number}%s\n",
+		colorDim, colorReset, colorBold, colorReset, colorBold, colorReset)
+	fmt.Fprintf(r.out, "  %s•%s start a chunk with %s--!nocheck%s to skip type checking\n",
 		colorDim, colorReset, colorBold, colorReset)
 
 	fmt.Fprintf(r.out, "\n%sFor CLI options:%s sakura --help\n\n", colorDim, colorReset)
