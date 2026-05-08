@@ -153,6 +153,95 @@ func TestREPLModeOmitsTrailingLeave(t *testing.T) {
 	}
 }
 
+// In REPL mode, top-level `local x = v` is promoted to a global assignment so
+// the binding survives across REPL inputs (each line is otherwise its own
+// chunk and stack-frame locals die on return).
+func TestREPLModePromotesTopLevelLocalToGlobal(t *testing.T) {
+	g := NewGenerator()
+	g.REPL = true
+	g.InitTopLevelScope(&ast.Program{})
+	chunks := g.GenerateInstructions([]ast.Statement{
+		&ast.LocalStatement{
+			BaseNode: base(1),
+			Names:    []ast.LocalName{{Name: "a"}},
+			Values:   []ast.Expression{intLit(1, 1)},
+		},
+	})
+	main := chunks[0]
+	// loadint 1; setglobal "a"  (no setlocal, no leave because REPL mode)
+	assertOpcodes(t, main, "loadint", "setglobal")
+	if got := main.Instructions[1].Params[0].(string); got != "a" {
+		t.Errorf("SetGlobal name = %q, want %q", got, "a")
+	}
+}
+
+// Top-level `local function` in REPL mode is also promoted so the function
+// is callable from later REPL inputs.
+func TestREPLModePromotesTopLevelLocalFunctionToGlobal(t *testing.T) {
+	g := NewGenerator()
+	g.REPL = true
+	g.InitTopLevelScope(&ast.Program{})
+	chunks := g.GenerateInstructions([]ast.Statement{
+		&ast.LocalFunctionStatement{
+			BaseNode: base(1),
+			Name:     "f",
+			Func:     &ast.FunctionExpression{BaseNode: base(1), Body: block()},
+		},
+	})
+	main := chunks[0]
+	assertOpcodes(t, main, "closure", "setglobal")
+	if got := main.Instructions[1].Params[0].(string); got != "f" {
+		t.Errorf("SetGlobal name = %q, want %q", got, "f")
+	}
+}
+
+// Locals inside a nested scope (do/if/loops/functions) keep normal Lua
+// semantics even under REPL mode — only chunk-root declarations are promoted.
+func TestREPLModeKeepsNestedLocalsAsLocals(t *testing.T) {
+	g := NewGenerator()
+	g.REPL = true
+	g.InitTopLevelScope(&ast.Program{})
+	chunks := g.GenerateInstructions([]ast.Statement{
+		&ast.DoStatement{
+			BaseNode: base(1),
+			Body: block(&ast.LocalStatement{
+				BaseNode: base(1),
+				Names:    []ast.LocalName{{Name: "x"}},
+				Values:   []ast.Expression{intLit(7, 1)},
+			}),
+		},
+	})
+	main := chunks[0]
+	for _, ins := range main.Instructions {
+		if ins.Opcode == SetGlobal {
+			t.Fatalf("nested local must not become SetGlobal; got %v", opcodes(main))
+		}
+	}
+	if findFirst(main, SetLocal) == nil {
+		t.Fatalf("expected SetLocal for nested local; got %v", opcodes(main))
+	}
+}
+
+// In NormalMode, top-level locals stay local (no behavior change for scripts).
+func TestNormalModeTopLevelLocalStaysLocal(t *testing.T) {
+	stmts := []ast.Statement{
+		&ast.LocalStatement{
+			BaseNode: base(1),
+			Names:    []ast.LocalName{{Name: "a"}},
+			Values:   []ast.Expression{intLit(1, 1)},
+		},
+	}
+	main := generate(t, stmts)[0]
+	for _, ins := range main.Instructions {
+		if ins.Opcode == SetGlobal {
+			t.Fatalf("NormalMode local must not become SetGlobal; got %v", opcodes(main))
+		}
+	}
+	if findFirst(main, SetLocal) == nil {
+		t.Fatalf("expected SetLocal in NormalMode; got %v", opcodes(main))
+	}
+}
+
 func TestResetInstructionSetsClearsChunks(t *testing.T) {
 	g := NewGenerator()
 	g.InitTopLevelScope(&ast.Program{})

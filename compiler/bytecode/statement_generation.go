@@ -174,6 +174,18 @@ func (g *Generator) compileLocal(is *InstructionSet, s *ast.LocalStatement) {
 	n := len(s.Names)
 	g.emitExplistTo(is, s.Values, n, s.Line())
 
+	// REPL convenience: at the chunk-root scope of the main chunk, promote
+	// `local x = v` to a global assignment so the binding survives across
+	// REPL inputs (each line is otherwise its own chunk and local slots
+	// die with the frame). Nested scopes (do/if/loops/functions) still get
+	// real locals.
+	if g.isReplTopLevel() {
+		for i := n - 1; i >= 0; i-- {
+			is.define(SetGlobal, s.Line(), s.Names[i].Name)
+		}
+		return
+	}
+
 	// Define locals AFTER evaluating the RHS — Lua scoping says the new
 	// names are not yet visible inside the initializers.
 	slots := make([]int, n)
@@ -189,11 +201,31 @@ func (g *Generator) compileLocal(is *InstructionSet, s *ast.LocalStatement) {
 }
 
 func (g *Generator) compileLocalFunction(is *InstructionSet, s *ast.LocalFunctionStatement) {
+	// REPL convenience (see compileLocal): top-level `local function f` in
+	// the main chunk becomes a global assignment so the function survives
+	// across REPL inputs. Recursion still works because the body resolves
+	// `f` via GetGlobal at call time.
+	if g.isReplTopLevel() {
+		g.compileFunctionExpression(is, s.Func)
+		is.define(SetGlobal, s.Line(), s.Name)
+		return
+	}
+
 	// Define the local first so the function body can reference itself
 	// recursively (matches Lua's `local function f` shorthand semantics).
 	slot := g.current.locals.define(s.Name)
 	g.compileFunctionExpression(is, s.Func)
 	is.define(SetLocal, s.Line(), slot)
+}
+
+// isReplTopLevel reports whether emission is currently inside the chunk-root
+// scope of the main chunk under REPL mode. Used to decide whether top-level
+// `local` declarations should be promoted to globals so they persist across
+// REPL inputs.
+func (g *Generator) isReplTopLevel() bool {
+	return g.REPL &&
+		g.current.parent == nil &&
+		len(g.current.locals.scopes) == 1
 }
 
 // ---------------------------------------------------------------------------

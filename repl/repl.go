@@ -14,28 +14,20 @@ import (
 	"github.com/hilthontt/sakura-lang/vm"
 )
 
-type replState int
-
-const (
-	stateReady   replState = iota // empty buffer, expecting a fresh chunk
-	stateWaiting                  // accumulating across continuation prompts
-)
-
 type REPL struct {
 	engine *engine
-	cmds   []string
-	state  replState
 	rl     *readline.Instance
 	vm     *vm.VM
 
-	in  io.Reader
 	out io.Writer
 }
 
 func (r *REPL) Start() {
 	fmt.Fprint(r.out, Logo)
-	fmt.Fprintf(r.out, "  Sakura REPL %s\n", version.Version)
-	fmt.Fprintln(r.out, "Type 'help' for commands, Ctrl+D to exit.")
+	fmt.Fprintf(r.out, "  %sSakura REPL %s%s — a Lua-flavored language on a stack VM\n",
+		colorBold, version.Version, colorReset)
+	fmt.Fprintf(r.out, "  %sType 'help' for commands · Ctrl+C cancels input · Ctrl+D exits%s\n\n",
+		colorDim, colorReset)
 
 	r.runREPL()
 }
@@ -60,12 +52,15 @@ func (r *REPL) RunFile(path string) {
 	}
 }
 
-func NewREPL(v *vm.VM, in io.Reader, out io.Writer) *REPL {
+// NewREPL builds a REPL bound to v. The `in` argument is accepted for API
+// stability but unused: input is read through the readline instance, which
+// drives its own terminal handle.
+func NewREPL(v *vm.VM, _ io.Reader, out io.Writer) *REPL {
 	rl, err := readline.NewEx(&readline.Config{
 		Prompt:                 promptReady,
 		HistoryFile:            os.ExpandEnv("$HOME/.sakura_repl_history"),
 		AutoComplete:           newCompleter(),
-		InterruptPrompt:        "\nInterrupted",
+		InterruptPrompt:        "\nInterrupted (Ctrl+D to exit)",
 		EOFPrompt:              "exit",
 		HistorySearchFold:      true,
 		DisableAutoSaveHistory: false,
@@ -81,14 +76,8 @@ func NewREPL(v *vm.VM, in io.Reader, out io.Writer) *REPL {
 		engine: newEngine(v),
 		rl:     rl,
 		vm:     v,
-		in:     in,
 		out:    out,
 	}
-}
-
-func (r *REPL) Reset() {
-	r.cmds = nil
-	r.state = stateReady
 }
 
 func (r *REPL) runREPL() {
@@ -96,8 +85,8 @@ func (r *REPL) runREPL() {
 
 	for {
 		line, err := r.rl.Readline()
-		if err != nil { // EOF or interrupt
-			fmt.Fprintln(r.out, "\nGoodbye! 🌸")
+		if err != nil { // EOF or interrupt at top level
+			r.bye()
 			return
 		}
 
@@ -108,16 +97,20 @@ func (r *REPL) runREPL() {
 
 		switch line {
 		case cmdExit, cmdQuit:
-			fmt.Fprintln(r.out, "Goodbye! 🌸")
+			r.bye()
 			return
 		case cmdHelp:
 			r.printHelp()
 			continue
 		case cmdClear:
-			fmt.Fprintln(r.out, "\033[H\033[2J")
+			fmt.Fprint(r.out, "\033[H\033[2J")
 			continue
 		case cmdReset:
-			fmt.Fprintln(r.out, "(REPL state reset)")
+			r.vm = vm.New()
+			r.vm.InitForREPL()
+			r.engine = newEngine(r.vm)
+			fmt.Fprintf(r.out, "%s(REPL state reset — globals cleared)%s\n",
+				colorDim, colorReset)
 			continue
 		}
 
@@ -125,36 +118,48 @@ func (r *REPL) runREPL() {
 	}
 }
 
+func (r *REPL) bye() {
+	fmt.Fprintf(r.out, "\n%sGoodbye! 🌸%s\n", colorDim, colorReset)
+}
+
+func (r *REPL) printError(err error) {
+	fmt.Fprintf(os.Stderr, "%ssakura:%s %v\n", colorErr, colorReset, err)
+}
+
 func (r *REPL) processInput(input string) {
 	var src strings.Builder
 	src.WriteString(input)
 
-	// Try as expression first (most common REPL use case)
-	exprSrc := input
+	// For inputs that don't look like a statement, try wrapping with
+	// `return` so bare expressions print their value. If the wrapped form
+	// fails to *compile*, fall through to a normal statement compile (so
+	// things like `x = 5` still work). If it compiles but fails at
+	// runtime, surface that error directly — re-running as a statement
+	// would double-execute side effects of the same chunk.
 	if !looksLikeStatement(input) {
-		exprSrc = "return " + input
-	}
-
-	// First try: as expression
-	if chunks, err := r.engine.compile(exprSrc); err == nil {
-		if results, runErr := r.engine.runMainWithResults(chunks[0]); runErr == nil {
+		if chunks, err := r.engine.compile("return " + input); err == nil {
+			results, runErr := r.engine.runMainWithResults(chunks[0])
+			if runErr != nil {
+				r.printError(runErr)
+				return
+			}
 			r.printResults(results)
 			return
 		}
 	}
 
-	// Second try: as full statement / block
+	// Compile as a full statement / block.
 	chunks, cerr := r.engine.compile(input)
 	if cerr != nil {
 		if r.handleIncompleteInput(cerr, &src) {
 			return // continue reading more lines
 		}
-		fmt.Fprintf(os.Stderr, "sakura: %v\n", cerr)
+		r.printError(cerr)
 		return
 	}
 
 	if err := r.engine.runMain(chunks[0]); err != nil {
-		fmt.Fprintf(os.Stderr, "sakura: %v\n", err)
+		r.printError(err)
 	}
 }
 
@@ -165,8 +170,11 @@ func (r *REPL) handleIncompleteInput(err error, src *strings.Builder) bool {
 		return false
 	}
 
-	// Incomplete input → enter continuation mode
-	fmt.Fprint(r.out, contPrompt)
+	// Incomplete input → enter continuation mode. Set the readline prompt
+	// so the line-edit state stays aligned (drawing contPrompt manually
+	// via Fprint leaves readline unaware of the column).
+	r.rl.SetPrompt(contPrompt)
+	defer r.rl.SetPrompt(promptReady)
 
 	for {
 		line, err := r.rl.Readline()
@@ -181,18 +189,17 @@ func (r *REPL) handleIncompleteInput(err error, src *strings.Builder) bool {
 		if cerr == nil {
 			// Successfully completed
 			if runErr := r.engine.runMain(chunks[0]); runErr != nil {
-				fmt.Fprintf(os.Stderr, "sakura: %v\n", runErr)
+				r.printError(runErr)
 			}
 			return true
 		}
 
 		if !isIncompleteError(cerr) {
-			fmt.Fprintf(os.Stderr, "sakura: %v\n", cerr)
+			r.printError(cerr)
 			return true
 		}
-
-		// Still incomplete
-		fmt.Fprint(r.out, contPrompt)
+		// Still incomplete — readline already shows contPrompt for the
+		// next call.
 	}
 }
 
@@ -220,18 +227,38 @@ func (r *REPL) printResults(results []vm.Value) {
 	for i, v := range results {
 		parts[i] = vm.ToString(v)
 	}
-	fmt.Fprintln(r.out, "=>", strings.Join(parts, "\t"))
+	fmt.Fprintf(r.out, "%s=>%s %s\n", colorOK, colorReset, strings.Join(parts, "\t"))
 }
 
 func (r *REPL) printHelp() {
-	fmt.Print(Logo)
-	fmt.Printf("  Version: %s\n\n", version.Version)
-	fmt.Println("REPL Commands:")
-	fmt.Println("  help     - show this help")
-	fmt.Println("  exit     - exit REPL (Ctrl+D also works)")
-	fmt.Println("  reset    - reset REPL state")
-	fmt.Println()
-	fmt.Println("For full CLI options run: sakura --help")
+	fmt.Fprint(r.out, Logo)
+	fmt.Fprintf(r.out, "  %sSakura REPL %s%s\n\n", colorBold, version.Version, colorReset)
+
+	fmt.Fprintf(r.out, "%sCommands%s\n", colorBold, colorReset)
+	rows := []struct{ name, desc string }{
+		{cmdHelp, "show this help"},
+		{cmdExit + ", " + cmdQuit, "exit the REPL"},
+		{cmdReset, "rebuild the VM (clears all globals and user state)"},
+		{cmdClear, "clear the screen"},
+	}
+	for _, row := range rows {
+		fmt.Fprintf(r.out, "  %s%-14s%s %s\n", colorBold, row.name, colorReset, row.desc)
+	}
+
+	fmt.Fprintf(r.out, "\n%sKey bindings%s\n", colorBold, colorReset)
+	fmt.Fprintf(r.out, "  %s%-14s%s cancel current input\n", colorBold, "Ctrl+C", colorReset)
+	fmt.Fprintf(r.out, "  %s%-14s%s exit the REPL\n", colorBold, "Ctrl+D", colorReset)
+	fmt.Fprintf(r.out, "  %s%-14s%s search history (readline)\n", colorBold, "Ctrl+R", colorReset)
+
+	fmt.Fprintf(r.out, "\n%sTips%s\n", colorBold, colorReset)
+	fmt.Fprintf(r.out, "  %s•%s bare expressions print their result:  %s1+2%s  → %s3%s\n",
+		colorDim, colorReset, colorBold, colorReset, colorOK, colorReset)
+	fmt.Fprintf(r.out, "  %s•%s incomplete input opens a continuation prompt (%s   …%s)\n",
+		colorDim, colorReset, colorErr, colorReset)
+	fmt.Fprintf(r.out, "  %s•%s top-level %slocal x = v%s persists across REPL inputs\n",
+		colorDim, colorReset, colorBold, colorReset)
+
+	fmt.Fprintf(r.out, "\n%sFor CLI options:%s sakura --help\n\n", colorDim, colorReset)
 }
 
 func newCompleter() *readline.PrefixCompleter {

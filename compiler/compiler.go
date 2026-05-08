@@ -19,6 +19,7 @@ func CompileToInstructionsWith(g *bytecode.Generator, input string, pm parser.Mo
 	l := lexer.New(input)
 	p := parser.New(l)
 	p.Mode = pm
+	g.REPL = pm == parser.REPLMode
 
 	program, err := p.ParseProgram()
 	if err != nil {
