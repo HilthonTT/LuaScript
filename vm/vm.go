@@ -60,7 +60,7 @@ func (v *VM) Run(main *bytecode.InstructionSet) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			switch e := r.(type) {
-			case luaError:
+			case LuaError:
 				err = e
 			case error:
 				err = e
@@ -82,7 +82,7 @@ func (v *VM) RunMainChunkWithResults(main *bytecode.InstructionSet) (results []V
 	defer func() {
 		if r := recover(); r != nil {
 			switch e := r.(type) {
-			case luaError:
+			case LuaError:
 				err = e
 			case error:
 				err = e
@@ -585,7 +585,7 @@ func (v *VM) doCall(nargs, nresults int) {
 			v.pushResults(results, nresults)
 			return
 		}
-		panic(errorf("attempt to call a %s value", TypeName(fn)))
+		panic(Errorf("attempt to call a %s value", TypeName(fn)))
 	}
 }
 
@@ -669,10 +669,10 @@ func (v *VM) forPrep(f *CallFrame, baseSlot, target int) {
 		l, ok2 := ToFloat(limitV)
 		st, ok3 := ToFloat(stepV)
 		if !ok1 || !ok2 || !ok3 {
-			panic(luaError("'for' initial value, limit, and step must be numbers"))
+			panic(LuaError("'for' initial value, limit, and step must be numbers"))
 		}
 		if st == 0 {
-			panic(luaError("'for' step is zero"))
+			panic(LuaError("'for' step is zero"))
 		}
 		*v.localAt(f, baseSlot) = s - st
 		*v.localAt(f, baseSlot+1) = l
@@ -682,10 +682,10 @@ func (v *VM) forPrep(f *CallFrame, baseSlot, target int) {
 		l, ok2 := ToInteger(limitV)
 		st, ok3 := ToInteger(stepV)
 		if !ok1 || !ok2 || !ok3 {
-			panic(luaError("'for' initial value, limit, and step must be numbers"))
+			panic(LuaError("'for' initial value, limit, and step must be numbers"))
 		}
 		if st == 0 {
-			panic(luaError("'for' step is zero"))
+			panic(LuaError("'for' step is zero"))
 		}
 		*v.localAt(f, baseSlot) = s - st
 		*v.localAt(f, baseSlot+1) = l
@@ -755,7 +755,7 @@ func (v *VM) tForCall(f *CallFrame, baseSlot, nresults int) {
 			}
 		}
 	default:
-		panic(errorf("attempt to call a %s value (for iterator)", TypeName(iter)))
+		panic(Errorf("attempt to call a %s value (for iterator)", TypeName(iter)))
 	}
 
 	for i := 0; i < nresults; i++ {
@@ -809,5 +809,5 @@ func (v *VM) CallValue(fn Value, args []Value, nresults int) []Value {
 		}
 		return out
 	}
-	panic(errorf("attempt to call a %s value", TypeName(fn)))
+	panic(Errorf("attempt to call a %s value", TypeName(fn)))
 }

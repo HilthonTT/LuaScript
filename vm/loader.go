@@ -72,16 +72,16 @@ func registerLoader(v *VM) {
 
 func builtinRequire(v *VM, args []Value) []Value {
 	if len(args) < 1 {
-		panic(luaError("bad argument #1 to 'require' (string expected)"))
+		panic(LuaError("bad argument #1 to 'require' (string expected)"))
 	}
 	name, ok := args[0].(string)
 	if !ok {
-		panic(errorf("bad argument #1 to 'require' (string expected, got %s)", TypeName(args[0])))
+		panic(Errorf("bad argument #1 to 'require' (string expected, got %s)", TypeName(args[0])))
 	}
 
 	pkg, ok := v.Globals.Get("package").(*Table)
 	if !ok {
-		panic(luaError("'package' table missing — was the loader registered?"))
+		panic(LuaError("'package' table missing — was the loader registered?"))
 	}
 	loaded, _ := pkg.Get("loaded").(*Table)
 	if loaded == nil {
@@ -109,18 +109,18 @@ func builtinRequire(v *VM, args []Value) []Value {
 	pathStr, _ := pkg.Get("path").(string)
 	fpath, tried := searchpath(name, pathStr, ".", "/")
 	if fpath == "" {
-		panic(luaError(fmt.Sprintf("module '%s' not found:%s", name, tried)))
+		panic(LuaError(fmt.Sprintf("module '%s' not found:%s", name, tried)))
 	}
 
 	// 4. Read, compile, run. The chunk receives (modname, filepath) as `...`
 	// — Lua's standard convention.
 	src, err := os.ReadFile(fpath)
 	if err != nil {
-		panic(errorf("cannot open '%s': %s", fpath, err.Error()))
+		panic(Errorf("cannot open '%s': %s", fpath, err.Error()))
 	}
 	chunks, cerr := compiler.CompileToInstructions(string(src), parser.NormalMode)
 	if cerr != nil {
-		panic(errorf("error loading module '%s' from file '%s':\n\t%s", name, fpath, cerr.Error()))
+		panic(Errorf("error loading module '%s' from file '%s':\n\t%s", name, fpath, cerr.Error()))
 	}
 	cl := &Closure{Proto: chunks[0]}
 	results := v.CallValue(cl, []Value{name, fpath}, 1)
@@ -169,15 +169,15 @@ func searchpath(name, path, sep, rep string) (string, string) {
 
 func builtinSearchpath(_ *VM, args []Value) []Value {
 	if len(args) < 2 {
-		panic(luaError("bad argument to 'searchpath' (name and path expected)"))
+		panic(LuaError("bad argument to 'searchpath' (name and path expected)"))
 	}
 	name, ok := args[0].(string)
 	if !ok {
-		panic(errorf("bad argument #1 to 'searchpath' (string expected, got %s)", TypeName(args[0])))
+		panic(Errorf("bad argument #1 to 'searchpath' (string expected, got %s)", TypeName(args[0])))
 	}
 	path, ok := args[1].(string)
 	if !ok {
-		panic(errorf("bad argument #2 to 'searchpath' (string expected, got %s)", TypeName(args[1])))
+		panic(Errorf("bad argument #2 to 'searchpath' (string expected, got %s)", TypeName(args[1])))
 	}
 	sep := "."
 	rep := "/"
@@ -233,7 +233,7 @@ func builtinDofile(v *VM, args []Value) []Value {
 		if len(res) >= 2 {
 			msg = ToString(res[1])
 		}
-		panic(luaError(msg))
+		panic(LuaError(msg))
 	}
 	return v.CallValue(res[0], nil, -1)
 }

@@ -39,17 +39,17 @@ func registerStdlib(v *VM) {
 
 func builtinSetmetatable(_ *VM, args []Value) []Value {
 	if len(args) < 1 {
-		panic(luaError("bad argument #1 to 'setmetatable' (table expected)"))
+		panic(LuaError("bad argument #1 to 'setmetatable' (table expected)"))
 	}
 	t, ok := args[0].(*Table)
 	if !ok {
-		panic(errorf("bad argument #1 to 'setmetatable' (table expected, got %s)", TypeName(args[0])))
+		panic(Errorf("bad argument #1 to 'setmetatable' (table expected, got %s)", TypeName(args[0])))
 	}
 	// Lua 5.4: if the existing metatable has a `__metatable` field, the
 	// metatable is "locked" and setmetatable raises.
 	if existing := t.Metatable(); existing != nil {
 		if existing.Get("__metatable") != nil {
-			panic(luaError("cannot change a protected metatable"))
+			panic(LuaError("cannot change a protected metatable"))
 		}
 	}
 	switch len(args) {
@@ -62,7 +62,7 @@ func builtinSetmetatable(_ *VM, args []Value) []Value {
 		case *Table:
 			t.SetMetatable(m)
 		default:
-			panic(errorf("bad argument #2 to 'setmetatable' (nil or table expected, got %s)", TypeName(args[1])))
+			panic(Errorf("bad argument #2 to 'setmetatable' (nil or table expected, got %s)", TypeName(args[1])))
 		}
 	}
 	return []Value{t}
@@ -90,22 +90,22 @@ func builtinGetmetatable(_ *VM, args []Value) []Value {
 
 func builtinRawget(_ *VM, args []Value) []Value {
 	if len(args) < 2 {
-		panic(luaError("bad argument #1 to 'rawget' (table expected)"))
+		panic(LuaError("bad argument #1 to 'rawget' (table expected)"))
 	}
 	t, ok := args[0].(*Table)
 	if !ok {
-		panic(errorf("bad argument #1 to 'rawget' (table expected, got %s)", TypeName(args[0])))
+		panic(Errorf("bad argument #1 to 'rawget' (table expected, got %s)", TypeName(args[0])))
 	}
 	return []Value{t.Get(args[1])}
 }
 
 func builtinRawset(_ *VM, args []Value) []Value {
 	if len(args) < 3 {
-		panic(luaError("bad argument to 'rawset'"))
+		panic(LuaError("bad argument to 'rawset'"))
 	}
 	t, ok := args[0].(*Table)
 	if !ok {
-		panic(errorf("bad argument #1 to 'rawset' (table expected, got %s)", TypeName(args[0])))
+		panic(Errorf("bad argument #1 to 'rawset' (table expected, got %s)", TypeName(args[0])))
 	}
 	t.Set(args[1], args[2])
 	return []Value{t}
@@ -120,7 +120,7 @@ func builtinRawequal(_ *VM, args []Value) []Value {
 
 func builtinRawlen(_ *VM, args []Value) []Value {
 	if len(args) < 1 {
-		panic(luaError("bad argument #1 to 'rawlen' (table or string expected)"))
+		panic(LuaError("bad argument #1 to 'rawlen' (table or string expected)"))
 	}
 	switch x := args[0].(type) {
 	case string:
@@ -128,7 +128,7 @@ func builtinRawlen(_ *VM, args []Value) []Value {
 	case *Table:
 		return []Value{x.Len()}
 	}
-	panic(errorf("table or string expected, got %s", TypeName(args[0])))
+	panic(Errorf("table or string expected, got %s", TypeName(args[0])))
 }
 
 func builtinPrint(_ *VM, args []Value) []Value {
@@ -142,7 +142,7 @@ func builtinPrint(_ *VM, args []Value) []Value {
 
 func builtinType(_ *VM, args []Value) []Value {
 	if len(args) == 0 {
-		panic(luaError("bad argument #1 to 'type' (value expected)"))
+		panic(LuaError("bad argument #1 to 'type' (value expected)"))
 	}
 	return []Value{TypeName(args[0])}
 }
@@ -185,7 +185,7 @@ func ipairsIter(_ *VM, args []Value) []Value {
 
 func builtinIpairs(_ *VM, args []Value) []Value {
 	if len(args) == 0 {
-		panic(luaError("bad argument #1 to 'ipairs' (table expected)"))
+		panic(LuaError("bad argument #1 to 'ipairs' (table expected)"))
 	}
 	return []Value{
 		&GoFunc{Name: "ipairs:iter", Fn: ipairsIter},
@@ -209,7 +209,7 @@ func pairsIter(_ *VM, args []Value) []Value {
 
 func builtinPairs(_ *VM, args []Value) []Value {
 	if len(args) == 0 {
-		panic(luaError("bad argument #1 to 'pairs' (table expected)"))
+		panic(LuaError("bad argument #1 to 'pairs' (table expected)"))
 	}
 	return []Value{
 		&GoFunc{Name: "pairs:iter", Fn: pairsIter},
@@ -220,11 +220,11 @@ func builtinPairs(_ *VM, args []Value) []Value {
 
 func builtinNext(_ *VM, args []Value) []Value {
 	if len(args) == 0 {
-		panic(luaError("bad argument #1 to 'next' (table expected)"))
+		panic(LuaError("bad argument #1 to 'next' (table expected)"))
 	}
 	t, ok := args[0].(*Table)
 	if !ok {
-		panic(errorf("bad argument #1 to 'next' (table expected, got %s)", TypeName(args[0])))
+		panic(Errorf("bad argument #1 to 'next' (table expected, got %s)", TypeName(args[0])))
 	}
 	var key Value
 	if len(args) > 1 {
@@ -244,17 +244,17 @@ func builtinError(_ *VM, args []Value) []Value {
 	}
 	switch m := msg.(type) {
 	case string:
-		panic(luaError(m))
+		panic(LuaError(m))
 	case nil:
-		panic(luaError("nil"))
+		panic(LuaError("nil"))
 	default:
-		panic(luaError(ToString(m)))
+		panic(LuaError(ToString(m)))
 	}
 }
 
 func builtinPcall(v *VM, args []Value) []Value {
 	if len(args) == 0 {
-		panic(luaError("bad argument #1 to 'pcall' (value expected)"))
+		panic(LuaError("bad argument #1 to 'pcall' (value expected)"))
 	}
 	fn := args[0]
 	callArgs := args[1:]
@@ -277,7 +277,7 @@ func safeCall(v *VM, fn Value, args []Value) (rs []Value, err error) {
 			v.frames = v.frames[:frameDepth]
 			v.Stack = v.Stack[:stackTop]
 			switch e := r.(type) {
-			case luaError:
+			case LuaError:
 				err = e
 			case error:
 				err = e
@@ -296,28 +296,28 @@ func builtinAssert(_ *VM, args []Value) []Value {
 		if len(args) >= 2 {
 			msg = ToString(args[1])
 		}
-		panic(luaError(msg))
+		panic(LuaError(msg))
 	}
 	return args
 }
 
 func builtinSelect(_ *VM, args []Value) []Value {
 	if len(args) == 0 {
-		panic(luaError("bad argument #1 to 'select' (number expected)"))
+		panic(LuaError("bad argument #1 to 'select' (number expected)"))
 	}
 	if s, ok := args[0].(string); ok && s == "#" {
 		return []Value{int64(len(args) - 1)}
 	}
 	idx, ok := ToInteger(args[0])
 	if !ok {
-		panic(errorf("bad argument #1 to 'select' (number expected, got %s)", TypeName(args[0])))
+		panic(Errorf("bad argument #1 to 'select' (number expected, got %s)", TypeName(args[0])))
 	}
 	rest := args[1:]
 	if idx < 0 {
 		idx = int64(len(rest)) + idx + 1
 	}
 	if idx < 1 {
-		panic(luaError("bad argument #1 to 'select' (index out of range)"))
+		panic(LuaError("bad argument #1 to 'select' (index out of range)"))
 	}
 	if int(idx) > len(rest) {
 		return nil

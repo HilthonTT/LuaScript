@@ -1,0 +1,104 @@
+--!nocheck
+-- Importing a HOST-PROVIDED ("native") module — native/os.
+--
+-- The Go side (native/os/os.go) wraps a curated slice of Go's `os`
+-- and `io` standard libraries. main.go installs a post-init hook on
+-- the REPL that calls `os.RegisterOSPreload(v)` against every VM the
+-- program creates, so `require("os")` finds the entry in
+-- `package.preload` before the loader ever touches the filesystem
+-- (vm/loader.go:99).
+--
+-- Unlike the db example, this script needs no external service —
+-- just a writable working directory.
+
+local os = require("os")
+
+-- 1. Module-level constants. Set once by osLoader at require time;
+-- the script side has no setter that writes back, so they're
+-- effectively read-only.
+print("os.VERSION  =", os.VERSION)
+print("os.platform =", os.platform)
+print("os.arch     =", os.arch)
+print("path sep    =", os.path_separator)
+print("dev null    =", os.dev_null)
+
+-- 2. Process-y stuff. `getenv` distinguishes unset (nil) from
+-- set-but-empty (""), so callers can tell them apart with one
+-- equality check.
+print("pwd         =", os.pwd())
+print("hostname    =", os.hostname())
+print("HOME        =", os.getenv("HOME"))
+print("UNSET_VAR   =", os.getenv("DEFINITELY_NOT_SET_12345"))
+
+-- 3. Create + write + close. `os.create` is the truncating-create
+-- shortcut (equivalent to open with o_rdwr|o_create|o_trunc, mode
+-- 0666 & ~umask). It returns a file table whose methods close over
+-- the underlying *os.File on the Go side.
+local path = "sakura_os_demo.txt"
+local f = os.create(path)
+local written = f:write("hello from sakura\n")
+print("wrote bytes =", written)
+f:close()
+
+-- 4. Open with explicit flags + perm, composing the o_* constants.
+-- o_rdonly is 0, so a read-only open doesn't strictly need it — but
+-- it documents intent.
+local rd = os.open(path, os.o_rdonly, 0)
+
+-- 5. Stat — returns a flat table, not a userdata. mod_time is an
+-- RFC3339Nano string, matching the db module's time.Time handling
+-- so the script side has one consistent shape for timestamps.
+local info = rd:stat()
+print("stat name   =", info.name)
+print("stat size   =", info.size)
+print("stat is_dir =", info.is_dir)
+print("stat mtime  =", info.mod_time)
+
+-- 6. Read + seek round-trip. `read(n)` returns nil on a clean EOF,
+-- so a draining loop terminates naturally without a special check.
+local all = ""
+while true do
+    local chunk = rd:read(8)
+    if chunk == nil then break end
+    all = all .. chunk
+end
+print("read all    =", all)
+
+-- Rewind, then a partial read to exercise the seek_* whence values.
+rd:seek(0, os.seek_set)
+print("first 5     =", rd:read(5))
+
+rd:close()
+
+-- 7. mkdir + cleanup. Decimal 493 == 0755 (rwxr-xr-x); standard Lua
+-- has no octal literal, so the FileMode bits go in as decimal.
+local dir = "sakura_os_demo_dir"
+os.mkdir(dir, 493)
+os.remove(dir)
+os.remove(path)
+
+-- 8. Errors propagate through pcall — same shape as any other Lua
+-- error, so callers don't need a special story for native modules.
+local ok, err = pcall(function() os.open("/nope/does/not/exist", os.o_rdonly, 0) end)
+print("bad open    =", ok, err)
+
+-- Double-close is a real error here: unlike sql.DB, *os.File is NOT
+-- idempotent on Close (returns os.ErrClosed). The Go side surfaces
+-- it as a panic; pcall catches it.
+local f2 = os.create("sakura_double_close.txt")
+f2:close()
+local ok2, err2 = pcall(function() f2:close() end)
+print("dbl close   =", ok2, err2)
+os.remove("sakura_double_close.txt")
+
+-- 9. Cache check: the second require returns the SAME module table
+-- without re-running the Go loader.
+local again = require("os")
+print("same lib?   =", again == os)
+
+-- 10. exit MUST be last — os.Exit terminates the process before any
+-- code below runs, deferred or otherwise. Non-zero is a script-
+-- defined failure code; 0 means clean termination.
+print("bye")
+os.exit(0)
+print("never runs")

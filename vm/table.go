@@ -58,10 +58,10 @@ func (t *Table) Get(key Value) Value {
 // or NaN key panics with a Lua-style error.
 func (t *Table) Set(key, value Value) {
 	if key == nil {
-		panic(luaError("table index is nil"))
+		panic(LuaError("table index is nil"))
 	}
 	if f, ok := key.(float64); ok && math.IsNaN(f) {
-		panic(luaError("table index is NaN"))
+		panic(LuaError("table index is NaN"))
 	}
 	if i, ok := arrayIndex(key); ok && i >= 1 {
 		if i <= int64(len(t.array)) {

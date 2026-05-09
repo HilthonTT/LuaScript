@@ -1,0 +1,47 @@
+--!nocheck
+-- strings.sakura — flat module living at the SAKURA_LIB root.
+--
+-- Resolves via the `$SAKURA_LIB/?.sakura` entry that the loader
+-- appends to `package.path` when the env var is set
+-- (vm/loader.go:42-50). `require "strings"` -> this file.
+
+local M = {}
+
+-- Trim ASCII whitespace from both ends. Implemented with byte indexing
+-- because the runtime intentionally omits Lua patterns / `gsub`.
+local function is_space(b)
+    return b == 32 or b == 9 or b == 10 or b == 13
+end
+
+function M.trim(s)
+    local n = #s
+    local lo = 1
+    while lo <= n and is_space(s:byte(lo)) do
+        lo = lo + 1
+    end
+    local hi = n
+    while hi >= lo and is_space(s:byte(hi)) do
+        hi = hi - 1
+    end
+    return s:sub(lo, hi)
+end
+
+function M.starts_with(s, prefix)
+    return s:sub(1, #prefix) == prefix
+end
+
+function M.split(s, sep)
+    local parts = {}
+    local start = 1
+    while true do
+        local i, j = s:find(sep, start, true)
+        if not i then
+            parts[#parts + 1] = s:sub(start)
+            return parts
+        end
+        parts[#parts + 1] = s:sub(start, i - 1)
+        start = j + 1
+    end
+end
+
+return M

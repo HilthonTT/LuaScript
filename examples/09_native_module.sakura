@@ -1,0 +1,45 @@
+--!nocheck
+-- Importing a HOST-PROVIDED ("native") module — native/db.
+--
+-- The Go side (native/db/db.go) wraps Go's database/sql with the
+-- lib/pq driver. main.go installs a post-init hook on the REPL that
+-- calls `db.RegisterDBPreload(v)` against every VM the program
+-- creates, so `require("db")` finds the entry in `package.preload`
+-- before it ever touches the filesystem (vm/loader.go:99).
+--
+-- This example needs a real Postgres reachable via the DSN below.
+-- Adjust to taste, or replace with sqlite (different driver — add the
+-- import in native/db/db.go).
+
+local db = require("db")
+print("db.VERSION =", db.VERSION)
+
+-- 1. Connect. `db.open` calls sql.Open + Ping, so a bad DSN errors
+-- immediately rather than on the first query.
+local conn = db.open("postgres", "host=localhost port=5432 user=postgres dbname=postgres sslmode=disable")
+
+-- 2. DDL/DML — `:exec` returns the affected-row count.
+conn:exec("CREATE TABLE IF NOT EXISTS people (id SERIAL PRIMARY KEY, name TEXT, born INT)")
+local n = conn:exec("INSERT INTO people (name, born) VALUES ($1, $2), ($3, $4)",
+    "Ada Lovelace", 1815, "Grace Hopper", 1906)
+print("inserted   =", n)
+
+-- 3. SELECT — `:query` returns an array table of row tables, each
+-- keyed by column name. Driver-side time.Time values come back as
+-- RFC3339 strings; []byte/RawBytes come back as Lua strings.
+local rows = conn:query("SELECT name, born FROM people WHERE born < $1 ORDER BY born", 1950)
+for i = 1, #rows do
+    print("row " .. i .. "      =", rows[i].name, rows[i].born)
+end
+
+-- 4. Errors propagate through pcall — same shape as any other Lua
+-- error, so callers don't need a special story for native modules.
+local ok, err = pcall(function() conn:query("SELECT * FROM nope_does_not_exist") end)
+print("bad query  =", ok, err)
+
+conn:close()
+
+-- 5. Cache check: the second require returns the SAME module table
+-- without re-running the Go loader.
+local again = require("db")
+print("same lib?  =", again == db)

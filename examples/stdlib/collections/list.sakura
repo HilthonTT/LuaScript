@@ -1,0 +1,57 @@
+--!nocheck
+-- collections/list.sakura — submodule of the `collections` package.
+--
+-- Reached two ways:
+--   require "collections.list"   -- dotted name: dot -> "/" in the path
+--   require("collections").list  -- via the package init re-export
+--
+-- Tiny stack-as-table demo using a metatable + `__index` for method
+-- dispatch. (We expose an explicit `:tostr()` rather than relying on
+-- `__tostring`, which the runtime doesn't currently honor through
+-- `tostring()`.)
+
+local List = {}
+List.__index = List
+
+-- Optional `init` table seeds the list. Avoids varargs because the
+-- VM's vararg-tail codegen is still being filled in.
+function List.new(init)
+    local self = setmetatable({ n = 0 }, List)
+    if init then
+        for i = 1, #init do
+            self:push(init[i])
+        end
+    end
+    return self
+end
+
+function List:push(v)
+    self.n = self.n + 1
+    self[self.n] = v
+end
+
+function List:pop()
+    if self.n == 0 then return nil end
+    local v = self[self.n]
+    self[self.n] = nil
+    self.n = self.n - 1
+    return v
+end
+
+function List:map(fn)
+    local out = List.new()
+    for i = 1, self.n do
+        out:push(fn(self[i]))
+    end
+    return out
+end
+
+function List:tostr()
+    local parts = {}
+    for i = 1, self.n do
+        parts[i] = tostring(self[i])
+    end
+    return "[" .. table.concat(parts, ", ") .. "]"
+end
+
+return List

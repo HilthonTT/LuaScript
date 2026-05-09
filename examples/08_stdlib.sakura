@@ -1,0 +1,54 @@
+--!nocheck
+-- Native stdlib demo.
+--
+-- The loader (vm/loader.go) reads `$SAKURA_LIB` exactly once at VM
+-- startup and appends these rules to `package.path`:
+--
+--     $SAKURA_LIB/?.sakura
+--     $SAKURA_LIB/?.lua
+--     $SAKURA_LIB/?/init.sakura
+--     $SAKURA_LIB/?/init.lua
+--
+-- So pointing SAKURA_LIB at `examples/stdlib/` lets `require` find:
+--
+--     strings           -> examples/stdlib/strings.sakura
+--     collections       -> examples/stdlib/collections/init.sakura
+--     collections.list  -> examples/stdlib/collections/list.sakura
+--
+-- Run from the project root:
+--
+--   bash:    SAKURA_LIB=./examples/stdlib go run . ./examples/08_stdlib.sakura
+--   pwsh:    $env:SAKURA_LIB="./examples/stdlib"; go run . ./examples/08_stdlib.sakura
+--   cmd:     set SAKURA_LIB=./examples/stdlib && go run . ./examples/08_stdlib.sakura
+
+-- 1. Flat module at the stdlib root.
+local strings = require("strings")
+print("trim         = [" .. strings.trim("   hello world   ") .. "]")
+print("starts_with  =", strings.starts_with("sakura-lang", "sakura"))
+
+local parts = strings.split("a,b,,c", ",")
+io.write("split        = ")
+for i = 1, #parts do io.write("'", parts[i], "' ") end
+print()
+
+-- 2. Submodule via dotted name.
+local List = require("collections.list")
+local xs = List.new({ 1, 2, 3, 4 })
+xs:push(5)
+print("list         =", xs:tostr())
+print("popped       =", xs:pop())
+print("doubled      =", xs:map(function(x) return x * 2 end):tostr())
+
+-- 3. Package init: `require "collections"` runs collections/init.sakura,
+-- which re-exports the submodule so callers don't need a second require.
+local collections = require("collections")
+local ys = collections.list.new({ "a", "b", "c" })
+print("via init     =", ys:tostr())
+
+-- 4. Confirm the bundled-lib entries are actually on the path.
+print()
+print("package.path =")
+local entries = strings.split(package.path, ";")
+for i = 1, #entries do
+    print("  " .. entries[i])
+end

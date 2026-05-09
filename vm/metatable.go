@@ -89,7 +89,7 @@ func (v *VM) arithMM(a, b Value, op, event string) Value {
 	if mm := v.getMetamethod(b, event); mm != nil {
 		return v.callMM(mm, a, b)
 	}
-	panic(errorf("attempt to perform arithmetic on a %s value", TypeName(firstNonNumber(a, b))))
+	panic(Errorf("attempt to perform arithmetic on a %s value", TypeName(firstNonNumber(a, b))))
 }
 
 // arithDivMM handles `/`, which is float-only at the raw level.
@@ -105,7 +105,7 @@ func (v *VM) arithDivMM(a, b Value) Value {
 	if mm := v.getMetamethod(b, metaDiv); mm != nil {
 		return v.callMM(mm, a, b)
 	}
-	panic(errorf("attempt to perform arithmetic on a %s value", TypeName(firstNonNumber(a, b))))
+	panic(Errorf("attempt to perform arithmetic on a %s value", TypeName(firstNonNumber(a, b))))
 }
 
 // arithFloorDivMM handles `//`.
@@ -121,7 +121,7 @@ func (v *VM) arithFloorDivMM(a, b Value) Value {
 	if mm := v.getMetamethod(b, metaIDiv); mm != nil {
 		return v.callMM(mm, a, b)
 	}
-	panic(errorf("attempt to perform arithmetic on a %s value", TypeName(firstNonNumber(a, b))))
+	panic(Errorf("attempt to perform arithmetic on a %s value", TypeName(firstNonNumber(a, b))))
 }
 
 // arithPowMM handles `^`.
@@ -137,7 +137,7 @@ func (v *VM) arithPowMM(a, b Value) Value {
 	if mm := v.getMetamethod(b, metaPow); mm != nil {
 		return v.callMM(mm, a, b)
 	}
-	panic(errorf("attempt to perform arithmetic on a %s value", TypeName(firstNonNumber(a, b))))
+	panic(Errorf("attempt to perform arithmetic on a %s value", TypeName(firstNonNumber(a, b))))
 }
 
 // arithNegMM handles unary `-`.
@@ -148,7 +148,7 @@ func (v *VM) arithNegMM(a Value) Value {
 	if mm := v.getMetamethod(a, metaUnm); mm != nil {
 		return v.callMM(mm, a, a)
 	}
-	panic(errorf("attempt to perform arithmetic on a %s value", TypeName(a)))
+	panic(Errorf("attempt to perform arithmetic on a %s value", TypeName(a)))
 }
 
 // bitwiseMM handles & | ~ << >> with metamethod fallback.
@@ -164,7 +164,7 @@ func (v *VM) bitwiseMM(a, b Value, raw func(a, b Value) Value, event string) Val
 	if mm := v.getMetamethod(b, event); mm != nil {
 		return v.callMM(mm, a, b)
 	}
-	panic(errorf("bitwise operand has no integer representation"))
+	panic(Errorf("bitwise operand has no integer representation"))
 }
 
 func (v *VM) bitNotMM(a Value) Value {
@@ -174,7 +174,7 @@ func (v *VM) bitNotMM(a Value) Value {
 	if mm := v.getMetamethod(a, metaBNot); mm != nil {
 		return v.callMM(mm, a, a)
 	}
-	panic(errorf("bitwise operand has no integer representation"))
+	panic(Errorf("bitwise operand has no integer representation"))
 }
 
 // ---------------------------------------------------------------------------
@@ -199,7 +199,7 @@ func (v *VM) concatMM(a, b Value) Value {
 	if aok {
 		bad = b
 	}
-	panic(errorf("attempt to concatenate a %s value", TypeName(bad)))
+	panic(Errorf("attempt to concatenate a %s value", TypeName(bad)))
 }
 
 func isStringOrNumber(v Value) bool {
@@ -222,7 +222,7 @@ func (v *VM) lenMM(val Value) Value {
 	if t, ok := val.(*Table); ok {
 		return t.Len()
 	}
-	panic(errorf("attempt to get length of a %s value", TypeName(val)))
+	panic(Errorf("attempt to get length of a %s value", TypeName(val)))
 }
 
 // equalMM extends Equal with __eq fallback. Per Lua semantics __eq is only
@@ -260,7 +260,7 @@ func (v *VM) lessMM(a, b Value) bool {
 	if mm := v.getMetamethod(b, metaLt); mm != nil {
 		return IsTruthy(v.callMM(mm, a, b))
 	}
-	panic(errorf("attempt to compare %s with %s", TypeName(a), TypeName(b)))
+	panic(Errorf("attempt to compare %s with %s", TypeName(a), TypeName(b)))
 }
 
 // lessOrEqualMM implements `<=` with __le fallback.
@@ -274,7 +274,7 @@ func (v *VM) lessOrEqualMM(a, b Value) bool {
 	if mm := v.getMetamethod(b, metaLe); mm != nil {
 		return IsTruthy(v.callMM(mm, a, b))
 	}
-	panic(errorf("attempt to compare %s with %s", TypeName(a), TypeName(b)))
+	panic(Errorf("attempt to compare %s with %s", TypeName(a), TypeName(b)))
 }
 
 func isOrderable(a, b Value) bool {
@@ -314,7 +314,7 @@ func (v *VM) indexMM(obj, key Value) Value {
 	// (string is the common case).
 	mm := v.getMetamethod(obj, metaIndex)
 	if mm == nil {
-		panic(errorf("attempt to index a %s value", TypeName(obj)))
+		panic(Errorf("attempt to index a %s value", TypeName(obj)))
 	}
 	return v.indexViaMetamethod(obj, key, mm)
 }
@@ -347,7 +347,7 @@ func (v *VM) newIndexMM(obj, key, val Value) {
 	if !ok {
 		mm := v.getMetamethod(obj, metaNewIndex)
 		if mm == nil {
-			panic(errorf("attempt to index a %s value", TypeName(obj)))
+			panic(Errorf("attempt to index a %s value", TypeName(obj)))
 		}
 		v.callMM(mm, obj, key, val)
 		return

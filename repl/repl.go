@@ -20,7 +20,35 @@ type REPL struct {
 	rl     *readline.Instance
 	vm     *vm.VM
 
+	// postInits run, in order, against every VM the REPL creates (the
+	// initial one from NewREPL, the fresh one in RunFile, and the
+	// rebuilt one behind `:reset`). This is the seam main.go uses to
+	// register native modules — repl can't import native packages
+	// directly because those packages already import vm.
+	postInits []func(*vm.VM)
+
 	out io.Writer
+}
+
+// AddPostInit appends a hook that runs against every VM this REPL
+// owns. The hook is also applied to the current VM immediately so
+// callers don't need to invoke it separately. Multiple calls compose
+// — every hook runs in the order it was added.
+func (r *REPL) AddPostInit(fn func(*vm.VM)) {
+	if fn == nil {
+		return
+	}
+	r.postInits = append(r.postInits, fn)
+	if r.vm != nil {
+		fn(r.vm)
+	}
+}
+
+// runPostInits applies every registered hook to v, in order.
+func (r *REPL) runPostInits(v *vm.VM) {
+	for _, fn := range r.postInits {
+		fn(v)
+	}
 }
 
 func (r *REPL) Start() {
@@ -45,6 +73,7 @@ func (r *REPL) RunFile(path string) {
 		os.Exit(1)
 	}
 	v := vm.New()
+	r.runPostInits(v)
 	// chunks[0] is the main chunk; nested function protos follow and are
 	// reached through the main chunk's Protos table at runtime.
 	if err := v.Run(chunks[0]); err != nil {
@@ -109,6 +138,7 @@ func (r *REPL) runREPL() {
 		case cmdReset:
 			r.vm = vm.New()
 			r.vm.InitForREPL()
+			r.runPostInits(r.vm)
 			r.engine = newEngine(r.vm)
 			fmt.Fprintf(r.out, "%s(REPL state reset — globals cleared)%s\n",
 				colorDim, colorReset)

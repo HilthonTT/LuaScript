@@ -1,0 +1,16 @@
+-- collections/init.sakura — "package" entry point.
+--
+-- Resolves via the `$SAKURA_LIB/?/init.sakura` rule, so
+-- `require "collections"` runs THIS file. The convention mirrors
+-- Lua: a directory becomes a package by exposing an init module that
+-- aggregates submodules.
+
+local M = {}
+
+-- Re-export the submodule so callers can do
+--     local C = require "collections"
+--     C.list.new(...)
+-- without a second require for the common case.
+M.list = require("collections.list")
+
+return M

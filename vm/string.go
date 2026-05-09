@@ -10,7 +10,7 @@ func concatOne(v Value) string {
 	case int64, float64:
 		return ToString(v)
 	}
-	panic(errorf("attempt to concatenate a %s value", TypeName(v)))
+	panic(Errorf("attempt to concatenate a %s value", TypeName(v)))
 }
 
 // concatPair joins two values per Lua semantics (numbers and strings only).

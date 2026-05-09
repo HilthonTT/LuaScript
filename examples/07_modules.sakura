@@ -1,0 +1,45 @@
+-- File / module importing.
+--
+-- Run this example from the `examples/` directory so the cwd-relative
+-- search path entries (`./?.sakura`, `./src/?.sakura`, …) can find
+-- `mathx.sakura` sitting next to this file:
+--
+--     cd examples
+--     sakura 07_modules.sakura
+--
+-- `require` searches `package.path`, reads the file, compiles it, runs
+-- it once, and caches the chunk's return value in `package.loaded`.
+
+local mathx = require("mathx")
+
+print("square(7)     =", mathx.square(7))
+print("clamp(42,0,9) =", mathx.clamp(42, 0, 9))
+print("PHI           =", mathx.PHI)
+
+-- Cache check: the second require returns the same table without
+-- re-running the module body (no second "[mathx] module body
+-- executed" line should print).
+local again = require("mathx")
+print("same table?   =", again == mathx)
+
+-- The package table is the standard Lua surface: path template,
+-- the loaded cache, and a searchpath helper.
+print("package.path  =", package.path)
+print("loaded.mathx  =", package.loaded.mathx ~= nil)
+
+-- `package.searchpath` resolves a module name against a path template
+-- without loading it — handy for diagnostics.
+local resolved = package.searchpath("mathx", package.path)
+print("searchpath    =", resolved)
+
+-- `dofile` runs a file every call (no caching, no return-value rule
+-- beyond "whatever the chunk returned"). `loadfile` is the same but
+-- hands you back the closure instead of running it.
+--
+--     local chunk = loadfile("mathx.sakura")
+--     local mod   = chunk()
+--
+-- `load` does the same for a source string:
+--
+--     local f = load("return 1 + 2")
+--     print(f())  --> 3

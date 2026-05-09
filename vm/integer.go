@@ -19,7 +19,7 @@ func intArith(a, b int64, op string) Value {
 		return a * b
 	case "%":
 		if b == 0 {
-			panic(luaError("attempt to perform 'n%0'"))
+			panic(LuaError("attempt to perform 'n%0'"))
 		}
 		r := a % b
 		if r != 0 && (r^b) < 0 {

@@ -1,0 +1,26 @@
+-- mathx.sakura — a small module exercised by 07_modules.sakura.
+--
+-- A sakura/Lua module is just a chunk that builds a value (usually a
+-- table of functions) and `return`s it. `require` caches the result in
+-- `package.loaded`, so re-requiring the same name doesn't re-run the
+-- file.
+
+local M = {}
+
+function M.square(x)
+    return x * x
+end
+
+function M.clamp(x, lo, hi)
+    if x < lo then return lo end
+    if x > hi then return hi end
+    return x
+end
+
+-- Constants are fine to expose directly on the module table.
+M.PHI = 1.6180339887
+
+-- A side-effect line so the demo can show the chunk runs exactly once.
+print("[mathx] module body executed")
+
+return M

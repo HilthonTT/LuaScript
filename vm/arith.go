@@ -5,16 +5,16 @@ import (
 	"math"
 )
 
-// luaError is a typed string used when the VM raises a runtime error. It is
+// LuaError is a typed string used when the VM raises a runtime error. It is
 // recovered by pcall().
-type luaError string
+type LuaError string
 
-func (e luaError) Error() string {
+func (e LuaError) Error() string {
 	return string(e)
 }
 
-func errorf(format string, args ...any) luaError {
-	return luaError(fmt.Sprintf(format, args...))
+func Errorf(format string, args ...any) LuaError {
+	return LuaError(fmt.Sprintf(format, args...))
 }
 
 // arith dispatches +, -, *, % keeping the integer subtype when both operands
@@ -23,7 +23,7 @@ func arith(a, b Value, op string) Value {
 	ai, af, aIsInt, aOk := ToNumber(a)
 	bi, bf, bIsInt, bOk := ToNumber(b)
 	if !aOk || !bOk {
-		panic(errorf("attempt to perform arithmetic on a %s value", TypeName(firstNonNumber(a, b))))
+		panic(Errorf("attempt to perform arithmetic on a %s value", TypeName(firstNonNumber(a, b))))
 	}
 	if aIsInt && bIsInt {
 		return intArith(ai, bi, op)
@@ -45,11 +45,11 @@ func arith(a, b Value, op string) Value {
 func arithDiv(a, b Value) Value {
 	x, ok := ToFloat(a)
 	if !ok {
-		panic(errorf("attempt to perform arithmetic on a %s value", TypeName(a)))
+		panic(Errorf("attempt to perform arithmetic on a %s value", TypeName(a)))
 	}
 	y, ok := ToFloat(b)
 	if !ok {
-		panic(errorf("attempt to perform arithmetic on a %s value", TypeName(b)))
+		panic(Errorf("attempt to perform arithmetic on a %s value", TypeName(b)))
 	}
 	return x / y
 }
@@ -59,11 +59,11 @@ func arithFloorDiv(a, b Value) Value {
 	ai, af, aIsInt, aOk := ToNumber(a)
 	bi, bf, bIsInt, bOk := ToNumber(b)
 	if !aOk || !bOk {
-		panic(errorf("attempt to perform arithmetic on a %s value", TypeName(firstNonNumber(a, b))))
+		panic(Errorf("attempt to perform arithmetic on a %s value", TypeName(firstNonNumber(a, b))))
 	}
 	if aIsInt && bIsInt {
 		if bi == 0 {
-			panic(luaError("attempt to perform 'n//0'"))
+			panic(LuaError("attempt to perform 'n//0'"))
 		}
 		q := ai / bi
 		// Floor toward -infinity for mismatched signs.
@@ -87,11 +87,11 @@ func arithFloorDiv(a, b Value) Value {
 func arithPow(a, b Value) Value {
 	x, ok := ToFloat(a)
 	if !ok {
-		panic(errorf("attempt to perform arithmetic on a %s value", TypeName(a)))
+		panic(Errorf("attempt to perform arithmetic on a %s value", TypeName(a)))
 	}
 	y, ok := ToFloat(b)
 	if !ok {
-		panic(errorf("attempt to perform arithmetic on a %s value", TypeName(b)))
+		panic(Errorf("attempt to perform arithmetic on a %s value", TypeName(b)))
 	}
 	return math.Pow(x, y)
 }
@@ -100,7 +100,7 @@ func arithPow(a, b Value) Value {
 func arithNeg(v Value) Value {
 	i, f, isInt, ok := ToNumber(v)
 	if !ok {
-		panic(errorf("attempt to perform arithmetic on a %s value", TypeName(v)))
+		panic(Errorf("attempt to perform arithmetic on a %s value", TypeName(v)))
 	}
 	if isInt {
 		return -i
@@ -115,7 +115,7 @@ func arithNeg(v Value) Value {
 func toBitInt(v Value) int64 {
 	i, ok := ToInteger(v)
 	if !ok {
-		panic(errorf("bitwise operand has no integer representation (%s)", TypeName(v)))
+		panic(Errorf("bitwise operand has no integer representation (%s)", TypeName(v)))
 	}
 	return i
 }
@@ -176,7 +176,7 @@ func less(a, b Value) bool {
 			return x < y
 		}
 	}
-	panic(errorf("attempt to compare %s with %s", TypeName(a), TypeName(b)))
+	panic(Errorf("attempt to compare %s with %s", TypeName(a), TypeName(b)))
 }
 
 // lessOrEqual implements Lua's `<=` mirroring less.
@@ -201,7 +201,7 @@ func lessOrEqual(a, b Value) bool {
 			return x <= y
 		}
 	}
-	panic(errorf("attempt to compare %s with %s", TypeName(a), TypeName(b)))
+	panic(Errorf("attempt to compare %s with %s", TypeName(a), TypeName(b)))
 }
 
 // ---------------------------------------------------------------------------
