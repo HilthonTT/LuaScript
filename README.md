@@ -39,6 +39,35 @@ go build -o sakura .
 ./sakura examples/01_basics.sakura
 ```
 
+## Bonsai mode
+
+For a break from the language work, `sakura` ships with a small ASCII-bonsai grower. It is unrelated to the Lua runtime — just a fun side mode.
+
+```sh
+# Grow a tree in the alt-screen (press q or Ctrl+C to leave)
+./sakura -bonsai
+
+# Print a single tree to stdout instead
+./sakura -bonsai -bonsai-print
+
+# Animate growth step-by-step
+./sakura -bonsai -bonsai-live
+
+# Reproducible tree from a seed
+./sakura -bonsai -seed 42
+
+# Attach a message next to the tree
+./sakura -bonsai -bonsai-msg "hello, world"
+```
+
+| Flag            | Effect                                                                 |
+| --------------- | ---------------------------------------------------------------------- |
+| `-bonsai`       | Grow an ASCII bonsai tree and exit.                                    |
+| `-seed N`       | RNG seed for reproducible trees (`0` = random).                        |
+| `-bonsai-print` | Print the tree to stdout instead of staying in the alt-screen.        |
+| `-bonsai-live`  | Animate growth step-by-step.                                          |
+| `-bonsai-msg S` | Attach a message next to the tree.                                    |
+
 ## Examples
 
 A walk-through set lives in `examples/`. Each file is runnable with `sakura examples/<file>`:
