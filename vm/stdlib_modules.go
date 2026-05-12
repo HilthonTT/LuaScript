@@ -6,7 +6,6 @@ import (
 	"math"
 	"math/rand"
 	"os"
-	"reflect"
 	"strings"
 )
 
@@ -94,10 +93,7 @@ func buildMathLibrary() *Table {
 		return []Value{math.Log(x)}
 	})
 	add("max", func(_ *VM, args []Value) []Value {
-		if len(args) == 0 {
-			panic(LuaError("bad argument #1 to 'max' (value expected)"))
-		}
-		best := args[0]
+		best := AnyArg("max", 1, args)
 		for _, a := range args[1:] {
 			if mathLess(best, a) {
 				best = a
@@ -106,10 +102,7 @@ func buildMathLibrary() *Table {
 		return []Value{best}
 	})
 	add("min", func(_ *VM, args []Value) []Value {
-		if len(args) == 0 {
-			panic(LuaError("bad argument #1 to 'min' (value expected)"))
-		}
-		best := args[0]
+		best := AnyArg("min", 1, args)
 		for _, a := range args[1:] {
 			if mathLess(a, best) {
 				best = a
@@ -343,9 +336,6 @@ func buildStringLibrary() *Table {
 		// Thin wrapper around Go's fmt.Sprintf. Lua's % directives are
 		// largely a subset of Go's, so most simple format strings work
 		// directly. Documented divergence from Lua's spec.
-		if len(args) == 0 {
-			panic(LuaError("bad argument #1 to 'format' (string expected)"))
-		}
 		fmtStr := StringArg("string.format", 1, args)
 		fargs := make([]any, 0, len(args)-1)
 		for _, a := range args[1:] {
@@ -383,14 +373,10 @@ func buildTableLibrary() *Table {
 	}
 
 	add("insert", func(_ *VM, args []Value) []Value {
-		if len(args) < 2 {
-			panic(LuaError("bad argument to 'insert' (table expected)"))
-		}
-		tbl, ok := args[0].(*Table)
-		if !ok {
-			panic(Errorf("bad argument #1 to 'insert' (table expected, got %s)", TypeName(args[0])))
-		}
+		tbl := TableArg("insert", 1, args)
 		switch len(args) {
+		case 1:
+			panic(LuaError("bad argument to 'insert' (value expected)"))
 		case 2:
 			// Append at the end.
 			tbl.Set(tbl.Len()+1, args[1])
@@ -407,21 +393,12 @@ func buildTableLibrary() *Table {
 		return nil
 	})
 	add("remove", func(_ *VM, args []Value) []Value {
-		if len(args) == 0 {
-			panic(LuaError("bad argument #1 to 'remove' (table expected)"))
-		}
-		tbl, ok := args[0].(*Table)
-		if !ok {
-			panic(Errorf("bad argument #1 to 'remove' (table expected, got %s)", TypeName(args[0])))
-		}
+		tbl := TableArg("remove", 1, args)
 		n := tbl.Len()
 		if n == 0 {
 			return []Value{nil}
 		}
-		pos := n
-		if len(args) >= 2 {
-			pos = IntArg("table.remove", 2, args)
-		}
+		pos := OptInt("table.remove", 2, args, n)
 		removed := tbl.Get(pos)
 		for i := pos; i < n; i++ {
 			tbl.Set(i, tbl.Get(i+1))
@@ -430,25 +407,10 @@ func buildTableLibrary() *Table {
 		return []Value{removed}
 	})
 	add("concat", func(_ *VM, args []Value) []Value {
-		if len(args) == 0 {
-			panic(LuaError("bad argument #1 to 'concat' (table expected)"))
-		}
-		tbl, ok := args[0].(*Table)
-		if !ok {
-			panic(Errorf("bad argument #1 to 'concat' (table expected, got %s)", TypeName(args[0])))
-		}
-		sep := ""
-		if len(args) >= 2 {
-			sep = StringArg("table.concat", 2, args)
-		}
-		lo := int64(1)
-		hi := tbl.Len()
-		if len(args) >= 3 {
-			lo = IntArg("table.concat", 3, args)
-		}
-		if len(args) >= 4 {
-			hi = IntArg("table.concat", 4, args)
-		}
+		tbl := TableArg("concat", 1, args)
+		sep := OptString("table.concat", 2, args, "")
+		lo := OptInt("table.concat", 3, args, 1)
+		hi := OptInt("table.concat", 4, args, tbl.Len())
 		var b strings.Builder
 		for i := lo; i <= hi; i++ {
 			if i > lo {
@@ -462,18 +424,9 @@ func buildTableLibrary() *Table {
 		if len(args) == 0 {
 			return nil
 		}
-		tbl, ok := args[0].(*Table)
-		if !ok {
-			panic(Errorf("bad argument #1 to 'unpack' (table expected, got %s)", TypeName(args[0])))
-		}
-		lo := int64(1)
-		hi := tbl.Len()
-		if len(args) >= 2 {
-			lo = IntArg("table.unpack", 2, args)
-		}
-		if len(args) >= 3 {
-			hi = IntArg("table.unpack", 3, args)
-		}
+		tbl := TableArg("unpack", 1, args)
+		lo := OptInt("table.unpack", 2, args, 1)
+		hi := OptInt("table.unpack", 3, args, tbl.Len())
 		var out []Value
 		for i := lo; i <= hi; i++ {
 			out = append(out, tbl.Get(i))
@@ -532,79 +485,5 @@ func buildIOLibrary() *Table {
 	return t
 }
 
-func NumArg(name string, n int, args []Value) (int64, float64, bool, bool) {
-	if n < 1 || n > len(args) {
-		panic(Errorf("bad argument #%d to '%s' (value expected)", n, name))
-	}
-	i, f, isInt, ok := ToNumber(args[n-1])
-	if !ok {
-		panic(Errorf("bad argument #%d to '%s' (number expected, got %s)", n, name, describeBadArg(args[n-1])))
-	}
-	return i, f, isInt, ok
-}
-
-// describeBadArg renders the type of a bad argument for error
-// messages. For runtime-tracked values it falls through to TypeName,
-// matching Lua's `type()` strings. For values that crossed an FFI
-// boundary as a raw Go primitive, it appends an actionable hint —
-// the most common host-module bug is forgetting to cast int / uint /
-// FileMode / rune to int64 (or float32 to float64) before storing
-// them on a *Table, which leaves the runtime with an opaque value it
-// can't coerce.
-func describeBadArg(v Value) string {
-	base := TypeName(v)
-	switch v.(type) {
-	case nil, bool, int64, float64, string, *Table, *Closure, *GoFunc, *Coroutine:
-		return base
-	}
-	switch reflect.ValueOf(v).Kind() {
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32,
-		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32,
-		reflect.Uint64, reflect.Uintptr:
-		return base + " — host stored a Go integer; cast to int64 before passing it to the runtime"
-	case reflect.Float32:
-		return base + " — host stored a Go float32; cast to float64 before passing it to the runtime"
-	case reflect.String:
-		return base + " — host stored a non-string named string type; convert to plain `string` before passing it to the runtime"
-	}
-	return base
-}
-
-func FloatArg(name string, n int, args []Value) float64 {
-	if n < 1 || n > len(args) {
-		panic(Errorf("bad argument #%d to '%s' (number expected)", n, name))
-	}
-	x, ok := ToFloat(args[n-1])
-	if !ok {
-		panic(Errorf("bad argument #%d to '%s' (number expected, got %s)", n, name, describeBadArg(args[n-1])))
-	}
-	return x
-}
-
-func IntArg(name string, n int, args []Value) int64 {
-	if n < 1 || n > len(args) {
-		panic(Errorf("bad argument #%d to '%s' (number expected)", n, name))
-	}
-	x, ok := ToInteger(args[n-1])
-	if !ok {
-		panic(Errorf("bad argument #%d to '%s' (number expected, got %s)", n, name, describeBadArg(args[n-1])))
-	}
-	return x
-}
-
-func StringArg(name string, n int, args []Value) string {
-	if n < 1 || n > len(args) {
-		panic(Errorf("bad argument #%d to '%s' (string expected)", n, name))
-	}
-	if s, ok := args[n-1].(string); ok {
-		return s
-	}
-	if i, f, isInt, ok := ToNumber(args[n-1]); ok {
-		// Lua allows numbers where strings are expected via implicit coercion.
-		if isInt {
-			return formatInteger(i)
-		}
-		return formatFloat(f)
-	}
-	panic(Errorf("bad argument #%d to '%s' (string expected, got %s)", n, name, describeBadArg(args[n-1])))
-}
+// Argument-validation helpers (NumArg, FloatArg, IntArg, StringArg,
+// describeBadArg, plus TableArg/ClosureArg/etc.) live in stdlib_args.go.

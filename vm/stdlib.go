@@ -38,13 +38,7 @@ func registerStdlib(v *VM) {
 // ---------------------------------------------------------------------------
 
 func builtinSetmetatable(_ *VM, args []Value) []Value {
-	if len(args) < 1 {
-		panic(LuaError("bad argument #1 to 'setmetatable' (table expected)"))
-	}
-	t, ok := args[0].(*Table)
-	if !ok {
-		panic(Errorf("bad argument #1 to 'setmetatable' (table expected, got %s)", TypeName(args[0])))
-	}
+	t := TableArg("setmetatable", 1, args)
 	// Lua 5.4: if the existing metatable has a `__metatable` field, the
 	// metatable is "locked" and setmetatable raises.
 	if existing := t.Metatable(); existing != nil {
@@ -52,19 +46,7 @@ func builtinSetmetatable(_ *VM, args []Value) []Value {
 			panic(LuaError("cannot change a protected metatable"))
 		}
 	}
-	switch len(args) {
-	case 1:
-		t.SetMetatable(nil)
-	default:
-		switch m := args[1].(type) {
-		case nil:
-			t.SetMetatable(nil)
-		case *Table:
-			t.SetMetatable(m)
-		default:
-			panic(Errorf("bad argument #2 to 'setmetatable' (nil or table expected, got %s)", TypeName(args[1])))
-		}
-	}
+	t.SetMetatable(NilOrTableArg("setmetatable", 2, args))
 	return []Value{t}
 }
 
@@ -89,25 +71,16 @@ func builtinGetmetatable(_ *VM, args []Value) []Value {
 }
 
 func builtinRawget(_ *VM, args []Value) []Value {
-	if len(args) < 2 {
-		panic(LuaError("bad argument #1 to 'rawget' (table expected)"))
-	}
-	t, ok := args[0].(*Table)
-	if !ok {
-		panic(Errorf("bad argument #1 to 'rawget' (table expected, got %s)", TypeName(args[0])))
-	}
-	return []Value{t.Get(args[1])}
+	t := TableArg("rawget", 1, args)
+	key := AnyArg("rawget", 2, args)
+	return []Value{t.Get(key)}
 }
 
 func builtinRawset(_ *VM, args []Value) []Value {
-	if len(args) < 3 {
-		panic(LuaError("bad argument to 'rawset'"))
-	}
-	t, ok := args[0].(*Table)
-	if !ok {
-		panic(Errorf("bad argument #1 to 'rawset' (table expected, got %s)", TypeName(args[0])))
-	}
-	t.Set(args[1], args[2])
+	t := TableArg("rawset", 1, args)
+	key := AnyArg("rawset", 2, args)
+	val := AnyArg("rawset", 3, args)
+	t.Set(key, val)
 	return []Value{t}
 }
 
@@ -119,16 +92,11 @@ func builtinRawequal(_ *VM, args []Value) []Value {
 }
 
 func builtinRawlen(_ *VM, args []Value) []Value {
-	if len(args) < 1 {
-		panic(LuaError("bad argument #1 to 'rawlen' (table or string expected)"))
+	s, t, isString := TableOrStringArg("rawlen", 1, args)
+	if isString {
+		return []Value{int64(len(s))}
 	}
-	switch x := args[0].(type) {
-	case string:
-		return []Value{int64(len(x))}
-	case *Table:
-		return []Value{x.Len()}
-	}
-	panic(Errorf("table or string expected, got %s", TypeName(args[0])))
+	return []Value{t.Len()}
 }
 
 func builtinPrint(_ *VM, args []Value) []Value {
@@ -141,10 +109,7 @@ func builtinPrint(_ *VM, args []Value) []Value {
 }
 
 func builtinType(_ *VM, args []Value) []Value {
-	if len(args) == 0 {
-		panic(LuaError("bad argument #1 to 'type' (value expected)"))
-	}
-	return []Value{TypeName(args[0])}
+	return []Value{TypeName(AnyArg("type", 1, args))}
 }
 
 func builtinTostring(_ *VM, args []Value) []Value {
@@ -184,12 +149,10 @@ func ipairsIter(_ *VM, args []Value) []Value {
 }
 
 func builtinIpairs(_ *VM, args []Value) []Value {
-	if len(args) == 0 {
-		panic(LuaError("bad argument #1 to 'ipairs' (table expected)"))
-	}
+	t := TableArg("ipairs", 1, args)
 	return []Value{
 		&GoFunc{Name: "ipairs:iter", Fn: ipairsIter},
-		args[0],
+		t,
 		int64(0),
 	}
 }
@@ -208,24 +171,16 @@ func pairsIter(_ *VM, args []Value) []Value {
 }
 
 func builtinPairs(_ *VM, args []Value) []Value {
-	if len(args) == 0 {
-		panic(LuaError("bad argument #1 to 'pairs' (table expected)"))
-	}
+	t := TableArg("pairs", 1, args)
 	return []Value{
 		&GoFunc{Name: "pairs:iter", Fn: pairsIter},
-		args[0],
+		t,
 		nil,
 	}
 }
 
 func builtinNext(_ *VM, args []Value) []Value {
-	if len(args) == 0 {
-		panic(LuaError("bad argument #1 to 'next' (table expected)"))
-	}
-	t, ok := args[0].(*Table)
-	if !ok {
-		panic(Errorf("bad argument #1 to 'next' (table expected, got %s)", TypeName(args[0])))
-	}
+	t := TableArg("next", 1, args)
 	var key Value
 	if len(args) > 1 {
 		key = args[1]
@@ -253,10 +208,7 @@ func builtinError(_ *VM, args []Value) []Value {
 }
 
 func builtinPcall(v *VM, args []Value) []Value {
-	if len(args) == 0 {
-		panic(LuaError("bad argument #1 to 'pcall' (value expected)"))
-	}
-	fn := args[0]
+	fn := AnyArg("pcall", 1, args)
 	callArgs := args[1:]
 	results, err := safeCall(v, fn, callArgs)
 	if err != nil {

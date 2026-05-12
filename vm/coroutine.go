@@ -108,24 +108,12 @@ func registerCoroutineLibrary(v *VM) {
 }
 
 func builtinCoroutineCreate(_ *VM, args []Value) []Value {
-	if len(args) < 1 {
-		panic(LuaError("bad argument #1 to 'create' (function expected)"))
-	}
-	cl, ok := args[0].(*Closure)
-	if !ok {
-		panic(Errorf("bad argument #1 to 'create' (function expected, got %s)", TypeName(args[0])))
-	}
+	cl := ClosureArg("create", 1, args)
 	return []Value{newCoroutine(cl)}
 }
 
 func builtinCoroutineResume(v *VM, args []Value) []Value {
-	if len(args) < 1 {
-		panic(LuaError("bad argument #1 to 'resume' (coroutine expected)"))
-	}
-	co, ok := args[0].(*Coroutine)
-	if !ok {
-		panic(Errorf("bad argument #1 to 'resume' (coroutine expected, got %s)", TypeName(args[0])))
-	}
+	co := CoroutineArg("resume", 1, args)
 	if co.status == "dead" {
 		return []Value{false, "cannot resume dead coroutine"}
 	}
@@ -179,13 +167,7 @@ func builtinCoroutineYield(v *VM, args []Value) []Value {
 }
 
 func builtinCoroutineStatus(_ *VM, args []Value) []Value {
-	if len(args) < 1 {
-		panic(LuaError("bad argument #1 to 'status' (coroutine expected)"))
-	}
-	co, ok := args[0].(*Coroutine)
-	if !ok {
-		panic(Errorf("bad argument #1 to 'status' (coroutine expected, got %s)", TypeName(args[0])))
-	}
+	co := CoroutineArg("status", 1, args)
 	return []Value{co.status}
 }
 
@@ -193,13 +175,7 @@ func builtinCoroutineStatus(_ *VM, args []Value) []Value {
 // time it is called. The returned function returns just the yielded values
 // (no leading boolean), and re-raises any error.
 func builtinCoroutineWrap(v *VM, args []Value) []Value {
-	if len(args) < 1 {
-		panic(LuaError("bad argument #1 to 'wrap' (function expected)"))
-	}
-	cl, ok := args[0].(*Closure)
-	if !ok {
-		panic(Errorf("bad argument #1 to 'wrap' (function expected, got %s)", TypeName(args[0])))
-	}
+	cl := ClosureArg("wrap", 1, args)
 	co := newCoroutine(cl)
 	wrapper := &GoFunc{
 		Name: "coroutine.wrap:fn",

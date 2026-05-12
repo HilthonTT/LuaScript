@@ -41,7 +41,10 @@ type VM struct {
 // New creates a fresh VM with an empty globals table.
 func New() *VM {
 	v := &VM{
-		Stack:      make([]Value, 0, 256),
+		// 2048 entries (~16KB on 64-bit) gives enough headroom that deep
+		// recursion and large local frames don't trigger backing-array
+		// reallocations during the run. Per-VM cost is negligible.
+		Stack:      make([]Value, 0, 2048),
 		Globals:    NewTable(0, 32),
 		mainThread: &Thread{},
 		mode:       parser.NormalMode,
@@ -540,6 +543,12 @@ func (v *VM) dispatch(f *CallFrame, ins *bytecode.Instruction) {
 // enclosing function's stack slot; InStack=false descriptors share an
 // upvalue from the enclosing closure.
 func (v *VM) makeClosure(parent *CallFrame, proto *bytecode.InstructionSet) *Closure {
+	// Skip the Upvalues slice allocation entirely for closures that capture
+	// nothing — common for top-level local functions and module-scope
+	// helpers. nil slice is fine: every reader uses range/len which handle it.
+	if len(proto.Upvalues) == 0 {
+		return &Closure{Proto: proto}
+	}
 	cl := &Closure{Proto: proto, Upvalues: make([]*Upvalue, len(proto.Upvalues))}
 	for i, desc := range proto.Upvalues {
 		if desc.InStack {
@@ -566,21 +575,34 @@ func (v *VM) doCall(nargs, nresults int) {
 	}
 	argsStart := len(v.Stack) - nargs
 	fn := v.Stack[argsStart-1]
-	args := append([]Value(nil), v.Stack[argsStart:argsStart+nargs]...)
-	v.Stack = v.Stack[:argsStart-1] // remove function and args from the stack
 
 	switch g := fn.(type) {
 	case *Closure:
-		// callClosure runs the callee to completion and leaves its produced
-		// results on the stack in the (now-popped) function slot's place.
+		// callClosure consumes its `args` slice immediately by copying each
+		// value into the new frame's local slots (and into a fresh varargs
+		// slice if applicable), so we can hand it a stack-aliased view and
+		// skip the per-call slice allocation. The aliasing is safe because
+		// the param-push writes to slots strictly *before* the slots being
+		// read (target = source - 1 in stack-index terms), and varargs are
+		// fully copied before local-slot padding overwrites the source.
+		args := v.Stack[argsStart : argsStart+nargs]
+		v.Stack = v.Stack[:argsStart-1]
 		v.callClosureWithResults(g, args, nresults)
 	case *GoFunc:
+		// GoFunc bodies are foreign code — they may retain the slice (e.g.
+		// to return it as their result, or stash it). Pay the copy at the
+		// FFI boundary so subsequent stack activity can't tear the values.
+		args := append([]Value(nil), v.Stack[argsStart:argsStart+nargs]...)
+		v.Stack = v.Stack[:argsStart-1]
 		results := g.Fn(v, args)
 		v.pushResults(results, nresults)
 	default:
 		// __call metamethod fallback: any non-function with a __call entry
 		// in its metatable can be invoked, with the original target spliced
-		// in as the first argument.
+		// in as the first argument. callMMIfNotFunction reuses the args
+		// list across an unknown number of intermediate calls, so copy.
+		args := append([]Value(nil), v.Stack[argsStart:argsStart+nargs]...)
+		v.Stack = v.Stack[:argsStart-1]
 		if results, ok := v.callMMIfNotFunction(fn, args, nresults); ok {
 			v.pushResults(results, nresults)
 			return

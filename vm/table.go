@@ -25,19 +25,20 @@ func (t *Table) SetMetatable(mt *Table) {
 	t.metatable = mt
 }
 
-// NewTable returns an empty table sized by the given capacity hints.
+// NewTable returns an empty table. The hints are used only when non-zero —
+// a {} literal that ends up empty (a common pattern for "carrier" objects)
+// stays at zero allocations. Set() and the array/hash growth paths handle
+// nil-slice/map promotion lazily.
 func NewTable(arrHint, hashHint int) *Table {
-	if arrHint < 0 {
-		arrHint = 0
+	t := &Table{}
+	if arrHint > 0 {
+		t.array = make([]Value, 0, arrHint)
 	}
-	if hashHint < 0 {
-		hashHint = 0
+	if hashHint > 0 {
+		t.hash = make(map[Value]Value, hashHint)
+		t.keys = make([]Value, 0, hashHint)
 	}
-	return &Table{
-		array: make([]Value, 0, arrHint),
-		hash:  make(map[Value]Value, hashHint),
-		keys:  make([]Value, 0, hashHint),
-	}
+	return t
 }
 
 // Get returns t[key]. Missing or nil keys yield nil.

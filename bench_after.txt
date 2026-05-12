@@ -1,0 +1,22 @@
+goos: windows
+goarch: 386
+pkg: github.com/hilthontt/sakura-lang/vm
+cpu: Intel(R) Core(TM) i7-9700K CPU @ 3.60GHz
+BenchmarkFibRecursive-8            	     144	  17754006 ns/op	  911848 B/op	   43998 allocs/op
+BenchmarkTableInsertSequential-8   	    5136	    211872 ns/op	   52832 B/op	    1158 allocs/op
+BenchmarkTableInsertHash-8         	    7554	    240696 ns/op	   36840 B/op	     221 allocs/op
+BenchmarkTableLiteralChurn-8       	   14338	    220523 ns/op	   41992 B/op	     375 allocs/op
+BenchmarkStringConcat-8            	   16617	    224098 ns/op	   42872 B/op	     474 allocs/op
+BenchmarkGlobalAccess-8            	    1537	   1035174 ns/op	   43536 B/op	    1168 allocs/op
+BenchmarkClosureCall-8             	    3158	   1083121 ns/op	   45120 B/op	     760 allocs/op
+BenchmarkLocalArithmetic-8         	    1254	   1069115 ns/op	   49392 B/op	    1900 allocs/op
+PASS
+ok  	github.com/hilthontt/sakura-lang/vm	22.348s
+goos: windows
+goarch: 386
+pkg: github.com/hilthontt/sakura-lang/compiler/parser
+cpu: Intel(R) Core(TM) i7-9700K CPU @ 3.60GHz
+BenchmarkParseSmokeProgram-8   	   10000	    156760 ns/op	   23481 B/op	     721 allocs/op
+BenchmarkParseLargeFile-8      	     100	  44068106 ns/op	 1816193 B/op	   58238 allocs/op
+PASS
+ok  	github.com/hilthontt/sakura-lang/compiler/parser	6.444s

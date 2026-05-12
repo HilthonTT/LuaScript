@@ -1,3 +1,9 @@
+// Package db is the host-side bridge between sakura code and Go's
+// database/sql. The package itself is driver-agnostic — drivers are
+// registered via blank imports in companion files gated by build tags.
+// To add a new driver (e.g. sqlite, mysql) drop a `driver_<name>.go`
+// next to this file with a `//go:build` line and a `_ "..."` import.
+// To omit the default Postgres driver, build with `-tags sakura_no_postgres`.
 package db
 
 import (
@@ -5,8 +11,6 @@ import (
 	"time"
 
 	"github.com/hilthontt/sakura-lang/vm"
-
-	_ "github.com/lib/pq"
 )
 
 // RegisterDBPreload installs a single loader entry. The loader is a

@@ -71,13 +71,7 @@ func registerLoader(v *VM) {
 // ---------------------------------------------------------------------------
 
 func builtinRequire(v *VM, args []Value) []Value {
-	if len(args) < 1 {
-		panic(LuaError("bad argument #1 to 'require' (string expected)"))
-	}
-	name, ok := args[0].(string)
-	if !ok {
-		panic(Errorf("bad argument #1 to 'require' (string expected, got %s)", TypeName(args[0])))
-	}
+	name := StringArg("require", 1, args)
 
 	pkg, ok := v.Globals.Get("package").(*Table)
 	if !ok {
@@ -168,29 +162,10 @@ func searchpath(name, path, sep, rep string) (string, string) {
 }
 
 func builtinSearchpath(_ *VM, args []Value) []Value {
-	if len(args) < 2 {
-		panic(LuaError("bad argument to 'searchpath' (name and path expected)"))
-	}
-	name, ok := args[0].(string)
-	if !ok {
-		panic(Errorf("bad argument #1 to 'searchpath' (string expected, got %s)", TypeName(args[0])))
-	}
-	path, ok := args[1].(string)
-	if !ok {
-		panic(Errorf("bad argument #2 to 'searchpath' (string expected, got %s)", TypeName(args[1])))
-	}
-	sep := "."
-	rep := "/"
-	if len(args) >= 3 {
-		if s, ok := args[2].(string); ok {
-			sep = s
-		}
-	}
-	if len(args) >= 4 {
-		if r, ok := args[3].(string); ok {
-			rep = r
-		}
-	}
+	name := StringArg("searchpath", 1, args)
+	path := StringArg("searchpath", 2, args)
+	sep := OptString("searchpath", 3, args, ".")
+	rep := OptString("searchpath", 4, args, "/")
 	fpath, tried := searchpath(name, path, sep, rep)
 	if fpath == "" {
 		return []Value{nil, tried}
