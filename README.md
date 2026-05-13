@@ -39,6 +39,28 @@ go build -o sakura .
 ./sakura examples/01_basics.sakura
 ```
 
+## Bundling a script into a standalone .exe
+
+`sakura build` produces a single executable that contains both the interpreter and your script — drop it on a machine that doesn't have sakura installed and double-click it.
+
+```sh
+# Build sakura first, then have it bundle your script:
+go build -o sakura .
+./sakura build -o hello.exe examples/01_basics.sakura
+./hello.exe                # runs the embedded script
+```
+
+| Flag        | Effect                                          |
+| ----------- | ----------------------------------------------- |
+| `-o PATH`   | Output path for the bundled binary (required).  |
+
+Mechanics: the script is appended to a copy of the sakura binary along with a 18-byte magic trailer. On startup the bundled .exe inspects its own tail, detects the trailer, and runs the embedded script in `parser.NormalMode` with the same VM and native modules the interpreter uses. Syntax is checked at bundle time, so you can't ship a broken .exe by accident.
+
+Limitations (v1):
+- The bundled binary matches the host platform — no cross-compilation flag yet.
+- Bundled scripts don't see `os.Args`.
+- Antivirus heuristics occasionally flag self-modifying-style .exes; code-signing fixes it. This is the same trade-off PyInstaller and Bun's `--compile` have.
+
 ## Bonsai mode
 
 For a break from the language work, `sakura` ships with a small ASCII-bonsai grower. It is unrelated to the Lua runtime — just a fun side mode.

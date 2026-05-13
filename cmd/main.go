@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	"github.com/hilthontt/sakura-lang/bonsai"
 	"github.com/hilthontt/sakura-lang/formatter"
@@ -16,75 +17,117 @@ import (
 )
 
 func main() {
-	// Subcommand routing: `sakura fmt ...` is handled before flag parsing so
-	// that its flags don't collide with the top-level ones (and so users can
-	// run `sakura fmt -w file.sk` without the binary trying to interpret
-	// `-w` as an unknown global flag).
-	if len(os.Args) >= 2 && os.Args[1] == "fmt" {
-		os.Exit(runFmt(os.Args[2:]))
+	// If this binary has an embedded script trailer, run it and exit —
+	// the bundled .exe should behave as the user's program, not as the
+	// sakura CLI. Falls through to the normal CLI when no payload is
+	// present (i.e., this is the plain interpreter binary).
+	payload, ok, err := readEmbeddedPayload()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "sakura:", err)
+		os.Exit(1)
+	}
+	if ok {
+		os.Exit(runBundled(payload))
+	}
+	os.Exit(run(os.Args[1:]))
+}
+
+func run(argv []string) int {
+	// Subcommand routing happens before flag parsing so that `sakura fmt -w`
+	// doesn't collide with the top-level flag set.
+	if len(argv) >= 1 && argv[0] == "fmt" {
+		return runFmt(argv[1:])
+	}
+	if len(argv) >= 1 && argv[0] == "build" {
+		return runBuild(argv[1:])
 	}
 
-	interactive := flag.Bool("i", false, "start the interactive REPL even if a script is given")
-	showVersion := flag.Bool("v", false, "print version and exit")
-	growBonsai := flag.Bool("bonsai", false, "grow an ASCII bonsai tree and exit")
-	bonsaiSeed := flag.Int64("seed", 0, "rng seed for -bonsai (0 = random)")
-	bonsaiPrint := flag.Bool("bonsai-print", false, "with -bonsai: print the tree to stdout instead of staying in the alt-screen")
-	bonsaiLive := flag.Bool("bonsai-live", false, "with -bonsai: animate growth step-by-step")
-	bonsaiMsg := flag.String("bonsai-msg", "", "with -bonsai: attach a message next to the tree")
-	watch := flag.Bool("watch", false, "Re-run file on every save")
-	flag.Parse()
+	fs := flag.NewFlagSet("sakura", flag.ContinueOnError)
+	interactive := fs.Bool("i", false, "start the interactive REPL even if a script is given")
+	showVersion := fs.Bool("v", false, "print version and exit")
+	growBonsai := fs.Bool("bonsai", false, "grow an ASCII bonsai tree and exit")
+	bonsaiSeed := fs.Int64("seed", 0, "rng seed for -bonsai (0 = random)")
+	bonsaiPrint := fs.Bool("bonsai-print", false, "with -bonsai: print the tree to stdout instead of staying in the alt-screen")
+	bonsaiLive := fs.Bool("bonsai-live", false, "with -bonsai: animate growth step-by-step")
+	bonsaiMsg := fs.String("bonsai-msg", "", "with -bonsai: attach a message next to the tree")
+	watch := fs.Bool("watch", false, "re-run file on every save")
+	timed := fs.Bool("time", false, "print execution time after the program finishes")
 
-	if *showVersion {
+	if err := fs.Parse(argv); err != nil {
+		if err == flag.ErrHelp {
+			return 0
+		}
+		return 2
+	}
+
+	// Standalone modes that don't touch the VM.
+	switch {
+	case *showVersion:
 		fmt.Println(version.GetVersionString())
-		return
-	}
-
-	if *growBonsai {
-		err := bonsai.Run(bonsai.Options{
+		return 0
+	case *growBonsai:
+		if err := bonsai.Run(bonsai.Options{
 			Seed:    *bonsaiSeed,
 			Print:   *bonsaiPrint,
 			Live:    *bonsaiLive,
 			Message: *bonsaiMsg,
-		})
-		if err != nil {
+		}); err != nil {
 			fmt.Fprintln(os.Stderr, "bonsai:", err)
-			os.Exit(1)
+			return 1
 		}
-		return
+		return 0
+	}
+
+	if *timed && *watch {
+		fmt.Fprintln(os.Stderr, "sakura: --time and --watch are mutually exclusive")
+		return 2
+	}
+
+	args := fs.Args()
+	if (*timed || *watch) && len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "sakura: --time and --watch require a script file")
+		return 2
 	}
 
 	v := vm.New()
 	r := repl.NewREPL(v, os.Stdin, os.Stdout)
-	// Register native modules through the post-init hook so script
-	// runs (RunFile creates a fresh non-REPL-mode VM) and `:reset`
-	// (rebuilds the REPL VM) both get them.
+	// Register native modules via the post-init hook so script runs (a fresh
+	// non-REPL-mode VM) and `:reset` (rebuilt REPL VM) both get them.
 	r.AddPostInit(db.RegisterDBPreload)
 	r.AddPostInit(osNative.RegisterOSPreload)
 
-	args := flag.Args()
-
-	if *watch {
-		if len(flag.Args()) != 1 {
-			fmt.Fprintln(os.Stderr, "usage: sakura --watch <file.sakura>")
-			os.Exit(1)
-		}
-		r.WatchFile(args[0])
-	} else if *interactive || len(args) == 0 {
+	// No script, or -i requested: drop into the REPL.
+	// NOTE: this preserves the original behavior where `-i file.sakura`
+	// ignores the file. If the intent of -i is "load the script, then drop
+	// to REPL," REPL needs a new entry point and this branch should call it.
+	if *interactive || len(args) == 0 {
 		r.Start()
-		return
+		return 0
 	}
-	r.RunFile(args[0])
+
+	file := args[0]
+	switch {
+	case *watch:
+		r.WatchFile(file)
+	case *timed:
+		start := time.Now()
+		r.RunFile(file)
+		fmt.Fprintf(os.Stdout, "Execution time: %v\n", time.Since(start))
+	default:
+		r.RunFile(file)
+	}
+	return 0
 }
 
 // runFmt implements `sakura fmt`. Exit codes: 0 success, 1 I/O or parse
-// error, 2 usage error. Mirrors `gofmt`'s flag surface (-w write in place,
+// error, 2 usage error. Mirrors gofmt's flag surface (-w write in place;
 // -d diff is out of scope for v1).
 //
 // Modes:
 //
-//	sakura fmt file.sakura         -> reformat and print to stdout
-//	sakura fmt -w file.sakura      -> reformat in place
-//	sakura fmt -                -> read stdin, write stdout
+//	sakura fmt file.sakura     -> reformat and print to stdout
+//	sakura fmt -w file.sakura  -> reformat in place
+//	sakura fmt -               -> read stdin, write stdout
 //
 // On parse error the original source is left untouched and the error is
 // reported on stderr.
@@ -95,6 +138,9 @@ func runFmt(argv []string) int {
 	indent := fs.Int("indent", 2, "spaces per indent level")
 	fs.SetOutput(os.Stderr)
 	if err := fs.Parse(argv); err != nil {
+		if err == flag.ErrHelp {
+			return 0
+		}
 		return 2
 	}
 	files := fs.Args()
