@@ -31,6 +31,7 @@ func main() {
 	bonsaiPrint := flag.Bool("bonsai-print", false, "with -bonsai: print the tree to stdout instead of staying in the alt-screen")
 	bonsaiLive := flag.Bool("bonsai-live", false, "with -bonsai: animate growth step-by-step")
 	bonsaiMsg := flag.String("bonsai-msg", "", "with -bonsai: attach a message next to the tree")
+	watch := flag.Bool("watch", false, "Re-run file on every save")
 	flag.Parse()
 
 	if *showVersion {
@@ -61,7 +62,14 @@ func main() {
 	r.AddPostInit(osNative.RegisterOSPreload)
 
 	args := flag.Args()
-	if *interactive || len(args) == 0 {
+
+	if *watch {
+		if len(flag.Args()) != 1 {
+			fmt.Fprintln(os.Stderr, "usage: sakura --watch <file.sakura>")
+			os.Exit(1)
+		}
+		r.WatchFile(args[0])
+	} else if *interactive || len(args) == 0 {
 		r.Start()
 		return
 	}
