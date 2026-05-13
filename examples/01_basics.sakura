@@ -1,28 +1,29 @@
 -- Sakura basics: variables, arithmetic, control flow, the standard
 -- value types. Run with:  sakura examples/01_basics.sakura
-
 local greeting = "hello"
 local count = 3
 local emphatic = true
 
 if emphatic then
-    print(greeting .. "!")
+  print(greeting .. "!")
 else
-    print(greeting)
+  print(greeting)
 end
 
 -- Numeric for, with optional step.
 local total = 0
 for i = 1, count do
-    total = total + i
+  total = total + i
 end
 print("sum 1.." .. count .. " =", total)
 
 -- While + break.
 local n = 10
 while n > 0 do
-    if n == 5 then break end
-    n = n - 1
+  if n == 5 then
+    break
+  end
+  n = n - 1
 end
 print("stopped at", n)
 
