@@ -1,0 +1,23 @@
+-- Compound assignment operators.
+-- `x op= e` desugars to `x = x op e` at parse time.
+
+local count = 10
+count += 3       -- 13
+count -= 5       -- 8
+count *= 4       -- 32
+count /= 2       -- 16.0   (/ always produces a float in Lua 5.4)
+print(count)
+
+-- Bitwise compounds (integer operands).
+local mask = 0x0F
+mask |= 0x30     -- 0x3F
+mask &= 0x3C     -- 0x3C
+mask <<= 2       -- 0xF0
+mask >>= 1       -- 0x78
+print(mask)
+
+-- Works on table fields too. Note: the index is evaluated twice for v1.
+local t = { hits = 0 }
+t.hits += 1
+t.hits += 2
+print(t.hits)    -- 3

@@ -97,6 +97,11 @@ func (l *Lexer) nextToken() token.Token {
 
 	switch l.ch {
 	case '+':
+		if l.peekChar() == '=' {
+			l.readChar()
+			return l.makeToken(token.PlusAssign, "+=", line)
+		}
+
 		return l.singleToken(token.Plus, "+")
 	case '-':
 		if l.peekChar() == '-' {
@@ -105,6 +110,10 @@ func (l *Lexer) nextToken() token.Token {
 			l.FSM.Event(l.ctx, evDone)
 			return l.nextToken()
 		}
+		if l.peekChar() == '=' {
+			l.readChar()
+			return l.makeToken(token.MinusAssign, "-=", line)
+		}
 		if l.peekChar() == '>' {
 			l.readChar()
 			return l.makeToken(token.Arrow, "->", line)
@@ -112,8 +121,16 @@ func (l *Lexer) nextToken() token.Token {
 
 		return l.singleToken(token.Minus, "-")
 	case '*':
+		if l.peekChar() == '=' {
+			l.readChar()
+			return l.makeToken(token.MulAssign, "*=", line)
+		}
 		return l.singleToken(token.Asterisk, "*")
 	case '/':
+		if l.peekChar() == '=' {
+			l.readChar()
+			return l.makeToken(token.DivAssign, "/=", line)
+		}
 		if l.peekChar() == '/' {
 			l.readChar()
 			return l.makeToken(token.FloorDiv, "//", line)
@@ -126,8 +143,16 @@ func (l *Lexer) nextToken() token.Token {
 	case '#':
 		return l.singleToken(token.Hash, "#")
 	case '&':
+		if l.peekChar() == '=' {
+			l.readChar()
+			return l.makeToken(token.AndAssign, "&=", line)
+		}
 		return l.singleToken(token.Ampersand, "&")
 	case '|':
+		if l.peekChar() == '=' {
+			l.readChar()
+			return l.makeToken(token.OrAssign, "|=", line)
+		}
 		return l.singleToken(token.Pipe, "|")
 	case '~':
 		if l.peekChar() == '=' {
@@ -141,7 +166,11 @@ func (l *Lexer) nextToken() token.Token {
 			return l.makeToken(token.LTE, "<=", line)
 		}
 		if l.peekChar() == '<' {
-			l.readChar()
+			l.readChar() // consume the second '<'
+			if l.peekChar() == '=' {
+				l.readChar() // consume '='
+				return l.makeToken(token.LShiftAssign, "<<=", line)
+			}
 			return l.makeToken(token.LShift, "<<", line)
 		}
 		return l.singleToken(token.LT, "<")
@@ -151,7 +180,11 @@ func (l *Lexer) nextToken() token.Token {
 			return l.makeToken(token.GTE, ">=", line)
 		}
 		if l.peekChar() == '>' {
-			l.readChar()
+			l.readChar() // consume the second '>'
+			if l.peekChar() == '=' {
+				l.readChar() // consume '='
+				return l.makeToken(token.RShiftAssign, ">>=", line)
+			}
 			return l.makeToken(token.RShift, ">>", line)
 		}
 		return l.singleToken(token.GT, ">")

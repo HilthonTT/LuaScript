@@ -427,6 +427,9 @@ func (p *Parser) parseExprOrAssignStatement() ast.Statement {
 		return nil
 	}
 
+	if op, ok := compoundOps[p.curToken.Type]; ok {
+		return p.parseCompoundAssignStatement(tok, first, op)
+	}
 	if p.curTokenIs(token.Assign) || p.curTokenIs(token.Comma) {
 		return p.parseAssignmentStatement(tok, first)
 	}
@@ -440,6 +443,40 @@ func (p *Parser) parseExprOrAssignStatement() ast.Statement {
 		"syntax error: expression %q is not a valid statement (Lua only allows function calls). Line: %d",
 		first.String(), tok.Line)
 	return nil
+}
+
+// parseCompoundAssignStatement desugars `target op= rhs` into a regular
+// AssignStatement of the form `target = target op rhs`. The cursor on
+// entry is on the compound operator token; `binOp` is the binary operator
+// string (e.g. "+", "<<") to use in the synthesised BinaryExpression.
+//
+// Caveat: for IndexExpression targets, this duplicates the object and
+// key expressions. If those have side effects (e.g. `t[f()] += 1`),
+// they will be evaluated twice. Acceptable for v1 — matches Luau's
+// own initial implementation.
+func (p *Parser) parseCompoundAssignStatement(tok token.Token, target ast.Expression, binOp string) ast.Statement {
+	if !isAssignTarget(target) {
+		p.errorf(errors.InvalidAssignmentError,
+			"invalid assignment target %q. Line: %d", target.String(), tok.Line)
+		return nil
+	}
+	opTok := p.curToken
+	p.nextToken() // consume the compound op
+	rhs := p.parseExpression()
+	if rhs == nil {
+		return nil
+	}
+	combined := &ast.BinaryExpression{
+		BaseNode: baseAt(opTok),
+		Op:       binOp,
+		Left:     target,
+		Right:    rhs,
+	}
+	return &ast.AssignStatement{
+		BaseNode: baseAt(tok),
+		Targets:  []ast.Expression{target},
+		Values:   []ast.Expression{combined},
+	}
 }
 
 func (p *Parser) parseAssignmentStatement(tok token.Token, first ast.Expression) ast.Statement {

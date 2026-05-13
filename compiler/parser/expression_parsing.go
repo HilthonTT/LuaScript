@@ -98,6 +98,7 @@ func (p *Parser) parsePrefix() ast.Expression {
 	case token.Minus, token.Not, token.Hash, token.Tilde:
 		return p.parseUnaryExpression()
 	}
+
 	p.errorf(errors.SyntaxError,
 		"unexpected token %s(%q) at start of expression. Line: %d",
 		p.curToken.Type, p.curToken.Literal, p.curToken.Line)

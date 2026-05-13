@@ -30,6 +30,16 @@ const (
 	FloorDiv = "//"
 	Hash     = "#"
 
+	// Compound assignement
+	PlusAssign   = "+="
+	MinusAssign  = "-="
+	MulAssign    = "*="
+	DivAssign    = "/="
+	OrAssign     = "|="
+	AndAssign    = "&="
+	LShiftAssign = "<<="
+	RShiftAssign = ">>="
+
 	// Bitwise
 	Ampersand = "&"
 	Pipe      = "|"
