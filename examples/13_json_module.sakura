@@ -1,0 +1,17 @@
+--!nocheck
+local json = require("json")
+
+print("=== JSON Module Test ===")
+print("VERSION:", json.VERSION)
+print()
+
+local value = setmetatable({
+    first_name = "John",
+    last_name = "Doe",
+})
+local encoded_value = json.encode(value)
+print(encoded_value)
+
+local decoded_value = json.decode(encoded_value)
+print(decoded_value.first_name)
+print(decoded_value.last_name)
