@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/chzyer/readline"
@@ -73,6 +74,11 @@ func (r *REPL) RunFile(path string) {
 		os.Exit(1)
 	}
 	v := vm.New()
+	// Let `require` resolve modules sitting next to the script, not just
+	// ones under the process's cwd.
+	if abs, aerr := filepath.Abs(path); aerr == nil {
+		v.AddScriptDir(filepath.Dir(abs))
+	}
 	r.runPostInits(v)
 	// chunks[0] is the main chunk; nested function protos follow and are
 	// reached through the main chunk's Protos table at runtime.

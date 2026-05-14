@@ -141,10 +141,6 @@ func addUpvalue(ctx *funcCtx, name string, inStack bool, index int) int {
 	return len(ctx.upvals) - 1
 }
 
-// ---------------------------------------------------------------------------
-// Indexing
-// ---------------------------------------------------------------------------
-
 func (g *Generator) compileIndexLoad(is *InstructionSet, e *ast.IndexExpression) {
 	g.compileExpression(is, e.Object)
 	if e.IsDot {
@@ -173,10 +169,6 @@ func (g *Generator) compileIndexStorePrep(is *InstructionSet, e *ast.IndexExpres
 	return false, ""
 }
 
-// ---------------------------------------------------------------------------
-// Calls
-// ---------------------------------------------------------------------------
-
 func (g *Generator) compileCall(is *InstructionSet, e *ast.CallExpression, nresults int) {
 	g.compileExpression(is, e.Func)
 	g.compileCallArgs(is, e.Args, e.Line())
@@ -184,7 +176,7 @@ func (g *Generator) compileCall(is *InstructionSet, e *ast.CallExpression, nresu
 }
 
 func (g *Generator) compileMethodCall(is *InstructionSet, e *ast.MethodCallExpression, nresults int) {
-	g.compileExpression(is, e.Object) // [..., obj]
+	g.compileExpression(is, e.Object)   // [..., obj]
 	is.define(Self, e.Line(), e.Method) // [..., method, obj]
 	g.compileCallArgs(is, e.Args, e.Line())
 	is.define(Call, e.Line(), len(e.Args)+1, nresults)
@@ -211,10 +203,6 @@ func isMultiValue(e ast.Expression) bool {
 	return false
 }
 
-// ---------------------------------------------------------------------------
-// Function expression
-// ---------------------------------------------------------------------------
-
 func (g *Generator) compileFunctionExpression(is *InstructionSet, e *ast.FunctionExpression) {
 	parent := g.pushFunction(fmt.Sprintf("anon@%d", e.Line()), e.Params, e.IsVararg, e.Line())
 	if e.Body != nil {
@@ -223,10 +211,6 @@ func (g *Generator) compileFunctionExpression(is *InstructionSet, e *ast.Functio
 	idx := g.popFunction(parent, e.Line())
 	is.define(Closure, e.Line(), idx)
 }
-
-// ---------------------------------------------------------------------------
-// Table constructor
-// ---------------------------------------------------------------------------
 
 func (g *Generator) compileTableConstructor(is *InstructionSet, t *ast.TableConstructor) {
 	arrayHint, hashHint := 0, 0
@@ -266,10 +250,6 @@ func (g *Generator) compileTableConstructor(is *InstructionSet, t *ast.TableCons
 		}
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Operators
-// ---------------------------------------------------------------------------
 
 func (g *Generator) compileBinary(is *InstructionSet, e *ast.BinaryExpression) {
 	switch e.Op {
@@ -343,4 +323,3 @@ var unaryOpcodes = map[string]uint8{
 	"#":   Len,
 	"~":   BitNot,
 }
-

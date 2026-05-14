@@ -15,11 +15,17 @@
 --     collections       -> examples/stdlib/collections/init.sakura
 --     collections.list  -> examples/stdlib/collections/list.sakura
 --
--- Run from the project root:
+-- This module set lives under examples/stdlib/ rather than next to this
+-- file, so the automatic script-directory entry can't reach it — that is
+-- the point: SAKURA_LIB is how you point `require` at a bundled library
+-- root. Run from the project root (the `main` package lives in ./cmd):
 --
---   bash:    SAKURA_LIB=./examples/stdlib go run . ./examples/08_stdlib.sakura
---   pwsh:    $env:SAKURA_LIB="./examples/stdlib"; go run . ./examples/08_stdlib.sakura
---   cmd:     set SAKURA_LIB=./examples/stdlib && go run . ./examples/08_stdlib.sakura
+--   bash:  SAKURA_LIB=./examples/stdlib go run ./cmd ./examples/08_stdlib.sakura
+--   pwsh:  $env:SAKURA_LIB="./examples/stdlib"; go run ./cmd ./examples/08_stdlib.sakura
+--   cmd:   set SAKURA_LIB=./examples/stdlib && go run ./cmd ./examples/08_stdlib.sakura
+--
+-- With an installed `sakura` binary, drop the `go run ./cmd` and just run:
+--   SAKURA_LIB=./examples/stdlib sakura ./examples/08_stdlib.sakura
 
 -- 1. Flat module at the stdlib root.
 local strings = require("strings")

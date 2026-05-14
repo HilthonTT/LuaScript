@@ -293,45 +293,36 @@ func TestLineNumberAfterLongString(t *testing.T) {
 	}
 }
 
-func TestFSMIdleAfterEachToken(t *testing.T) {
+func TestSingleTokenInputsThenEOF(t *testing.T) {
 	inputs := []string{"foo", "42", "3.14", `"str"`, "[[x]]"}
 	for _, input := range inputs {
 		l := New(input)
 		l.NextToken()
-		if l.FSM.Current() != stateIdle {
-			t.Errorf("input %q: FSM not back to idle after token, got %q", input, l.FSM.Current())
+		if tok := l.NextToken(); tok.Type != token.EOF {
+			t.Errorf("input %q: expected EOF after the single token, got %q", input, tok.Type)
 		}
 	}
 }
 
-func TestFSMIntToFloat(t *testing.T) {
+func TestIntToFloatLexing(t *testing.T) {
 	l := New("1.5")
-
-	// Manually step through to observe the transition
-	if l.FSM.Current() != stateIdle {
-		t.Fatalf("expected idle before token, got %q", l.FSM.Current())
-	}
-
 	tok := l.NextToken()
-
 	if tok.Type != token.Float {
 		t.Fatalf("expected Float token, got %q", tok.Type)
 	}
-	if l.FSM.Current() != stateIdle {
-		t.Fatalf("expected idle after token, got %q", l.FSM.Current())
+	if tok.Literal != "1.5" {
+		t.Fatalf("expected literal 1.5, got %q", tok.Literal)
 	}
 }
 
-func TestFSMCommentToLong(t *testing.T) {
+func TestLongCommentAbsorbed(t *testing.T) {
 	l := New("--[[ comment ]] x")
-	l.NextToken() // absorbs the comment, should return 'x'
-
-	tok := l.NextToken()
-	if tok.Type != token.EOF {
-		t.Fatalf("expected EOF, got %q", tok.Type)
+	tok := l.NextToken() // absorbs the comment, should return 'x'
+	if tok.Type != token.Ident || tok.Literal != "x" {
+		t.Fatalf("expected Ident 'x' after long comment, got %q %q", tok.Type, tok.Literal)
 	}
-	if l.FSM.Current() != stateIdle {
-		t.Fatalf("expected idle, got %q", l.FSM.Current())
+	if tok := l.NextToken(); tok.Type != token.EOF {
+		t.Fatalf("expected EOF, got %q", tok.Type)
 	}
 }
 

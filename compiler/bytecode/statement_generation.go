@@ -84,10 +84,6 @@ func (g *Generator) compileStatement(is *InstructionSet, stmt ast.Statement) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Explist adjustment — emits values to fill exactly `target` stack slots.
-// ---------------------------------------------------------------------------
-
 // emitExplistTo pushes exactly `target` values for the given expression list.
 // The last expression, if it is a multi-value producer, is expanded to fill
 // remaining slots; otherwise it contributes one value and the rest are nils.
@@ -122,10 +118,6 @@ func (g *Generator) emitExplistTo(is *InstructionSet, exprs []ast.Expression, ta
 		}
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Assignment
-// ---------------------------------------------------------------------------
 
 func (g *Generator) compileAssign(is *InstructionSet, s *ast.AssignStatement) {
 	n := len(s.Targets)
@@ -169,10 +161,6 @@ func (g *Generator) compileAssign(is *InstructionSet, s *ast.AssignStatement) {
 
 	g.current.locals.closeScope()
 }
-
-// ---------------------------------------------------------------------------
-// Local declarations
-// ---------------------------------------------------------------------------
 
 func (g *Generator) compileLocal(is *InstructionSet, s *ast.LocalStatement) {
 	n := len(s.Names)
@@ -232,10 +220,6 @@ func (g *Generator) isReplTopLevel() bool {
 		len(g.current.locals.scopes) == 1
 }
 
-// ---------------------------------------------------------------------------
-// Function declarations (global and dotted/colon)
-// ---------------------------------------------------------------------------
-
 func (g *Generator) compileFunctionDecl(is *InstructionSet, s *ast.FunctionDeclaration) {
 	// For colon notation we conventionally splice an implicit `self`
 	// parameter at the front. The AST records MethodName but NOT the
@@ -283,10 +267,6 @@ func (g *Generator) compileFunctionDecl(is *InstructionSet, s *ast.FunctionDecla
 		is.define(SetField, s.Line(), setKey)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Control flow
-// ---------------------------------------------------------------------------
 
 func (g *Generator) compileIf(is *InstructionSet, s *ast.IfStatement) {
 	endAnchor := &anchor{}

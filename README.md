@@ -18,24 +18,26 @@ The implementation is a clean-room rewrite focused on being readable end-to-end:
 
 ## Quick start
 
+The `main` package lives in `./cmd`, so run the interpreter with `go run ./cmd`:
+
 ```sh
 # Run the REPL
-go run .
+go run ./cmd
 
 # Run a script
-go run . examples/05_types.sakura
+go run ./cmd examples/05_types.sakura
 
 # Force the REPL even when a script is supplied
-go run . -i examples/05_types.sakura
+go run ./cmd -i examples/05_types.sakura
 
 # Print version
-go run . -v
+go run ./cmd -v
 ```
 
 Build a binary:
 
 ```sh
-go build -o sakura .
+go build -o sakura ./cmd
 ./sakura examples/01_basics.sakura
 ```
 
@@ -45,7 +47,7 @@ go build -o sakura .
 
 ```sh
 # Build sakura first, then have it bundle your script:
-go build -o sakura .
+go build -o sakura ./cmd
 ./sakura build -o hello.exe examples/01_basics.sakura
 ./hello.exe                # runs the embedded script
 ```
@@ -92,7 +94,8 @@ For a break from the language work, `sakura` ships with a small ASCII-bonsai gro
 
 ## Examples
 
-A walk-through set lives in `examples/`. Each file is runnable with `sakura examples/<file>`:
+A walk-through set lives in `examples/`. Most are runnable straight from the
+repo root with `go run ./cmd examples/<file>`:
 
 | File | What it shows |
 | ---- | ------------- |
@@ -102,6 +105,52 @@ A walk-through set lives in `examples/`. Each file is runnable with `sakura exam
 | `04_coroutines.sakura` | `coroutine.create` / `resume` / `yield` / `wrap` |
 | `05_types.sakura` | the full Luau-style type surface — primitives, optionals, unions, function types, type aliases, type assertions |
 | `06_strict_mode.sakura` | `--!strict` enforcement and what it rejects |
+| `07_modules.sakura` | `require`, `package.path`, `package.loaded`, `searchpath` — imports `mathx.sakura` next to it |
+| `08_stdlib.sakura` | a bundled-library set loaded via `$SAKURA_LIB` — flat modules, dotted submodules, package `init` files |
+| `09_native_module.sakura` | importing a host-provided native module (`native/db`) |
+| `10_os_module.sakura` | importing a host-provided native module (`native/os`) |
+| `11_compounds.sakura` | compound assignment operators (`x op= e`) |
+| `12_math_module.sakura` | the `math` native module |
+| `13_json_module.sakura` | the `json` native module |
+
+### Running the module examples
+
+`require` resolves a module name against `package.path`. The two entry kinds
+that matter for these examples, searched in this order:
+
+1. **The directory of the script being run** — added automatically. So a
+   module sitting next to your script is always found, no matter which
+   directory you launched from. This is why `07_modules.sakura` just works:
+
+   ```sh
+   go run ./cmd examples/07_modules.sakura     # mathx.sakura is found next to it
+   ```
+
+2. **`$SAKURA_LIB`** — a bundled-library root, read once at startup. It is
+   *not* on the path unless you set it. `08_stdlib.sakura` is the demo for
+   exactly this: its modules live under `examples/stdlib/` (not next to the
+   script), so it needs `SAKURA_LIB` pointed there. Run it from the repo root:
+
+   ```sh
+   # bash
+   SAKURA_LIB=./examples/stdlib go run ./cmd examples/08_stdlib.sakura
+   # PowerShell
+   $env:SAKURA_LIB="./examples/stdlib"; go run ./cmd examples/08_stdlib.sakura
+   # cmd.exe
+   set SAKURA_LIB=./examples/stdlib && go run ./cmd examples/08_stdlib.sakura
+   ```
+
+   `$SAKURA_LIB` is resolved relative to your current working directory — if
+   you run from somewhere other than the repo root, adjust the path
+   accordingly (e.g. `../examples/stdlib` from inside `cmd/`).
+
+Between the two, the plain cwd-relative entries (`./?.sakura`, `./src/?.sakura`,
+…) are searched as well, so a module under your working directory is still
+found even when it sits nowhere near the script.
+
+The native-module examples (`09`, `10`, `12`, `13`) pull their modules from
+the host via `package.preload`, so they need neither a path entry nor
+`$SAKURA_LIB`.
 
 A taste, in case you don't want to open files:
 
@@ -197,7 +246,7 @@ These are explicitly named in error messages where relevant, so users hit a clea
 
 ## REPL
 
-Launch with `go run .` (no arguments). Built-in commands:
+Launch with `go run ./cmd` (no arguments). Built-in commands:
 
 | Command       | Effect                                            |
 | ------------- | ------------------------------------------------- |
@@ -249,7 +298,7 @@ type-error: Type "string" could not be converted into "number" at line 1
 ```
 .
 ├── compiler/
-│   ├── lexer/         token stream from source text (FSM-driven)
+│   ├── lexer/         token stream from source text
 │   ├── token/         token types and keyword table
 │   ├── parser/        recursive-descent parser, Pratt-style for expressions
 │   ├── ast/           AST node definitions (statements, expressions, types)
@@ -260,7 +309,7 @@ type-error: Type "string" could not be converted into "number" at line 1
 ├── repl/              interactive REPL (readline + engine wrapper)
 ├── examples/          runnable .sakura programs that double as tutorials
 ├── version/           version string
-└── main.go            CLI entrypoint
+└── cmd/               CLI entrypoint (main.go) + `sakura build` bundler
 ```
 
 The compiler is designed so each stage is independently testable and the AST is the only contract between parser, type checker, and bytecode generator. The VM never sees source text or types; the parser never sees instructions.

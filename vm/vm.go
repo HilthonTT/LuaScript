@@ -35,6 +35,20 @@ type VM struct {
 	frames   []*CallFrame
 	openUpvs []*Upvalue // sorted ascending by Index; head of the open-upvalue chain
 
+	// framePool recycles CallFrame structs. Frames are pushed here by
+	// unwindFrame once they are fully dead (popped off v.frames, stack
+	// truncated) and handed back out by callClosure. Recycling is safe
+	// across coroutines: a yielded coroutine keeps its *live* frames in its
+	// Thread snapshot and never returns them here — only unwound frames are
+	// pooled. This trims one heap allocation per call.
+	framePool []*CallFrame
+
+	// retScratch is a reused buffer for ferrying a frame's return values
+	// across unwindFrame (which truncates the stack and re-appends over the
+	// vacated region). Single-threaded VM execution means one return is
+	// fully processed before the next, so a single shared buffer is safe.
+	retScratch []Value
+
 	mode parser.Mode
 }
 
@@ -124,24 +138,21 @@ func (v *VM) callClosure(cl *Closure, args []Value, nresults int) {
 	// Reserve slot space for the function's declared locals beyond params.
 	// The main chunk's NumLocals is left at 0 by the bytecode generator
 	// (popFunction is the only writer and it never runs for the chunk), so
-	// fall back to a one-time scan of the instruction stream when needed.
-	numLocals := cl.Proto.NumLocals
-	if numLocals < computeMaxLocalSlots(cl.Proto) {
-		numLocals = computeMaxLocalSlots(cl.Proto)
-		cl.Proto.NumLocals = numLocals
+	// fall back to a one-time scan of the instruction stream. The result is
+	// cached on the proto via localsResolved — without that flag this scan
+	// would run on every single call (a full instruction-stream walk).
+	if !cl.Proto.LocalsResolved() {
+		if n := computeMaxLocalSlots(cl.Proto); n > cl.Proto.NumLocals {
+			cl.Proto.NumLocals = n
+		}
+		cl.Proto.MarkLocalsResolved()
 	}
+	numLocals := cl.Proto.NumLocals
 	for len(v.Stack)-base < numLocals {
 		v.push(nil)
 	}
 
-	frame := &CallFrame{
-		Closure:  cl,
-		IP:       0,
-		Base:     base,
-		Top:      len(v.Stack),
-		NResults: nresults,
-		Varargs:  varargs,
-	}
+	frame := v.acquireFrame(cl, base, len(v.Stack), nresults, varargs)
 	v.frames = append(v.frames, frame)
 	// Run until this frame (and everything it calls into) returns. The
 	// caller's frame is at frames[len-2], so we stop as soon as the depth
@@ -211,6 +222,34 @@ func (v *VM) localAt(f *CallFrame, i int) *Value {
 	return &v.Stack[f.Base+i]
 }
 
+// acquireFrame returns a CallFrame for a new activation, drawing from the
+// recycle pool when one is available. Every field is overwritten so a
+// recycled frame carries no state from its prior use.
+func (v *VM) acquireFrame(cl *Closure, base, top, nresults int, varargs []Value) *CallFrame {
+	n := len(v.framePool)
+	if n == 0 {
+		return &CallFrame{Closure: cl, Base: base, Top: top, NResults: nresults, Varargs: varargs}
+	}
+	f := v.framePool[n-1]
+	v.framePool = v.framePool[:n-1]
+	f.Closure = cl
+	f.IP = 0
+	f.Base = base
+	f.Top = top
+	f.NResults = nresults
+	f.Varargs = varargs
+	return f
+}
+
+// releaseFrame returns a fully-unwound frame to the recycle pool. The frame
+// must already be off v.frames and unreferenced; pointer fields are cleared
+// so the pooled frame does not pin a closure or varargs slice alive.
+func (v *VM) releaseFrame(f *CallFrame) {
+	f.Closure = nil
+	f.Varargs = nil
+	v.framePool = append(v.framePool, f)
+}
+
 // findOrCreateOpenUpvalue returns the open upvalue tracking stack[index],
 // creating one if none exists. Open upvalues are kept in v.openUpvs sorted
 // by ascending Index so close-on-return can scan from the tail.
@@ -249,7 +288,7 @@ func (v *VM) exec(entryDepth int) {
 		f := v.frames[len(v.frames)-1]
 		if f.IP >= len(f.Closure.Proto.Instructions) {
 			// Defensive — every well-formed proto ends with Leave/Return.
-			v.unwindFrame(f)
+			v.unwindFrame(f, nil)
 			continue
 		}
 		ins := f.Closure.Proto.Instructions[f.IP]
@@ -273,11 +312,14 @@ func (v *VM) dispatch(f *CallFrame, ins *bytecode.Instruction) {
 	case bytecode.LoadFalse:
 		v.push(false)
 	case bytecode.LoadInt:
-		v.push(ins.Params[0].(int64))
+		// Params[0] already holds the int64 boxed in an interface; push it
+		// straight through so the same box is shared by every execution of
+		// this instruction instead of re-boxing (a 386 heap alloc) per push.
+		v.push(ins.Params[0])
 	case bytecode.LoadFloat:
-		v.push(ins.Params[0].(float64))
+		v.push(ins.Params[0])
 	case bytecode.LoadString:
-		v.push(ins.Params[0].(string))
+		v.push(ins.Params[0])
 	case bytecode.LoadVararg:
 		count := ins.Params[0].(int)
 		va := f.Varargs
@@ -642,18 +684,21 @@ func (v *VM) pushResults(results []Value, nresults int) {
 // doReturn unwinds the active frame, placing its returned values where the
 // caller expects them.
 func (v *VM) doReturn(f *CallFrame, count int) {
-	// Collect return values from the top of the stack.
-	var rets []Value
+	// Locate the return values on the stack.
+	var start int
 	if count < 0 {
 		// -1: every value pushed past the locals area is a return value.
-		startBase := f.Base + f.Closure.Proto.NumLocals
-		rets = append(rets, v.Stack[startBase:]...)
+		start = f.Base + f.Closure.Proto.NumLocals
 	} else {
 		// Top `count` stack entries are the return values.
-		start := len(v.Stack) - count
-		rets = append(rets, v.Stack[start:]...)
+		start = len(v.Stack) - count
 	}
-	v.unwindFrame(f, rets...)
+	// Copy them into the reused scratch buffer before unwindFrame truncates
+	// the stack and pushResults re-appends over the vacated region. The
+	// scratch buffer has its own backing array, so the copy survives the
+	// truncate/re-append without a fresh allocation per return.
+	v.retScratch = append(v.retScratch[:0], v.Stack[start:]...)
+	v.unwindFrame(f, v.retScratch)
 }
 
 // unwindFrame closes any open upvalues at-or-above this frame's base, pops
@@ -665,11 +710,12 @@ func (v *VM) doReturn(f *CallFrame, count int) {
 // pushResults — Run sets NResults=0 so nothing is left behind, while
 // CallValue sets NResults=-1 so all returned values land on the stack
 // where the caller can read them via Stack[base:].
-func (v *VM) unwindFrame(f *CallFrame, rets ...Value) {
+func (v *VM) unwindFrame(f *CallFrame, rets []Value) {
 	v.closeUpvaluesAbove(f.Base)
 	v.Stack = v.Stack[:f.Base]
 	v.frames = v.frames[:len(v.frames)-1]
 	v.pushResults(rets, f.NResults)
+	v.releaseFrame(f)
 }
 
 // ---------------------------------------------------------------------------
@@ -709,9 +755,9 @@ func (v *VM) forPrep(f *CallFrame, baseSlot, target int) {
 		if st == 0 {
 			panic(LuaError("'for' step is zero"))
 		}
-		*v.localAt(f, baseSlot) = s - st
-		*v.localAt(f, baseSlot+1) = l
-		*v.localAt(f, baseSlot+2) = st
+		*v.localAt(f, baseSlot) = internInt(s - st)
+		*v.localAt(f, baseSlot+1) = internInt(l)
+		*v.localAt(f, baseSlot+2) = internInt(st)
 	}
 	f.IP = target
 }
@@ -740,7 +786,7 @@ func (v *VM) forLoop(f *CallFrame, baseSlot, target int) {
 	s, _ := ToInteger(step)
 	i += s
 	if (s > 0 && i <= l) || (s < 0 && i >= l) {
-		*v.localAt(f, baseSlot) = i
+		*v.localAt(f, baseSlot) = internInt(i)
 		f.IP = target
 	}
 }

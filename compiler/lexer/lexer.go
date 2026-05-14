@@ -1,36 +1,9 @@
 package lexer
 
 import (
-	"context"
 	"strings"
 
 	"github.com/hilthontt/sakura-lang/compiler/token"
-	"github.com/looplab/fsm"
-)
-
-// FSM States
-const (
-	stateIdle        = "idle"
-	stateIdent       = "ident"
-	stateInteger     = "integer"
-	stateFloat       = "float"
-	stateString      = "string"
-	stateLongString  = "long_string"
-	stateComment     = "comment"
-	stateLongComment = "long_comment"
-)
-
-// FSM Events
-const (
-	evStartIdent      = "start_ident"
-	evStartInt        = "start_int"
-	evStartFloat      = "start_float"
-	evStartString     = "start_string"
-	evStartLongString = "start_long_string"
-	evStartComment    = "start_comment"
-	evIntToFloat      = "int_to_float"
-	evCommentToLong   = "comment_to_long"
-	evDone            = "done"
 )
 
 type Lexer struct {
@@ -39,8 +12,6 @@ type Lexer struct {
 	readPosition int
 	ch           rune
 	line         int
-	FSM          *fsm.FSM
-	ctx          context.Context
 
 	// ModeDirective captures a Luau-style type-mode pragma found in a
 	// leading comment of the file: "strict", "nonstrict", or "nocheck".
@@ -55,31 +26,8 @@ func New(input string) *Lexer {
 	l := &Lexer{
 		input: []rune(input),
 		line:  1,
-		ctx:   context.Background(),
 	}
-
-	l.FSM = fsm.NewFSM(
-		stateIdle,
-		fsm.Events{
-			{Name: evStartIdent, Src: []string{stateIdle}, Dst: stateIdent},
-			{Name: evStartInt, Src: []string{stateIdle}, Dst: stateInteger},
-			{Name: evStartFloat, Src: []string{stateIdle}, Dst: stateFloat},
-			{Name: evStartString, Src: []string{stateIdle}, Dst: stateString},
-			{Name: evStartLongString, Src: []string{stateIdle}, Dst: stateLongString},
-			{Name: evStartComment, Src: []string{stateIdle}, Dst: stateComment},
-			{Name: evIntToFloat, Src: []string{stateInteger}, Dst: stateFloat},
-			{Name: evCommentToLong, Src: []string{stateComment}, Dst: stateLongComment},
-			{Name: evDone, Src: []string{
-				stateIdent, stateInteger, stateFloat,
-				stateString, stateLongString,
-				stateComment, stateLongComment,
-			}, Dst: stateIdle},
-		},
-		fsm.Callbacks{},
-	)
-
 	l.readChar()
-
 	return l
 }
 
@@ -105,9 +53,7 @@ func (l *Lexer) nextToken() token.Token {
 		return l.singleToken(token.Plus, "+")
 	case '-':
 		if l.peekChar() == '-' {
-			l.FSM.Event(l.ctx, evStartComment)
-			l.absorbComment() // may internally fire evCommentToLong
-			l.FSM.Event(l.ctx, evDone)
+			l.absorbComment()
 			return l.nextToken()
 		}
 		if l.peekChar() == '=' {
@@ -205,10 +151,7 @@ func (l *Lexer) nextToken() token.Token {
 		}
 		if isDigit(l.peekChar()) {
 			// .5 case - starts as float immediately
-			l.FSM.Event(l.ctx, evStartFloat)
-			tok := l.readDotFloat(line)
-			l.FSM.Event(l.ctx, evDone)
-			return tok
+			return l.readDotFloat(line)
 		}
 		return l.singleToken(token.Dot, ".")
 	case ':':
@@ -237,32 +180,23 @@ func (l *Lexer) nextToken() token.Token {
 		if l.peekChar() == '[' {
 			l.readChar()
 			l.readChar()
-			l.FSM.Event(l.ctx, evStartLongString)
 			lit := l.readLongString()
-			l.FSM.Event(l.ctx, evDone)
 			return token.Token{Type: token.String, Literal: lit, Line: line}
 		}
 		return l.singleToken(token.LBracket, "[")
 	case '"', '\'':
-		l.FSM.Event(l.ctx, evStartString)
 		lit := l.readString(l.ch)
-		l.FSM.Event(l.ctx, evDone)
 		return token.Token{Type: token.String, Literal: lit, Line: line}
 	case 0:
 		return token.Token{Type: token.EOF, Literal: "", Line: line}
 	default:
 		if isLetter(l.ch) {
-			l.FSM.Event(l.ctx, evStartIdent)
 			lit := string(l.readIdentifier())
-			l.FSM.Event(l.ctx, evDone)
 			typ := token.LookupIdent(lit)
 			return token.Token{Type: typ, Literal: lit, Line: line}
 		}
 		if isDigit(l.ch) {
-			l.FSM.Event(l.ctx, evStartInt)
-			tok := l.readNumberToken(line)
-			l.FSM.Event(l.ctx, evDone)
-			return tok
+			return l.readNumberToken(line)
 		}
 		tok := token.Token{Type: token.Illegal, Literal: string(l.ch), Line: line}
 		l.readChar()
@@ -270,8 +204,8 @@ func (l *Lexer) nextToken() token.Token {
 	}
 }
 
-// readNumberToken handles integers, floats, and hex. Called when l.ch is a digit.
-// Fires evIntToFloat internally if a '.' is encountered mid-read.
+// readNumberToken handles integers, floats, and hex. Called when l.ch is a
+// digit; an integer becomes a float if a '.' is encountered mid-read.
 func (l *Lexer) readNumberToken(line int) token.Token {
 	// Hex: 0x...
 	if l.ch == '0' && (l.peekChar() == 'x' || l.peekChar() == 'X') {
@@ -291,8 +225,7 @@ func (l *Lexer) readNumberToken(line int) token.Token {
 
 	// Integer becomes float on '.'
 	if l.ch == '.' && isDigit(l.peekChar()) {
-		l.FSM.Event(l.ctx, evIntToFloat) // interger -> float
-		l.readChar()                     // consume '.'
+		l.readChar() // consume '.'
 		for isDigit(l.ch) {
 			l.readChar()
 		}
@@ -328,7 +261,7 @@ func (l *Lexer) readExponent() {
 }
 
 // absorbComment skips a Lua comment. Called when l.ch is on the first '-'
-// and peekChar() == '-'. Fires evCommentToLong internally for --[[ style.
+// and peekChar() == '-'. Handles both short and --[[ long comment styles.
 //
 // A Luau-style mode directive (`--!strict`, `--!nonstrict`, `--!nocheck`)
 // appearing in a comment that comes BEFORE any real token has been emitted
@@ -338,7 +271,6 @@ func (l *Lexer) absorbComment() {
 	l.readChar() // move past --
 
 	if l.ch == '[' && l.peekChar() == '[' {
-		l.FSM.Event(l.ctx, evCommentToLong) // comment → long_comment
 		l.readChar()
 		l.readChar()
 		l.readLongString()
@@ -370,7 +302,7 @@ func (l *Lexer) absorbComment() {
 
 // readLongString reads a [[...]] long string. Called after [[ has been consumed.
 func (l *Lexer) readLongString() string {
-	result := ""
+	var b strings.Builder
 
 	for {
 		if l.ch == 0 {
@@ -386,11 +318,11 @@ func (l *Lexer) readLongString() string {
 		if l.ch == '\n' {
 			l.line++
 		}
-		result += string(l.ch)
+		b.WriteRune(l.ch)
 		l.readChar()
 	}
 
-	return result
+	return b.String()
 }
 
 func (l *Lexer) readIdentifier() []rune {
@@ -409,14 +341,14 @@ func (l *Lexer) readString(ch rune) string {
 		return ""
 	}
 
-	result := ""
+	var b strings.Builder
 
 	for {
 		if isEscapedChar(l.ch) {
-			result += escapedCharResult(l.peekChar())
+			b.WriteString(escapedCharResult(l.peekChar()))
 			l.readChar()
 		} else {
-			result += string(l.ch)
+			b.WriteRune(l.ch)
 		}
 		l.readChar()
 		if l.ch == ch || l.peekChar() == 0 {
@@ -426,7 +358,7 @@ func (l *Lexer) readString(ch rune) string {
 
 	l.readChar() // move past closing quote
 
-	return result
+	return b.String()
 }
 
 func (l *Lexer) skipWhitespace() {

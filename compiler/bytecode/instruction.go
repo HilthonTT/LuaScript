@@ -229,7 +229,19 @@ type InstructionSet struct {
 	Upvalues  []UpvalueDesc
 	Constants []any             // reserved for future constant-pool use
 	Protos    []*InstructionSet // nested function instruction sets
+
+	// localsResolved is set true by the VM once it has reconciled NumLocals
+	// against an instruction-stream scan (see vm.callClosure). It exists so
+	// that the one-time scan — needed because the main chunk's NumLocals is
+	// left at 0 by the generator — does not repeat on every call.
+	localsResolved bool
 }
+
+// LocalsResolved reports whether the VM has already reconciled NumLocals.
+func (is *InstructionSet) LocalsResolved() bool { return is.localsResolved }
+
+// MarkLocalsResolved records that NumLocals is now authoritative.
+func (is *InstructionSet) MarkLocalsResolved() { is.localsResolved = true }
 
 // UpvalueDesc describes how a function captures one upvalue.
 //

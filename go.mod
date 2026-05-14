@@ -6,7 +6,6 @@ require (
 	github.com/chzyer/readline v1.5.1
 	github.com/gdamore/tcell/v3 v3.3.0
 	github.com/lib/pq v1.12.3
-	github.com/looplab/fsm v1.0.3
 	github.com/mattn/go-runewidth v0.0.23
 )
 

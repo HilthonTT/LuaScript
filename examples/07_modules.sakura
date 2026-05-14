@@ -1,14 +1,16 @@
 -- File / module importing.
 --
--- Run this example from the `examples/` directory so the cwd-relative
--- search path entries (`./?.sakura`, `./src/?.sakura`, …) can find
--- `mathx.sakura` sitting next to this file:
+-- `require` searches `package.path`, reads the matching file, compiles
+-- it, runs it once, and caches the chunk's return value in
+-- `package.loaded`. The directory of the script being run is added to
+-- `package.path` automatically, so this example finds `mathx.sakura`
+-- sitting next to it no matter which directory you launch it from:
 --
---     cd examples
---     sakura 07_modules.sakura
+--     sakura examples/07_modules.sakura        # from the repo root
+--     cd examples && sakura 07_modules.sakura  # or from examples/
 --
--- `require` searches `package.path`, reads the file, compiles it, runs
--- it once, and caches the chunk's return value in `package.loaded`.
+-- (The plain cwd-relative entries `./?.sakura`, `./src/?.sakura`, … are
+-- still searched too, after the script-directory entries.)
 
 local mathx = require("mathx")
 

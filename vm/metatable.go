@@ -78,6 +78,20 @@ func (v *VM) callMM(fn Value, args ...Value) Value {
 // `op` is the operator string used by the existing intArith/floatArith
 // helpers in integer.go / float.go.
 func (v *VM) arithMM(a, b Value, op, event string) Value {
+	// Fast path: operands already the same numeric subtype — the common
+	// case. Skips arithMM's coercibility probe AND the second ToNumber pass
+	// inside arith(). Mixed int/float and string-coercible operands fall
+	// through to the general path, which still handles promotion.
+	switch x := a.(type) {
+	case int64:
+		if y, ok := b.(int64); ok {
+			return intArith(x, y, op)
+		}
+	case float64:
+		if y, ok := b.(float64); ok {
+			return floatArith(x, y, op)
+		}
+	}
 	_, _, _, aOk := ToNumber(a)
 	_, _, _, bOk := ToNumber(b)
 	if aOk && bOk {
@@ -94,6 +108,24 @@ func (v *VM) arithMM(a, b Value, op, event string) Value {
 
 // arithDivMM handles `/`, which is float-only at the raw level.
 func (v *VM) arithDivMM(a, b Value) Value {
+	// Fast path: both operands are numbers — divide directly instead of
+	// running each through ToFloat twice (once to probe, once in arithDiv).
+	switch x := a.(type) {
+	case int64:
+		switch y := b.(type) {
+		case int64:
+			return float64(x) / float64(y)
+		case float64:
+			return float64(x) / y
+		}
+	case float64:
+		switch y := b.(type) {
+		case int64:
+			return x / float64(y)
+		case float64:
+			return x / y
+		}
+	}
 	if _, aOk := ToFloat(a); aOk {
 		if _, bOk := ToFloat(b); bOk {
 			return arithDiv(a, b)

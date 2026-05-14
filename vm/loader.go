@@ -21,6 +21,7 @@ package vm
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/hilthontt/sakura-lang/compiler"
@@ -66,9 +67,36 @@ func registerLoader(v *VM) {
 	v.Globals.Set("load", &GoFunc{Name: "load", Fn: builtinLoad})
 }
 
-// ---------------------------------------------------------------------------
-// require
-// ---------------------------------------------------------------------------
+// AddScriptDir prepends search rules rooted at `dir` to package.path so
+// `require` can find modules sitting next to the script being run, no
+// matter what the process's current working directory is. The CLI calls
+// this once it knows the main script's location; the REPL (no script) and
+// the bundled .exe (script lives in the binary, not on disk) never do.
+//
+// Entries are prepended so a module next to the script shadows a
+// same-named one in the cwd — "modules near me win", the least-surprising
+// default. A no-op if the loader/package table is missing or dir is empty.
+func (v *VM) AddScriptDir(dir string) {
+	if dir == "" {
+		return
+	}
+	pkg, ok := v.Globals.Get("package").(*Table)
+	if !ok {
+		return
+	}
+	// Forward slashes to match baseSearchPath's template style and Lua's
+	// package.config dirsep; os.Stat accepts either on Windows anyway.
+	dir = strings.TrimRight(filepath.ToSlash(dir), "/")
+	prefix := dir + "/?.sakura;" +
+		dir + "/?.lua;" +
+		dir + "/?/init.sakura;" +
+		dir + "/?/init.lua"
+	if cur, _ := pkg.Get("path").(string); cur != "" {
+		pkg.Set("path", prefix+";"+cur)
+		return
+	}
+	pkg.Set("path", prefix)
+}
 
 func builtinRequire(v *VM, args []Value) []Value {
 	name := StringArg("require", 1, args)
@@ -133,10 +161,6 @@ func pickRet(results []Value) Value {
 	return true
 }
 
-// ---------------------------------------------------------------------------
-// package.searchpath
-// ---------------------------------------------------------------------------
-
 // searchpath substitutes the (sep→rep)-rewritten module name into each
 // `;`-separated template in `path`, and returns the first existing file.
 // On miss it returns ("", "<\n\tno file 'X'>...") matching Lua's spec.
@@ -146,7 +170,7 @@ func searchpath(name, path, sep, rep string) (string, string) {
 		modPath = strings.ReplaceAll(modPath, sep, rep)
 	}
 	var tried strings.Builder
-	for _, tmpl := range strings.Split(path, ";") {
+	for tmpl := range strings.SplitSeq(path, ";") {
 		if tmpl == "" {
 			continue
 		}
@@ -172,10 +196,6 @@ func builtinSearchpath(_ *VM, args []Value) []Value {
 	}
 	return []Value{fpath}
 }
-
-// ---------------------------------------------------------------------------
-// loadfile / dofile / load
-// ---------------------------------------------------------------------------
 
 // builtinLoadfile compiles a file into a callable closure WITHOUT running
 // it. Returns (closure) on success, (nil, errmsg) on failure — matches
