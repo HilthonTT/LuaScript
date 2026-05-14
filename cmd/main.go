@@ -10,6 +10,7 @@ import (
 	"github.com/hilthontt/sakura-lang/bonsai"
 	"github.com/hilthontt/sakura-lang/formatter"
 	"github.com/hilthontt/sakura-lang/native/db"
+	"github.com/hilthontt/sakura-lang/native/math"
 	osNative "github.com/hilthontt/sakura-lang/native/os"
 	"github.com/hilthontt/sakura-lang/repl"
 	"github.com/hilthontt/sakura-lang/version"
@@ -95,6 +96,7 @@ func run(argv []string) int {
 	// non-REPL-mode VM) and `:reset` (rebuilt REPL VM) both get them.
 	r.AddPostInit(db.RegisterDBPreload)
 	r.AddPostInit(osNative.RegisterOSPreload)
+	r.AddPostInit(math.RegisterMathPayload)
 
 	// No script, or -i requested: drop into the REPL.
 	// NOTE: this preserves the original behavior where `-i file.sakura`

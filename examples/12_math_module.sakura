@@ -1,0 +1,52 @@
+--!nocheck
+local math = require("math")
+
+print("=== Math Module Test ===")
+print("VERSION:", math.VERSION)
+print("pi:", math.pi)
+print("huge:", math.huge)
+print("maxinteger:", math.maxinteger)
+print("mininteger:", math.mininteger)
+print()
+
+local x = -3.7
+local y = 5.2
+
+print("abs(-3.7)     =", math.abs(x))
+print("ceil(-3.7)    =", math.ceil(x))
+print("floor(-3.7)   =", math.floor(x))
+
+local intPart, fracPart = math.modf(x)
+print("modf(-3.7)    =", intPart, fracPart)
+print()
+
+print("cos(0)        =", math.cos(0))
+print("sin(0)        =", math.sin(0))
+print("tan(0)        =", math.tan(0))
+print()
+
+print("acos(1)       =", math.acos(1))
+print("asin(0)       =", math.asin(0))
+print("atan(1)       =", math.atan(1))
+print()
+
+print("deg(pi)       =", math.deg(math.pi))
+print("rad(180)      =", math.rad(180))
+print()
+
+print("exp(1)        =", math.exp(1))
+print("log(2.71828)  =", math.log(2.71828))
+print("sqrt(16)      =", math.sqrt(16))
+print()
+
+print("max(5.2, -3.7)=", math.max(y, x))
+print("min(5.2, -3.7)=", math.min(y, x))
+print("fmod(5.2, 2)  =", math.fmod(y, 2))
+print()
+
+print("tointeger(42.0) =", math.tointeger(42.0))
+print("ult(3, 5)     =", math.ult(3, 5))
+print("ult(5, 3)     =", math.ult(5, 3))
+print()
+
+print("random()      =", math.random())
