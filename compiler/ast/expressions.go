@@ -332,3 +332,81 @@ func joinExprs(exprs []Expression, sep string) string {
 	}
 	return strings.Join(parts, sep)
 }
+
+// WildcardPattern is `_` — matches anything, binds nothing. It is an error
+// for any arm after a wildcard to be reachable.
+type WildcardPattern struct {
+	*BaseNode
+}
+
+func (*WildcardPattern) patternNode()           {}
+func (w *WildcardPattern) TokenLiteral() string { return w.Token.Literal }
+func (*WildcardPattern) String() string         { return "_" }
+
+// LiteralPattern matches by structural equality against a constant. Value
+// must be one of *NilLiteral, *BooleanLiteral, *IntegerLiteral,
+// *FloatLiteral, *StringLiteral — the parser is responsible for that
+// constraint; the AST does not enforce it via the type system to avoid
+// inventing a duplicate "literal expression" interface.
+type LiteralPattern struct {
+	*BaseNode
+	Value Expression
+}
+
+func (*LiteralPattern) patternNode()            {}
+func (lp *LiteralPattern) TokenLiteral() string { return lp.Token.Literal }
+func (lp *LiteralPattern) String() string       { return lp.Value.String() }
+
+// BindingPattern matches anything and binds it to Name in the arm body
+// (and in any guard). Prefer WildcardPattern when no binding is needed —
+// a leading-underscore name is still a binding, not a wildcard.
+type BindingPattern struct {
+	*BaseNode
+	Name *Identifier
+}
+
+func (*BindingPattern) patternNode()            {}
+func (bp *BindingPattern) TokenLiteral() string { return bp.Token.Literal }
+func (bp *BindingPattern) String() string       { return bp.Name.String() }
+
+// MatchArm is one `pattern [if guard] -> body` clause. Token points at
+// the first token of the pattern so the typechecker can report
+// arm-specific errors (non-exhaustive, unreachable, type mismatch).
+type MatchArm struct {
+	*BaseNode
+	Pattern Pattern
+	Guard   Expression // optional `if expr` between pattern and `->`; nil when absent
+	Body    Expression
+}
+
+// MatchExpression is `match subject { p1 -> e1, p2 if g -> e2, _ -> e3 }`.
+// It is exhaustive: every possible value of Subject must be covered by some
+// arm (a trailing `_ -> ...` is the usual way to satisfy that).
+type MatchExpression struct {
+	*BaseNode
+	Subject Expression
+	Arms    []MatchArm
+}
+
+func (*MatchExpression) expressionNode()         {}
+func (me *MatchExpression) TokenLiteral() string { return me.Token.Literal }
+func (me *MatchExpression) String() string {
+	var out bytes.Buffer
+	out.WriteString("match ")
+	out.WriteString(me.Subject.String())
+	out.WriteString(" { ")
+	for i, arm := range me.Arms {
+		if i > 0 {
+			out.WriteString(", ")
+		}
+		out.WriteString(arm.Pattern.String())
+		if arm.Guard != nil {
+			out.WriteString(" if ")
+			out.WriteString(arm.Guard.String())
+		}
+		out.WriteString(" -> ")
+		out.WriteString(arm.Body.String())
+	}
+	out.WriteString(" }")
+	return out.String()
+}

@@ -64,9 +64,9 @@ func (p *Parser) parseTypeAtom() ast.TypeNode {
 			t = &ast.TypeName{BaseNode: baseAt(tok), Name: name}
 		}
 	default:
-		p.errorf(errors.SyntaxError,
-			"expected a type, got %s(%q). Line: %d",
-			p.curToken.Type, p.curToken.Literal, p.curToken.Line)
+		p.errorAt(p.curToken, errors.SyntaxError, "type",
+			"expected a type, got "+describeToken(p.curToken),
+			"valid types: a name (`number`, `MyAlias`), a function type `(A) -> B`, a table `{ x: T }`, or a union `A | B`")
 		return nil
 	}
 
@@ -164,9 +164,9 @@ func (p *Parser) parseParenOrFunctionType() ast.TypeNode {
 	// Plain parenthesized type — must be exactly one positional unnamed
 	// element, no vararg.
 	if isVararg || len(paramTypes) != 1 || (len(paramNames) > 0 && paramNames[0] != "") {
-		p.errorf(errors.SyntaxError,
-			"expected '->' after function-type parameter list. Line: %d",
-			p.curToken.Line)
+		p.errorAt(p.curToken, errors.SyntaxError, "type",
+			"expected '->' after function-type parameter list",
+			"function types are written `(<params>) -> <return>`, e.g. `(number, string) -> boolean`")
 		return nil
 	}
 	return paramTypes[0]
@@ -258,9 +258,9 @@ func (p *Parser) parseTableType() ast.TypeNode {
 		// `,`/`;`-separated additional fields.
 		for {
 			if !p.curTokenIs(token.Ident) {
-				p.errorf(errors.SyntaxError,
-					"expected field name in table type, got %s(%q). Line: %d",
-					p.curToken.Type, p.curToken.Literal, p.curToken.Line)
+				p.errorAt(p.curToken, errors.SyntaxError, "type",
+					"expected field name in table type, got "+describeToken(p.curToken),
+					"table types name each field: `{ x: number, y: number }`")
 				return nil
 			}
 			name := p.curToken.Literal

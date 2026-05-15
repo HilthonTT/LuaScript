@@ -1,6 +1,8 @@
 package parser
 
 import (
+	"fmt"
+
 	"github.com/hilthontt/sakura-lang/compiler/ast"
 	"github.com/hilthontt/sakura-lang/compiler/parser/errors"
 	"github.com/hilthontt/sakura-lang/compiler/token"
@@ -37,11 +39,14 @@ func (p *Parser) parseStatement() ast.Statement {
 		return p.parseGotoStatement()
 	case token.Label:
 		return p.parseLabelStatement()
+	case token.Match:
+		return p.parseMatchStatement()
 	case token.End, token.Else, token.ElseIf, token.Until:
 		// These should be caught by parseBlock's loop; if we got here,
 		// the surrounding block was malformed.
-		p.errorf(errors.UnexpectedEndError,
-			"unexpected %s. Line: %d", p.curToken.Type, p.curToken.Line)
+		p.errorAt(p.curToken, errors.UnexpectedEndError, "",
+			"unexpected "+describeToken(p.curToken)+" with no matching block to close",
+			"this keyword closes a block — make sure every `if`/`for`/`while`/`do`/`function`/`match` is properly opened first")
 		return nil
 	}
 
@@ -258,7 +263,10 @@ func (p *Parser) parseIfStatement() ast.Statement {
 	stmt := &ast.IfStatement{BaseNode: baseAt(tok)}
 
 	cond := p.parseExpression()
-	if !p.expectCur(token.Then) {
+	if !p.curTokenIs(token.Then) {
+		p.errorAt(p.curToken, errors.UnexpectedTokenError, "if",
+			"expected 'then' after the condition, got "+describeToken(p.curToken),
+			"syntax: `if <cond> then <body> [elseif ...] [else ...] end`")
 		return nil
 	}
 	p.nextToken() // consume 'then'
@@ -266,9 +274,13 @@ func (p *Parser) parseIfStatement() ast.Statement {
 	stmt.Clauses = append(stmt.Clauses, ast.IfClause{Condition: cond, Body: body})
 
 	for p.curTokenIs(token.ElseIf) {
+		elseifTok := p.curToken
 		p.nextToken() // consume 'elseif'
 		c := p.parseExpression()
-		if !p.expectCur(token.Then) {
+		if !p.curTokenIs(token.Then) {
+			p.errorAt(p.curToken, errors.UnexpectedTokenError, "if",
+				"expected 'then' after 'elseif' condition, got "+describeToken(p.curToken),
+				fmt.Sprintf("the 'elseif' on line %d needs a 'then' before its body", elseifTok.Line))
 			return nil
 		}
 		p.nextToken() // consume 'then'
@@ -281,7 +293,10 @@ func (p *Parser) parseIfStatement() ast.Statement {
 		stmt.Else = p.parseBlock()
 	}
 
-	if !p.expectCur(token.End) {
+	if !p.curTokenIs(token.End) {
+		p.errorAt(tok, errors.UnexpectedTokenError, "if",
+			fmt.Sprintf("missing 'end' to close 'if' started on line %d", tok.Line),
+			"")
 		return nil
 	}
 	p.nextToken() // consume 'end'
@@ -293,12 +308,18 @@ func (p *Parser) parseWhileStatement() ast.Statement {
 	p.nextToken() // consume 'while'
 
 	cond := p.parseExpression()
-	if !p.expectCur(token.Do) {
+	if !p.curTokenIs(token.Do) {
+		p.errorAt(p.curToken, errors.UnexpectedTokenError, "while",
+			"expected 'do' after the condition, got "+describeToken(p.curToken),
+			"syntax: `while <cond> do <body> end`")
 		return nil
 	}
 	p.nextToken() // consume 'do'
 	body := p.parseBlock()
-	if !p.expectCur(token.End) {
+	if !p.curTokenIs(token.End) {
+		p.errorAt(tok, errors.UnexpectedTokenError, "while",
+			fmt.Sprintf("missing 'end' to close 'while' started on line %d", tok.Line),
+			"")
 		return nil
 	}
 	p.nextToken() // consume 'end'
@@ -310,7 +331,11 @@ func (p *Parser) parseRepeatStatement() ast.Statement {
 	p.nextToken() // consume 'repeat'
 
 	body := p.parseBlock()
-	if !p.expectCur(token.Until) {
+	if !p.curTokenIs(token.Until) {
+		p.errorAt(tok, errors.UnexpectedTokenError, "repeat",
+			fmt.Sprintf("missing 'until' to close 'repeat' started on line %d, got %s",
+				tok.Line, describeToken(p.curToken)),
+			"syntax: `repeat <body> until <cond>` — the loop condition is checked AFTER the body")
 		return nil
 	}
 	p.nextToken() // consume 'until'
@@ -322,7 +347,10 @@ func (p *Parser) parseDoStatement() ast.Statement {
 	tok := p.curToken
 	p.nextToken() // consume 'do'
 	body := p.parseBlock()
-	if !p.expectCur(token.End) {
+	if !p.curTokenIs(token.End) {
+		p.errorAt(tok, errors.UnexpectedTokenError, "do",
+			fmt.Sprintf("missing 'end' to close 'do' block started on line %d", tok.Line),
+			"")
 		return nil
 	}
 	p.nextToken() // consume 'end'
@@ -335,7 +363,10 @@ func (p *Parser) parseForStatement() ast.Statement {
 	tok := p.curToken
 	p.nextToken() // consume 'for'
 
-	if !p.expectCur(token.Ident) {
+	if !p.curTokenIs(token.Ident) {
+		p.errorAt(p.curToken, errors.UnexpectedTokenError, "for",
+			"expected loop-variable name after 'for', got "+describeToken(p.curToken),
+			"syntax: `for i = 1, 10 do ... end` (numeric) or `for k, v in pairs(t) do ... end` (generic)")
 		return nil
 	}
 	firstName := p.curToken.Literal
@@ -347,16 +378,20 @@ func (p *Parser) parseForStatement() ast.Statement {
 	case token.Comma, token.In:
 		return p.parseGenericFor(tok, firstName)
 	}
-	p.errorf(errors.SyntaxError,
-		"expected `=`, `,`, or `in` after `for %s`, got %s. Line: %d",
-		firstName, p.curToken.Type, p.curToken.Line)
+	p.errorAt(p.curToken, errors.SyntaxError, "for",
+		fmt.Sprintf("expected '=', ',', or 'in' after `for %s`, got %s",
+			firstName, describeToken(p.curToken)),
+		"use `for "+firstName+" = start, stop[, step]` for a numeric loop, or `for "+firstName+", ... in expr` for a generic one")
 	return nil
 }
 
 func (p *Parser) parseNumericFor(tok token.Token, name string) ast.Statement {
 	p.nextToken() // consume '='
 	start := p.parseExpression()
-	if !p.expectCur(token.Comma) {
+	if !p.curTokenIs(token.Comma) {
+		p.errorAt(p.curToken, errors.UnexpectedTokenError, "for",
+			"expected ',' after the start expression in numeric 'for', got "+describeToken(p.curToken),
+			"syntax: `for "+name+" = <start>, <stop>[, <step>] do ... end`")
 		return nil
 	}
 	p.nextToken() // consume ','
@@ -366,12 +401,18 @@ func (p *Parser) parseNumericFor(tok token.Token, name string) ast.Statement {
 		p.nextToken() // consume ','
 		step = p.parseExpression()
 	}
-	if !p.expectCur(token.Do) {
+	if !p.curTokenIs(token.Do) {
+		p.errorAt(p.curToken, errors.UnexpectedTokenError, "for",
+			"expected 'do' after the numeric 'for' header, got "+describeToken(p.curToken),
+			"syntax: `for "+name+" = <start>, <stop>[, <step>] do ... end`")
 		return nil
 	}
 	p.nextToken() // consume 'do'
 	body := p.parseBlock()
-	if !p.expectCur(token.End) {
+	if !p.curTokenIs(token.End) {
+		p.errorAt(tok, errors.UnexpectedTokenError, "for",
+			fmt.Sprintf("missing 'end' to close numeric 'for' started on line %d", tok.Line),
+			"")
 		return nil
 	}
 	p.nextToken() // consume 'end'
@@ -389,23 +430,35 @@ func (p *Parser) parseGenericFor(tok token.Token, firstName string) ast.Statemen
 	names := []string{firstName}
 	for p.curTokenIs(token.Comma) {
 		p.nextToken() // consume ','
-		if !p.expectCur(token.Ident) {
+		if !p.curTokenIs(token.Ident) {
+			p.errorAt(p.curToken, errors.UnexpectedTokenError, "for",
+				"expected another loop-variable name after ',', got "+describeToken(p.curToken),
+				"in a generic-for, all names go before `in`: `for k, v in pairs(t) do ... end`")
 			return nil
 		}
 		names = append(names, p.curToken.Literal)
 		p.nextToken()
 	}
-	if !p.expectCur(token.In) {
+	if !p.curTokenIs(token.In) {
+		p.errorAt(p.curToken, errors.UnexpectedTokenError, "for",
+			"expected 'in' after generic-for variables, got "+describeToken(p.curToken),
+			"syntax: `for k, v in pairs(t) do ... end`")
 		return nil
 	}
 	p.nextToken() // consume 'in'
 	exprs := p.parseExpressionList()
-	if !p.expectCur(token.Do) {
+	if !p.curTokenIs(token.Do) {
+		p.errorAt(p.curToken, errors.UnexpectedTokenError, "for",
+			"expected 'do' after the generic-for expression, got "+describeToken(p.curToken),
+			"syntax: `for k, v in pairs(t) do ... end`")
 		return nil
 	}
 	p.nextToken() // consume 'do'
 	body := p.parseBlock()
-	if !p.expectCur(token.End) {
+	if !p.curTokenIs(token.End) {
+		p.errorAt(tok, errors.UnexpectedTokenError, "for",
+			fmt.Sprintf("missing 'end' to close generic 'for' started on line %d", tok.Line),
+			"")
 		return nil
 	}
 	p.nextToken() // consume 'end'
@@ -439,9 +492,9 @@ func (p *Parser) parseExprOrAssignStatement() ast.Statement {
 	case *ast.CallExpression, *ast.MethodCallExpression:
 		return &ast.ExpressionStatement{BaseNode: baseAt(tok), Expression: first}
 	}
-	p.errorf(errors.SyntaxError,
-		"syntax error: expression %q is not a valid statement (Lua only allows function calls). Line: %d",
-		first.String(), tok.Line)
+	p.errorAt(tok, errors.SyntaxError, "",
+		fmt.Sprintf("expression %q is not a valid statement", first.String()),
+		"Lua only allows function calls and assignments at statement position; did you mean `local x = ...` or `x = ...`?")
 	return nil
 }
 
@@ -456,8 +509,9 @@ func (p *Parser) parseExprOrAssignStatement() ast.Statement {
 // own initial implementation.
 func (p *Parser) parseCompoundAssignStatement(tok token.Token, target ast.Expression, binOp string) ast.Statement {
 	if !isAssignTarget(target) {
-		p.errorf(errors.InvalidAssignmentError,
-			"invalid assignment target %q. Line: %d", target.String(), tok.Line)
+		p.errorAt(tok, errors.InvalidAssignmentError, "",
+			fmt.Sprintf("invalid compound-assignment target %q", target.String()),
+			"the LHS of `op=` must be a name, a field access (t.x), or an index (t[k])")
 		return nil
 	}
 	opTok := p.curToken
@@ -481,8 +535,9 @@ func (p *Parser) parseCompoundAssignStatement(tok token.Token, target ast.Expres
 
 func (p *Parser) parseAssignmentStatement(tok token.Token, first ast.Expression) ast.Statement {
 	if !isAssignTarget(first) {
-		p.errorf(errors.InvalidAssignmentError,
-			"invalid assignment target %q. Line: %d", first.String(), tok.Line)
+		p.errorAt(tok, errors.InvalidAssignmentError, "",
+			fmt.Sprintf("invalid assignment target %q", first.String()),
+			"the LHS of `=` must be a name, a field access (t.x), or an index (t[k])")
 		return nil
 	}
 	targets := []ast.Expression{first}
@@ -493,13 +548,17 @@ func (p *Parser) parseAssignmentStatement(tok token.Token, first ast.Expression)
 			return nil
 		}
 		if !isAssignTarget(nxt) {
-			p.errorf(errors.InvalidAssignmentError,
-				"invalid assignment target %q. Line: %d", nxt.String(), tok.Line)
+			p.errorAt(tok, errors.InvalidAssignmentError, "",
+				fmt.Sprintf("invalid assignment target %q in multi-assignment", nxt.String()),
+				"every LHS target must be a name, a field access (t.x), or an index (t[k])")
 			return nil
 		}
 		targets = append(targets, nxt)
 	}
-	if !p.expectCur(token.Assign) {
+	if !p.curTokenIs(token.Assign) {
+		p.errorAt(p.curToken, errors.UnexpectedTokenError, "",
+			"expected '=' after assignment targets, got "+describeToken(p.curToken),
+			"syntax: `a, b, c = expr1, expr2, expr3`")
 		return nil
 	}
 	p.nextToken() // consume '='

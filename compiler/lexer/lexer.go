@@ -12,6 +12,14 @@ type Lexer struct {
 	readPosition int
 	ch           rune
 	line         int
+	// column is the 1-based column of l.ch within the current line.
+	// Maintained by readChar; reset to 1 each time we advance past '\n'.
+	column int
+	// tokenCol snapshots l.column at the start of the in-progress token
+	// (set by nextToken after skipWhitespace) so token-construction
+	// helpers can stamp the column where the lexeme *began*, not where
+	// the lexer happens to be sitting when it builds the Token struct.
+	tokenCol int
 
 	// ModeDirective captures a Luau-style type-mode pragma found in a
 	// leading comment of the file: "strict", "nonstrict", or "nocheck".
@@ -42,6 +50,7 @@ func (l *Lexer) NextToken() token.Token {
 func (l *Lexer) nextToken() token.Token {
 	l.skipWhitespace()
 	line := l.line
+	l.tokenCol = l.column
 
 	switch l.ch {
 	case '+':
@@ -91,13 +100,13 @@ func (l *Lexer) nextToken() token.Token {
 	case '&':
 		if l.peekChar() == '=' {
 			l.readChar()
-			return l.makeToken(token.AndAssign, "&=", line)
+			return l.makeToken(token.BandAssign, "&=", line)
 		}
 		return l.singleToken(token.Ampersand, "&")
 	case '|':
 		if l.peekChar() == '=' {
 			l.readChar()
-			return l.makeToken(token.OrAssign, "|=", line)
+			return l.makeToken(token.BorAssign, "|=", line)
 		}
 		return l.singleToken(token.Pipe, "|")
 	case '~':
@@ -181,24 +190,24 @@ func (l *Lexer) nextToken() token.Token {
 			l.readChar()
 			l.readChar()
 			lit := l.readLongString()
-			return token.Token{Type: token.String, Literal: lit, Line: line}
+			return token.Token{Type: token.String, Literal: lit, Line: line, Column: l.tokenCol}
 		}
 		return l.singleToken(token.LBracket, "[")
 	case '"', '\'':
 		lit := l.readString(l.ch)
-		return token.Token{Type: token.String, Literal: lit, Line: line}
+		return token.Token{Type: token.String, Literal: lit, Line: line, Column: l.tokenCol}
 	case 0:
-		return token.Token{Type: token.EOF, Literal: "", Line: line}
+		return token.Token{Type: token.EOF, Literal: "", Line: line, Column: l.tokenCol}
 	default:
 		if isLetter(l.ch) {
 			lit := string(l.readIdentifier())
 			typ := token.LookupIdent(lit)
-			return token.Token{Type: typ, Literal: lit, Line: line}
+			return token.Token{Type: typ, Literal: lit, Line: line, Column: l.tokenCol}
 		}
 		if isDigit(l.ch) {
 			return l.readNumberToken(line)
 		}
-		tok := token.Token{Type: token.Illegal, Literal: string(l.ch), Line: line}
+		tok := token.Token{Type: token.Illegal, Literal: string(l.ch), Line: line, Column: l.tokenCol}
 		l.readChar()
 		return tok
 	}
@@ -215,7 +224,7 @@ func (l *Lexer) readNumberToken(line int) token.Token {
 		for isHexDigit(l.ch) {
 			l.readChar()
 		}
-		return token.Token{Type: token.Int, Literal: "0x" + string(l.input[start:l.position]), Line: line}
+		return token.Token{Type: token.Int, Literal: "0x" + string(l.input[start:l.position]), Line: line, Column: l.tokenCol}
 	}
 
 	start := l.position
@@ -230,10 +239,10 @@ func (l *Lexer) readNumberToken(line int) token.Token {
 			l.readChar()
 		}
 		l.readExponent()
-		return token.Token{Type: token.Float, Literal: string(l.input[start:l.position]), Line: line}
+		return token.Token{Type: token.Float, Literal: string(l.input[start:l.position]), Line: line, Column: l.tokenCol}
 	}
 
-	return token.Token{Type: token.Int, Literal: string(l.input[start:l.position]), Line: line}
+	return token.Token{Type: token.Int, Literal: string(l.input[start:l.position]), Line: line, Column: l.tokenCol}
 }
 
 // readDotFloat handles floats starting with '.' (e.g. .5). Called when l.ch == '.'.
@@ -371,18 +380,24 @@ func (l *Lexer) skipWhitespace() {
 }
 
 func (l *Lexer) singleToken(t token.Type, lit string) token.Token {
-	tok := token.Token{Type: t, Literal: lit, Line: l.line}
+	tok := token.Token{Type: t, Literal: lit, Line: l.line, Column: l.tokenCol}
 	l.readChar()
 	return tok
 }
 
 func (l *Lexer) makeToken(t token.Type, lit string, line int) token.Token {
-	tok := token.Token{Type: t, Literal: lit, Line: line}
+	tok := token.Token{Type: t, Literal: lit, Line: line, Column: l.tokenCol}
 	l.readChar()
 	return tok
 }
 
 func (l *Lexer) readChar() {
+	// Advance column tracking. A newline rolls us onto a new line at col 1.
+	if l.ch == '\n' {
+		l.column = 0
+	}
+	l.column++
+
 	if l.readPosition >= len(l.input) {
 		// ascii code's null
 		l.ch = 0

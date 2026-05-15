@@ -45,7 +45,8 @@ func TestLookupIdentTrue(t *testing.T) {
 
 func TestCreateOperatorIllegalFalse(t *testing.T) {
 	line := 123
-	token := CreateOperator("nonexist", line)
+	col := 1
+	token := CreateOperator("nonexist", line, col)
 	if token.Type != Illegal {
 		t.Fatalf("Expect token type %s, got: %s", Illegal, token.Type)
 	}
@@ -71,9 +72,10 @@ func TestCreateOperatorIdentTrue(t *testing.T) {
 	}
 
 	line := 123
+	col := 1
 
 	for name, tokenType := range operators {
-		tok := CreateOperator(name, line)
+		tok := CreateOperator(name, line, col)
 		if tok.Type != tokenType {
 			t.Fatalf("Expect token type %s, got: %s", tokenType, tok.Type)
 		}
@@ -85,7 +87,8 @@ func TestCreateOperatorIdentTrue(t *testing.T) {
 
 func TestCreateSeparatorIdentFalse(t *testing.T) {
 	line := 123
-	token := CreateSeparator("nonexist", line)
+	col := 1
+	token := CreateSeparator("nonexist", line, col)
 	if token.Type != Illegal {
 		t.Fatalf("Expect token type %s, got: %s", Illegal, token.Type)
 	}
@@ -108,9 +111,10 @@ func TestCreateSeparatorIdentTrue(t *testing.T) {
 	}
 
 	line := 123
+	col := 1
 
 	for name, tokenType := range separators {
-		tok := CreateSeparator(name, line)
+		tok := CreateSeparator(name, line, col)
 		if tok.Type != tokenType {
 			t.Fatalf("Expect token type %s, got: %s", tokenType, tok.Type)
 		}

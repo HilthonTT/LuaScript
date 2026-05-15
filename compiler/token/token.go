@@ -1,112 +1,125 @@
 package token
 
-// Type is used to determine token type
+import "fmt"
+
+// Type is the discriminator for a Token.
 type Type string
 
-// Token is a structure for identifying input stream of characters
+// Token is a lexed lexeme tagged with its type and source location.
 type Token struct {
 	Type    Type
 	Literal string
 	Line    int
+	Column  int
 }
 
 const (
-	Illegal = "ILLEGAL"
-	EOF     = "EOF"
+	Illegal Type = "ILLEGAL"
+	EOF     Type = "EOF"
 
 	// Literals
-	Ident  = "IDENT"
-	Int    = "INT"
-	Float  = "FLOAT"
-	String = "STRING"
+	Ident  Type = "IDENT"
+	Int    Type = "INT"
+	Float  Type = "FLOAT"
+	String Type = "STRING"
 
 	// Arithmetic
-	Plus     = "+"
-	Minus    = "-"
-	Asterisk = "*"
-	Slash    = "/"
-	Percent  = "%"
-	Caret    = "^"
-	FloorDiv = "//"
-	Hash     = "#"
+	Plus     Type = "+"
+	Minus    Type = "-"
+	Asterisk Type = "*"
+	Slash    Type = "/"
+	Percent  Type = "%"
+	Caret    Type = "^"
+	FloorDiv Type = "//"
 
-	// Compound assignement
-	PlusAssign   = "+="
-	MinusAssign  = "-="
-	MulAssign    = "*="
-	DivAssign    = "/="
-	OrAssign     = "|="
-	AndAssign    = "&="
-	LShiftAssign = "<<="
-	RShiftAssign = ">>="
+	// Unary-only operators.
+	// `Hash` is length-of (`#t`). `Not` is logical not. `Tilde` is also a
+	// unary operator (bitwise not) but lives in the bitwise section because
+	// it doubles as binary XOR.
+	Hash Type = "#"
+
+	// Compound assignment.
+	// `BorAssign` and `BandAssign` are *bitwise* OR/AND assign (`|=`, `&=`),
+	// not logical — Lua's logical `or`/`and` have no compound form.
+	PlusAssign   Type = "+="
+	MinusAssign  Type = "-="
+	MulAssign    Type = "*="
+	DivAssign    Type = "/="
+	BorAssign    Type = "|="
+	BandAssign   Type = "&="
+	LShiftAssign Type = "<<="
+	RShiftAssign Type = ">>="
 
 	// Bitwise
-	Ampersand = "&"
-	Pipe      = "|"
-	Tilde     = "~"
-	LShift    = "<<"
-	RShift    = ">>"
+	Ampersand Type = "&"
+	Pipe      Type = "|"
+	Tilde     Type = "~"
+	LShift    Type = "<<"
+	RShift    Type = ">>"
 
 	// Comparison
-	Eq    = "=="
-	NotEq = "~="
-	LT    = "<"
-	LTE   = "<="
-	GT    = ">"
-	GTE   = ">="
+	Eq    Type = "=="
+	NotEq Type = "~="
+	LT    Type = "<"
+	LTE   Type = "<="
+	GT    Type = ">"
+	GTE   Type = ">="
 
 	// Assignment
-	Assign = "="
+	Assign Type = "="
 
 	// Type-syntax operators (Luau-style annotations).
 	// `Question` is the postfix-optional sugar (`T?` ≡ `T | nil`).
-	// `Arrow` separates a function type's params from its return (`(A) -> B`).
-	// `::` is already represented by Label and is reused for type assertions
-	// (`expr :: T`); the parser disambiguates by context.
-	Question = "?"
-	Arrow    = "->"
+	// `Arrow` separates a function type's params from its return (`(A) -> B`)
+	// and also acts as the arm separator in `match` expressions; the parser
+	// disambiguates by context.
+	// `::` is represented by Label and is reused for type assertions
+	// (`expr :: T`); again the parser disambiguates by context.
+	Question Type = "?"
+	Arrow    Type = "->"
 
 	// Logical (keywords in Lua, but typed for AST use)
-	And = "AND"
-	Or  = "OR"
-	Not = "NOT"
+	And Type = "AND"
+	Or  Type = "OR"
+	Not Type = "NOT"
 
 	// Delimiters
-	Comma     = ","
-	Semicolon = ";"
-	Colon     = ":"
-	Dot       = "."
-	Concat    = ".."
-	Vararg    = "..."
-	Label     = "::"
+	Comma     Type = ","
+	Semicolon Type = ";"
+	Colon     Type = ":"
+	Dot       Type = "."
+	Concat    Type = ".."
+	Vararg    Type = "..."
+	Label     Type = "::"
 
-	LParen   = "("
-	RParen   = ")"
-	LBrace   = "{"
-	RBrace   = "}"
-	LBracket = "["
-	RBracket = "]"
+	LParen   Type = "("
+	RParen   Type = ")"
+	LBrace   Type = "{"
+	RBrace   Type = "}"
+	LBracket Type = "["
+	RBracket Type = "]"
 
 	// Keywords
-	True     = "TRUE"
-	False    = "FALSE"
-	Nil      = "NIL"
-	If       = "IF"
-	ElseIf   = "ELSEIF"
-	Else     = "ELSE"
-	Then     = "THEN"
-	End      = "END"
-	Do       = "DO"
-	While    = "WHILE"
-	Repeat   = "REPEAT"
-	Until    = "UNTIL"
-	For      = "FOR"
-	In       = "IN"
-	Function = "FUNCTION"
-	Local    = "LOCAL"
-	Return   = "RETURN"
-	Break    = "BREAK"
-	Goto     = "GOTO"
+	True     Type = "TRUE"
+	False    Type = "FALSE"
+	Nil      Type = "NIL"
+	If       Type = "IF"
+	ElseIf   Type = "ELSEIF"
+	Else     Type = "ELSE"
+	Then     Type = "THEN"
+	End      Type = "END"
+	Do       Type = "DO"
+	While    Type = "WHILE"
+	Repeat   Type = "REPEAT"
+	Until    Type = "UNTIL"
+	For      Type = "FOR"
+	In       Type = "IN"
+	Function Type = "FUNCTION"
+	Local    Type = "LOCAL"
+	Return   Type = "RETURN"
+	Break    Type = "BREAK"
+	Goto     Type = "GOTO"
+	Match    Type = "MATCH"
 )
 
 var keywords = map[string]Type{
@@ -132,66 +145,102 @@ var keywords = map[string]Type{
 	"true":     True,
 	"until":    Until,
 	"while":    While,
+	"match":    Match,
 }
 
-// Unambiguous single-character operators only.
-// Multi-character operators sharing a prefix (==/=, ~=/~, //slash, <</>>, <=/>= etc.)
-// must be handled with lookahead in the lexer switch.
+// operators maps every operator literal — single- and multi-character — to
+// its token type. The lexer is responsible for doing its own lookahead to
+// determine the full literal (`==` vs `=`, `<<=` vs `<<` vs `<`, `~=` vs `~`,
+// `//` vs `/`, etc.), then this map gives the type for whatever it committed
+// to. Structural punctuation (parens, braces, commas, dots, colons, labels)
+// lives in `separators` instead.
 var operators = map[string]Type{
-	"+": Plus,
-	"-": Minus,
-	"*": Asterisk,
-	"/": Slash,
-	"%": Percent,
-	"^": Caret,
-	"#": Hash,
-	"&": Ampersand,
-	"|": Pipe,
-	"<": LT,
-	">": GT,
-	"=": Assign,
+	// Arithmetic
+	"+":  Plus,
+	"-":  Minus,
+	"*":  Asterisk,
+	"/":  Slash,
+	"%":  Percent,
+	"^":  Caret,
+	"//": FloorDiv,
+	"#":  Hash,
+
+	// Bitwise
+	"&":  Ampersand,
+	"|":  Pipe,
+	"~":  Tilde,
+	"<<": LShift,
+	">>": RShift,
+
+	// Comparison
+	"==": Eq,
+	"~=": NotEq,
+	"<":  LT,
+	"<=": LTE,
+	">":  GT,
+	">=": GTE,
+
+	// Assignment + compound assignment
+	"=":   Assign,
+	"+=":  PlusAssign,
+	"-=":  MinusAssign,
+	"*=":  MulAssign,
+	"/=":  DivAssign,
+	"|=":  BorAssign,
+	"&=":  BandAssign,
+	"<<=": LShiftAssign,
+	">>=": RShiftAssign,
+
+	// Type syntax / match-arm
+	"?":  Question,
+	"->": Arrow,
 }
 
+// separators maps structural punctuation literals to their token type. As
+// with operators, the lexer is responsible for lookahead to disambiguate
+// dotted forms (`.`, `..`, `...`) and `:` vs `::`.
 var separators = map[string]Type{
-	",": Comma,
-	";": Semicolon,
-	":": Colon,
-	"(": LParen,
-	")": RParen,
-	"{": LBrace,
-	"}": RBrace,
-	"[": LBracket,
-	"]": RBracket,
+	",":   Comma,
+	";":   Semicolon,
+	":":   Colon,
+	".":   Dot,
+	"..":  Concat,
+	"...": Vararg,
+	"::":  Label,
+	"(":   LParen,
+	")":   RParen,
+	"{":   LBrace,
+	"}":   RBrace,
+	"[":   LBracket,
+	"]":   RBracket,
 }
 
-// LookupIdent checks if an identifier is a reserved keyword.
+// LookupIdent returns the keyword type for ident, or Ident if it is not a
+// reserved word.
 func LookupIdent(ident string) Type {
-	if tok, ok := keywords[ident]; ok {
-		return tok
+	if t, ok := keywords[ident]; ok {
+		return t
 	}
 	return Ident
 }
 
-func getOperatorType(literal string) Type {
-	if t, ok := operators[literal]; ok {
-		return t
+// CreateOperator builds an operator token. Panics if literal is not a known
+// operator — that is a lexer bug, not user input, and silently producing an
+// Illegal token would hide the cause until it surfaced in the parser.
+func CreateOperator(literal string, line, column int) Token {
+	t, ok := operators[literal]
+	if !ok {
+		panic(fmt.Sprintf("token.CreateOperator: %q is not a registered operator", literal))
 	}
-	return Illegal
+	return Token{Type: t, Literal: literal, Line: line, Column: column}
 }
 
-func getSeparatorType(literal string) Type {
-	if t, ok := separators[literal]; ok {
-		return t
+// CreateSeparator builds a separator token, with the same panic-on-unknown
+// contract as CreateOperator.
+func CreateSeparator(literal string, line, column int) Token {
+	t, ok := separators[literal]
+	if !ok {
+		panic(fmt.Sprintf("token.CreateSeparator: %q is not a registered separator", literal))
 	}
-	return Illegal
-}
-
-// CreateOperator is a factory method for creating operator tokens.
-func CreateOperator(literal string, line int) Token {
-	return Token{Type: getOperatorType(literal), Literal: literal, Line: line}
-}
-
-// CreateSeparator is a factory method for creating separator tokens.
-func CreateSeparator(literal string, line int) Token {
-	return Token{Type: getSeparatorType(literal), Literal: literal, Line: line}
+	return Token{Type: t, Literal: literal, Line: line, Column: column}
 }

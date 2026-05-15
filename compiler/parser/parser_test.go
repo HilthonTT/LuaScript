@@ -502,3 +502,173 @@ return fib(10)
 		t.Errorf("expected trailing return")
 	}
 }
+
+// --- match statement (parser-level desugar) -----------------------------
+
+// matchInnards returns the inner DoStatement body's first LocalStatement
+// and the IfStatement that follows. It also reports the local's name so
+// tests can assert the scrutinee binding is fresh and well-formed.
+func matchInnards(t *testing.T, src string) (*ast.LocalStatement, *ast.IfStatement) {
+	t.Helper()
+	stmt := parseExpect1(t, src)
+	do, ok := stmt.(*ast.DoStatement)
+	if !ok {
+		t.Fatalf("match did not desugar to DoStatement, got %T", stmt)
+	}
+	if do.Body == nil || len(do.Body.Statements) < 1 {
+		t.Fatalf("match desugar produced empty do-body")
+	}
+	ls, ok := do.Body.Statements[0].(*ast.LocalStatement)
+	if !ok {
+		t.Fatalf("first stmt in match desugar is %T, want LocalStatement", do.Body.Statements[0])
+	}
+	if len(do.Body.Statements) < 2 {
+		return ls, nil
+	}
+	is, ok := do.Body.Statements[1].(*ast.IfStatement)
+	if !ok {
+		t.Fatalf("second stmt in match desugar is %T, want IfStatement", do.Body.Statements[1])
+	}
+	return ls, is
+}
+
+func TestMatchSingleArm(t *testing.T) {
+	ls, is := matchInnards(t, "match x do 1 -> print(\"one\") end")
+	if ls.Names[0].Name != "__match_1" {
+		t.Errorf("scrutinee local = %q, want __match_1", ls.Names[0].Name)
+	}
+	if len(is.Clauses) != 1 {
+		t.Fatalf("clauses = %d, want 1", len(is.Clauses))
+	}
+	if is.Else != nil {
+		t.Errorf("unexpected else clause")
+	}
+	want := "(__match_1 == 1)"
+	if got := is.Clauses[0].Condition.String(); got != want {
+		t.Errorf("condition = %q, want %q", got, want)
+	}
+}
+
+func TestMatchMultipleArms(t *testing.T) {
+	_, is := matchInnards(t, `match x do
+1 -> print("one")
+2 -> print("two")
+3 -> print("three")
+end`)
+	if len(is.Clauses) != 3 {
+		t.Fatalf("clauses = %d, want 3", len(is.Clauses))
+	}
+}
+
+func TestMatchMultiPatternArm(t *testing.T) {
+	_, is := matchInnards(t, `match x do
+1, 2, 3 -> print("small")
+end`)
+	if len(is.Clauses) != 1 {
+		t.Fatalf("clauses = %d, want 1", len(is.Clauses))
+	}
+	// `(name == 1) or (name == 2) or (name == 3)` — left-assoc.
+	want := "(((__match_1 == 1) or (__match_1 == 2)) or (__match_1 == 3))"
+	if got := is.Clauses[0].Condition.String(); got != want {
+		t.Errorf("condition = %q, want %q", got, want)
+	}
+}
+
+func TestMatchWildcard(t *testing.T) {
+	_, is := matchInnards(t, `match x do
+1 -> print("one")
+_ -> print("other")
+end`)
+	if len(is.Clauses) != 1 {
+		t.Errorf("clauses = %d, want 1", len(is.Clauses))
+	}
+	if is.Else == nil {
+		t.Fatalf("expected else clause from `_` arm")
+	}
+}
+
+func TestMatchWildcardOnlyArm(t *testing.T) {
+	_, is := matchInnards(t, "match x do _ -> print(\"any\") end")
+	if len(is.Clauses) != 0 {
+		t.Errorf("clauses = %d, want 0", len(is.Clauses))
+	}
+	if is.Else == nil {
+		t.Fatalf("expected else clause")
+	}
+}
+
+func TestMatchEmpty(t *testing.T) {
+	// Empty match: still binds scrutinee for side-effect parity, but no
+	// if-statement is emitted.
+	ls, is := matchInnards(t, "match f() do end")
+	if ls.Values[0].String() != "f()" {
+		t.Errorf("scrutinee = %q, want f()", ls.Values[0].String())
+	}
+	if is != nil {
+		t.Errorf("expected no if-statement for empty match, got %v", is)
+	}
+}
+
+func TestMatchNestedCountersAreUnique(t *testing.T) {
+	stmt := parseExpect1(t, `match x do
+1 -> match y do
+  10 -> print("a")
+end
+end`)
+	do := stmt.(*ast.DoStatement)
+	outerLocal := do.Body.Statements[0].(*ast.LocalStatement)
+	outerIf := do.Body.Statements[1].(*ast.IfStatement)
+	innerDo := outerIf.Clauses[0].Body.Statements[0].(*ast.DoStatement)
+	innerLocal := innerDo.Body.Statements[0].(*ast.LocalStatement)
+	if outerLocal.Names[0].Name == innerLocal.Names[0].Name {
+		t.Errorf("nested matches share scrutinee name %q", outerLocal.Names[0].Name)
+	}
+}
+
+func TestMatchStringPattern(t *testing.T) {
+	_, is := matchInnards(t, `match s do "hi" -> print(1) end`)
+	want := `(__match_1 == "hi")`
+	if got := is.Clauses[0].Condition.String(); got != want {
+		t.Errorf("condition = %q, want %q", got, want)
+	}
+}
+
+func TestMatchWildcardNotLastErrors(t *testing.T) {
+	msg := parseError(t, `match x do
+_ -> print("any")
+1 -> print("one")
+end`)
+	if !contains(msg, "wildcard") {
+		t.Errorf("error = %q, want it to mention `wildcard`", msg)
+	}
+}
+
+func TestMatchSemicolonBetweenArms(t *testing.T) {
+	// `print("a") "b"` would chain as call-sugar in Lua; the explicit
+	// `;` between arms must terminate the body and let the next pattern
+	// start cleanly.
+	_, is := matchInnards(t, `match s do
+"hi" -> print("greeting");
+"bye" -> print("farewell")
+end`)
+	if len(is.Clauses) != 2 {
+		t.Errorf("clauses = %d, want 2", len(is.Clauses))
+	}
+}
+
+func TestMatchMissingDo(t *testing.T) {
+	msg := parseError(t, `match x 1 -> print("one") end`)
+	if msg == "" {
+		t.Errorf("expected error for missing `do`")
+	}
+}
+
+// contains is a tiny helper to keep test assertions readable.
+func contains(s, sub string) bool {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
+}

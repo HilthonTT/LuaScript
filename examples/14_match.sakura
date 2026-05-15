@@ -1,0 +1,57 @@
+-- `match` statement: parser-level desugar into `do; local s = ...; if/elseif end; end`.
+-- The scrutinee is evaluated exactly once. Each arm body is a single
+-- statement; for multiple statements wrap them in `do ... end`.
+
+local function classify(n)
+    match n do
+        0       -> print("zero")
+        1, 2, 3 -> print("small")
+        _       -> print("other")
+    end
+end
+
+classify(0)   -- zero
+classify(2)   -- small
+classify(42)  -- other
+
+-- String scrutinee. Note the `;` between arms: in Lua, a string literal
+-- following a function call chains as a call (`f"x"` ≡ `f("x")`), so when
+-- one arm's body ends in a call and the next arm's pattern starts with a
+-- string, a semicolon disambiguates.
+local function greet(s)
+    match s do
+        "hi", "hello" -> print("greeting");
+        "bye"         -> print("farewell");
+        _             -> print("?")
+    end
+end
+
+greet("hi")     -- greeting
+greet("hello")  -- greeting
+greet("bye")    -- farewell
+greet("...")    -- ?
+
+-- Multi-statement arm via do/end. Useful when one branch needs more than
+-- a single statement.
+local x = 2
+match x do
+    1 -> print("one")
+    2 -> do
+        print("two")
+        print("(and a second line)")
+    end
+    _ -> print("?")
+end
+
+-- Scrutinee is evaluated once even with side effects.
+local calls = 0
+local function tick()
+    calls = calls + 1
+    return calls
+end
+
+match tick() do
+    1 -> print("first call")
+    _ -> print("other")
+end
+print("tick() ran", calls, "time(s)")  -- 1

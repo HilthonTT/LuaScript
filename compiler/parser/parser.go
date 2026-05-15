@@ -9,6 +9,7 @@ package parser
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/hilthontt/sakura-lang/compiler/ast"
 	"github.com/hilthontt/sakura-lang/compiler/lexer"
@@ -40,6 +41,12 @@ type Parser struct {
 	// grammar is mostly LL(2)-or-less, but the Luau-style type-assertion
 	// vs goto-label disambiguation needs to look two tokens past `::`.
 	peek2     *token.Token
+
+	// matchCounter generates unique scrutinee-binding names for the
+	// parser-level `match` desugar (compiler/parser/match_statement.go).
+	// Each `match` rewrites its scrutinee to a fresh `__match_N` local so
+	// nested matches don't shadow each other in a confusing way.
+	matchCounter int
 }
 
 // New constructs a parser ready to consume the supplied lexer's tokens.
@@ -75,11 +82,9 @@ func (p *Parser) ParseProgram() (program *ast.Program, err *errors.Error) {
 		return &ast.Program{Block: block}, p.error
 	}
 	if !p.curTokenIs(token.EOF) {
-
-		p.errorf(errors.UnexpectedTokenError,
-			"unexpected token %s(%q) after chunk. Line: %d",
-			p.curToken.Type, p.curToken.Literal, p.curToken.Line)
-
+		p.errorAt(p.curToken, errors.UnexpectedTokenError, "",
+			"unexpected "+describeToken(p.curToken)+" after end of chunk",
+			"if this is meant to be a statement, check the previous block — an `end`, `then`, or `do` may be missing")
 		return &ast.Program{Block: block}, p.error
 	}
 
@@ -171,14 +176,14 @@ func (p *Parser) expectPeek(t token.Type) bool {
 
 // expectCur asserts the current token type without advancing. Records an
 // error and returns false on mismatch. EOF promotion to EndOfFileError is
-// handled centrally in errorf.
+// handled centrally in errorAt.
 func (p *Parser) expectCur(t token.Type) bool {
 	if p.curTokenIs(t) {
 		return true
 	}
-	p.errorf(errors.UnexpectedTokenError,
-		"expected token %s, got %s(%q). Line: %d",
-		t, p.curToken.Type, p.curToken.Literal, p.curToken.Line)
+	p.errorAt(p.curToken, errors.UnexpectedTokenError, "",
+		fmt.Sprintf("expected %s, got %s", describeTokenType(t), describeToken(p.curToken)),
+		"")
 	return false
 }
 
@@ -187,22 +192,25 @@ func (p *Parser) peekError(t token.Type) {
 	if p.peekTokenIs(token.EOF) {
 		cat = errors.EndOfFileError
 	}
-	p.errorf(cat,
-		"expected next token to be %s, got %s(%q) instead. Line: %d",
-		t, p.peekToken.Type, p.peekToken.Literal, p.peekToken.Line)
+	p.errorAt(p.peekToken, cat, "",
+		fmt.Sprintf("expected %s next, got %s", describeTokenType(t), describeToken(p.peekToken)),
+		"")
 }
 
-// errorf records a parser error with the given category and message. Once
-// an error is set, parsing should unwind to ParseProgram (which returns it).
+// errorAt records a structured parse error anchored to a specific token.
+// Format:
 //
-// When the cursor is sitting on EOF and the caller would otherwise raise a
-// generic SyntaxError or UnexpectedTokenError, errorf promotes the category
-// to EndOfFileError so the REPL's IsEOF() check fires for truncated input.
-// `end`-mismatch (UnexpectedEndError) and assignment-LHS errors are left
-// alone — they aren't fixable by typing more.
-func (p *Parser) errorf(category int, format string, args ...any) {
+//	<construct>: <msg> at line N, column M.
+//	       hint: <hint>           (only when hint != "")
+//
+// If `construct` is empty the prefix is dropped. If the offending token
+// predates column tracking (Column == 0) the column suffix is omitted so
+// older lexer paths don't print "column 0". When the cursor sits on EOF,
+// generic SyntaxError / UnexpectedTokenError categories are promoted to
+// EndOfFileError so the REPL's IsEOF() check fires for truncated input.
+func (p *Parser) errorAt(tok token.Token, category int, construct, msg, hint string) {
 	if p.error != nil {
-		return // keep the first error
+		return
 	}
 	if p.curTokenIs(token.EOF) {
 		switch category {
@@ -210,7 +218,117 @@ func (p *Parser) errorf(category int, format string, args ...any) {
 			category = errors.EndOfFileError
 		}
 	}
-	p.error = errors.InitError(fmt.Sprintf(format, args...), category)
+	var b strings.Builder
+	if construct != "" {
+		b.WriteString(construct)
+		b.WriteString(": ")
+	}
+	b.WriteString(msg)
+	if tok.Column > 0 {
+		fmt.Fprintf(&b, " at line %d, column %d.", tok.Line, tok.Column)
+	} else {
+		fmt.Fprintf(&b, " at line %d.", tok.Line)
+	}
+	if hint != "" {
+		b.WriteString("\n       hint: ")
+		b.WriteString(hint)
+	}
+	p.error = errors.InitError(b.String(), category)
+}
+
+// describeToken returns a human-friendly description of a token suitable
+// for embedding in an error message. Keywords and punctuation are quoted
+// by their literal; numbers/strings/identifiers get a kind word.
+func describeToken(t token.Token) string {
+	switch t.Type {
+	case token.EOF:
+		return "end of file"
+	case token.Int, token.Float:
+		if t.Literal != "" {
+			return "number " + t.Literal
+		}
+		return "number"
+	case token.String:
+		return "string literal"
+	case token.Ident:
+		return "identifier '" + t.Literal + "'"
+	case token.Illegal:
+		if t.Literal != "" {
+			return "illegal character '" + t.Literal + "'"
+		}
+		return "illegal character"
+	}
+	if t.Literal != "" {
+		return "'" + t.Literal + "'"
+	}
+	return string(t.Type)
+}
+
+// describeTokenType describes an *expected* token type — symmetric with
+// describeToken but takes a Type alone (no literal available). Keywords
+// are rendered in their source form (lower-case) and punctuation by its
+// operator form.
+func describeTokenType(t token.Type) string {
+	switch t {
+	case token.EOF:
+		return "end of file"
+	case token.Int:
+		return "integer literal"
+	case token.Float:
+		return "float literal"
+	case token.String:
+		return "string literal"
+	case token.Ident:
+		return "identifier"
+	case token.True:
+		return "'true'"
+	case token.False:
+		return "'false'"
+	case token.Nil:
+		return "'nil'"
+	case token.If:
+		return "'if'"
+	case token.ElseIf:
+		return "'elseif'"
+	case token.Else:
+		return "'else'"
+	case token.Then:
+		return "'then'"
+	case token.End:
+		return "'end'"
+	case token.Do:
+		return "'do'"
+	case token.While:
+		return "'while'"
+	case token.Repeat:
+		return "'repeat'"
+	case token.Until:
+		return "'until'"
+	case token.For:
+		return "'for'"
+	case token.In:
+		return "'in'"
+	case token.Function:
+		return "'function'"
+	case token.Local:
+		return "'local'"
+	case token.Return:
+		return "'return'"
+	case token.Break:
+		return "'break'"
+	case token.Goto:
+		return "'goto'"
+	case token.Match:
+		return "'match'"
+	case token.And:
+		return "'and'"
+	case token.Or:
+		return "'or'"
+	case token.Not:
+		return "'not'"
+	}
+	// Operators and punctuation have a literal-shaped Type string already.
+	return "'" + string(t) + "'"
 }
 
 // baseAt builds a BaseNode anchored to a specific token. Used when an AST

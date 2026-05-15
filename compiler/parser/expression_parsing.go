@@ -1,6 +1,8 @@
 package parser
 
 import (
+	"fmt"
+
 	"github.com/hilthontt/sakura-lang/compiler/ast"
 	"github.com/hilthontt/sakura-lang/compiler/parser/errors"
 	"github.com/hilthontt/sakura-lang/compiler/parser/precedence"
@@ -99,9 +101,22 @@ func (p *Parser) parsePrefix() ast.Expression {
 		return p.parseUnaryExpression()
 	}
 
-	p.errorf(errors.SyntaxError,
-		"unexpected token %s(%q) at start of expression. Line: %d",
-		p.curToken.Type, p.curToken.Literal, p.curToken.Line)
+	hint := ""
+	switch p.curToken.Type {
+	case token.End, token.Then, token.Else, token.ElseIf, token.Until, token.Do:
+		hint = "this keyword closes a block — an expression appears to be missing before it"
+	case token.RParen, token.RBracket, token.RBrace:
+		hint = "stray closing " + describeToken(p.curToken) + " — check earlier delimiters for a missing opener"
+	case token.Comma:
+		hint = "stray ',' — did you finish writing the previous expression?"
+	case token.Assign:
+		hint = "'=' is assignment, not equality; use '==' for comparison"
+	case token.EOF:
+		hint = "the source ends here while an expression was expected"
+	}
+	p.errorAt(p.curToken, errors.SyntaxError, "",
+		"unexpected "+describeToken(p.curToken)+" at start of expression",
+		hint)
 	return nil
 }
 
@@ -189,9 +204,12 @@ func (p *Parser) parseBinaryExpression(left ast.Expression, opPrec int) ast.Expr
 	tok := p.curToken
 	op := binaryOpString(tok.Type)
 	if op == "" {
-		p.errorf(errors.SyntaxError,
-			"token %s(%q) is not a binary operator. Line: %d",
-			tok.Type, tok.Literal, tok.Line)
+		// Internal-shape error: parsePrecedence reached a non-operator token
+		// when it expected an infix op. Surface enough context that the
+		// user can find where their expression went off the rails.
+		p.errorAt(tok, errors.SyntaxError, "",
+			describeToken(tok)+" is not a binary operator",
+			"this token can't combine two expressions; check for a missing operator or stray punctuation before it")
 		return nil
 	}
 	p.nextToken() // consume operator
@@ -360,9 +378,9 @@ func (p *Parser) parseMethodCall(obj ast.Expression) ast.Expression {
 		}
 		args = []ast.Expression{tbl}
 	default:
-		p.errorf(errors.SyntaxError,
-			"expected call arguments after `:%s`, got %s. Line: %d",
-			method, p.curToken.Type, p.curToken.Line)
+		p.errorAt(p.curToken, errors.SyntaxError, "",
+			fmt.Sprintf("expected call arguments after `:%s`, got %s", method, describeToken(p.curToken)),
+			"a method call needs arguments: `obj:"+method+"(...)`, `obj:"+method+"\"str\"`, or `obj:"+method+"{tbl}`")
 		return nil
 	}
 
@@ -458,9 +476,9 @@ func (p *Parser) parseParamList() ([]ast.TypedParam, bool, ast.TypeNode) {
 	params := []ast.TypedParam{}
 	for {
 		if !p.curTokenIs(token.Ident) {
-			p.errorf(errors.SyntaxError,
-				"expected parameter name, got %s(%q). Line: %d",
-				p.curToken.Type, p.curToken.Literal, p.curToken.Line)
+			p.errorAt(p.curToken, errors.SyntaxError, "function",
+				"expected parameter name, got "+describeToken(p.curToken),
+				"function parameters are bare names: `function f(a, b: number, ...) ... end`")
 			return nil, false, nil
 		}
 		ident := &ast.Identifier{

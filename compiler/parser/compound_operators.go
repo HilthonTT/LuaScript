@@ -11,8 +11,8 @@ var compoundOps = map[token.Type]string{
 	token.MinusAssign:  "-",
 	token.MulAssign:    "*",
 	token.DivAssign:    "/",
-	token.AndAssign:    "&",
-	token.OrAssign:     "|",
+	token.BandAssign:   "&",
+	token.BorAssign:    "|",
 	token.LShiftAssign: "<<",
 	token.RShiftAssign: ">>",
 }
