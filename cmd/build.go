@@ -11,6 +11,9 @@ import (
 	"github.com/hilthontt/sakura-lang/compiler"
 	"github.com/hilthontt/sakura-lang/compiler/parser"
 	"github.com/hilthontt/sakura-lang/native/db"
+	httpNative "github.com/hilthontt/sakura-lang/native/http"
+	"github.com/hilthontt/sakura-lang/native/json"
+	"github.com/hilthontt/sakura-lang/native/math"
 	osNative "github.com/hilthontt/sakura-lang/native/os"
 	"github.com/hilthontt/sakura-lang/version"
 	"github.com/hilthontt/sakura-lang/vm"
@@ -18,11 +21,11 @@ import (
 
 // Trailer layout (read backwards from end of file):
 //
-//   <magic>        8 bytes  ("SAKURA01")
-//   <scriptLen>    8 bytes  uint64 little-endian
-//   <versionLen>   2 bytes  uint16 little-endian
-//   <version>      versionLen bytes (ASCII)
-//   <script>       scriptLen  bytes (UTF-8 source)
+//	<magic>        8 bytes  ("SAKURA01")
+//	<scriptLen>    8 bytes  uint64 little-endian
+//	<versionLen>   2 bytes  uint16 little-endian
+//	<version>      versionLen bytes (ASCII)
+//	<script>       scriptLen  bytes (UTF-8 source)
 //
 // A file with no trailer is just the plain interpreter binary.
 const (
@@ -160,6 +163,9 @@ func runBundled(src string) int {
 	v := vm.New()
 	db.RegisterDBPreload(v)
 	osNative.RegisterOSPreload(v)
+	httpNative.RegisterHttpPreload(v)
+	math.RegisterMathPreload(v)
+	json.RegisterJSONPreload(v)
 
 	chunks, err := compiler.CompileToInstructions(src, parser.NormalMode)
 	if err != nil {

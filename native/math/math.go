@@ -7,7 +7,7 @@ import (
 	"github.com/hilthontt/sakura-lang/vm"
 )
 
-func RegisterMathPayload(v *vm.VM) {
+func RegisterMathPreload(v *vm.VM) {
 	pkg, ok := v.Globals.Get("package").(*vm.Table)
 	if !ok {
 		// Loader wasn't registered.

@@ -1,0 +1,4 @@
+local http = require("http")
+
+local r = http.get("https://example.com", { timeout = 10 })
+print(r.status, r.ok, r.body)
