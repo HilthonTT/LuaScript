@@ -55,6 +55,7 @@ func run(argv []string) int {
 	bonsaiMsg := fs.String("bonsai-msg", "", "with -bonsai: attach a message next to the tree")
 	watch := fs.Bool("watch", false, "re-run file on every save")
 	timed := fs.Bool("time", false, "print execution time after the program finishes")
+	dis := fs.Bool("dis", false, "Disassemble a .sakura file")
 
 	if err := fs.Parse(argv); err != nil {
 		if err == flag.ErrHelp {
@@ -113,8 +114,13 @@ func run(argv []string) int {
 
 	file := args[0]
 	switch {
+	case *dis:
+		r.DisassembleFile(file)
 	case *watch:
-		r.WatchFile(file)
+		if err := r.WatchFile(file); err != nil {
+			fmt.Fprintln(os.Stderr, "sakura:", err)
+			return 1
+		}
 	case *timed:
 		start := time.Now()
 		r.RunFile(file)

@@ -9,6 +9,7 @@ import (
 
 	"github.com/chzyer/readline"
 	"github.com/hilthontt/sakura-lang/compiler"
+	"github.com/hilthontt/sakura-lang/compiler/bytecode"
 	"github.com/hilthontt/sakura-lang/compiler/parser"
 	parserrors "github.com/hilthontt/sakura-lang/compiler/parser/errors"
 	"github.com/hilthontt/sakura-lang/compiler/typecheck"
@@ -310,6 +311,21 @@ func (r *REPL) printHelp() {
 		colorDim, colorReset, colorBold, colorReset)
 
 	fmt.Fprintf(r.out, "\n%sFor CLI options:%s sakura --help\n\n", colorDim, colorReset)
+}
+
+func (r *REPL) DisassembleFile(path string) {
+	src, err := os.ReadFile(path)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "sakura:", err)
+		os.Exit(1)
+	}
+	chunks, err := compiler.CompileToInstructions(string(src), parser.NormalMode)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "sakura:", err)
+		os.Exit(1)
+	}
+
+	fmt.Print(bytecode.Disassemble(chunks))
 }
 
 func newCompleter() *readline.PrefixCompleter {
