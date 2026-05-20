@@ -1,0 +1,45 @@
+--!nocheck
+-- The `regexp` module: Go's RE2 regular-expression engine.
+local regexp = require("regexp")
+
+print("=== Regexp Module Test ===")
+print("VERSION:", regexp.VERSION)
+print()
+
+-- Compile a pattern once, reuse the object.
+local email = regexp.compile("([a-z0-9._]+)@([a-z0-9.]+)")
+
+print("test 'hi@example.com' :", email:test("contact hi@example.com today"))
+print("test 'not an email'   :", email:test("not an email"))
+print()
+
+-- capture returns the full match, then each capture group.
+-- (It is named `capture` because `match` is a reserved keyword.)
+local full, user, domain = email:capture("reach me at john@sakura.dev please")
+print("capture full  :", full)
+print("capture user  :", user)
+print("capture domain:", domain)
+print()
+
+-- find_all collects every match into an array table.
+local words = regexp.compile("[A-Za-z]+")
+local found = words:find_all("one, two, three!")
+print("find_all count:", #found)
+for i = 1, #found do
+    print("  match " .. i .. ":", found[i])
+end
+print()
+
+-- replace and split.
+print("replace:", words:replace("one two three", "X"))
+
+local csv = regexp.compile(", *")
+local parts = csv:split("a, b,c,  d")
+print("split count:", #parts)
+for i = 1, #parts do
+    print("  part " .. i .. ":", parts[i])
+end
+print()
+
+-- quote escapes regex metacharacters for literal matching.
+print("quote:", regexp.quote("a.b*c"))

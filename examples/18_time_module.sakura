@@ -1,0 +1,36 @@
+--!nocheck
+-- The `time` module: wall-clock and monotonic time, dates, sleeping.
+local time = require("time")
+
+print("=== Time Module Test ===")
+print("VERSION:", time.VERSION)
+print()
+
+-- Wall-clock time.
+local now = time.now()
+print("now()    (unix seconds):", now)
+print("now_ms() (unix millis) :", time.now_ms())
+print()
+
+-- A short sleep, measured with the monotonic clock.
+local before = time.clock()
+time.sleep(0.05)
+local elapsed = time.clock() - before
+print("slept ~0.05s, clock() measured:", elapsed)
+print()
+
+-- Broken-down date table.
+local d = time.date()
+print("date(): year=" .. d.year .. " month=" .. d.month .. " day=" .. d.day)
+print("        hour=" .. d.hour .. " min=" .. d.min .. " sec=" .. d.sec)
+print("        wday=" .. d.wday .. " yday=" .. d.yday)
+print()
+
+-- Formatting and parsing.
+local unix = 1700000000
+print("format default :", time.format(unix))
+print("format DATE    :", time.format(unix, time.DATE))
+print("format DATETIME:", time.format(unix, time.DATETIME))
+
+local parsed = time.parse(time.DATETIME, "2023-11-14 22:13:20")
+print("parse round-trip unix:", parsed)

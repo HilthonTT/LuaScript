@@ -1,0 +1,20 @@
+--!nocheck
+-- The `uuid` module: RFC 4122 version-4 (random) UUIDs.
+local uuid = require("uuid")
+
+print("=== UUID Module Test ===")
+print("VERSION:", uuid.VERSION)
+print()
+
+-- Generate a few UUIDs — each call is unique.
+for i = 1, 3 do
+    print("v4 #" .. i .. ":", uuid.v4())
+end
+print()
+
+-- Validate them.
+local id = uuid.v4()
+print("generated      :", id)
+print("is_valid(id)   :", uuid.is_valid(id))
+print("is_valid bad   :", uuid.is_valid("not-a-uuid"))
+print("is_valid empty :", uuid.is_valid(""))

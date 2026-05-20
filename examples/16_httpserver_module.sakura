@@ -1,0 +1,51 @@
+--!nocheck
+-- The `httpserver` module: a serialized HTTP server.
+--
+-- Handlers run one at a time on the script's own thread, so they can
+-- freely use any sakura value without worrying about concurrency.
+--
+-- A handler receives a `req` table and returns either:
+--   * a string                       -> 200, text/plain, that body
+--   * a table { status =, body =, headers = }  -> full control
+local httpserver = require("httpserver")
+
+print("=== HTTP Server Module Test ===")
+print("VERSION:", httpserver.VERSION)
+print()
+
+local server = httpserver.new()
+
+-- A plain-string handler: 200 text/plain.
+server:get("/", function(req)
+    return "Hello from sakura-lang! You asked for " .. req.path
+end)
+
+-- A table handler: full control over status and headers.
+server:get("/json", function(req)
+    return {
+        status = 200,
+        headers = { ["Content-Type"] = "application/json" },
+        body = '{"message":"hello","path":"' .. req.path .. '"}',
+    }
+end)
+
+-- Echo back a POST body.
+server:post("/echo", function(req)
+    return {
+        status = 200,
+        body = "you sent: " .. req.body,
+    }
+end)
+
+-- Custom 404.
+server:set_not_found(function(req)
+    return { status = 404, body = "no such route: " .. req.method .. " " .. req.path }
+end)
+
+print("Routes registered: GET /, GET /json, POST /echo")
+print("Custom 404 handler installed.")
+print()
+print("To start serving, uncomment the line below and run again,")
+print("then visit http://localhost:18080/ in a browser or with curl.")
+
+server:listen(":18080")  -- NOTE: this call BLOCKS until the process is killed.

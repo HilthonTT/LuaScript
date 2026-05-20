@@ -10,11 +10,16 @@ import (
 
 	"github.com/hilthontt/sakura-lang/compiler"
 	"github.com/hilthontt/sakura-lang/compiler/parser"
+	"github.com/hilthontt/sakura-lang/native/crypto"
 	"github.com/hilthontt/sakura-lang/native/db"
 	httpNative "github.com/hilthontt/sakura-lang/native/http"
+	"github.com/hilthontt/sakura-lang/native/httpserver"
 	"github.com/hilthontt/sakura-lang/native/json"
 	"github.com/hilthontt/sakura-lang/native/math"
 	osNative "github.com/hilthontt/sakura-lang/native/os"
+	regexpNative "github.com/hilthontt/sakura-lang/native/regexp"
+	"github.com/hilthontt/sakura-lang/native/timex"
+	"github.com/hilthontt/sakura-lang/native/uuid"
 	"github.com/hilthontt/sakura-lang/version"
 	"github.com/hilthontt/sakura-lang/vm"
 )
@@ -166,6 +171,11 @@ func runBundled(src string) int {
 	httpNative.RegisterHttpPreload(v)
 	math.RegisterMathPreload(v)
 	json.RegisterJSONPreload(v)
+	httpserver.RegisterHTTPServerPreload(v)
+	crypto.RegisterCryptoPreload(v)
+	timex.RegisterTimePreload(v)
+	regexpNative.RegisterRegexpPreload(v)
+	uuid.RegisterUUIDPreload(v)
 
 	chunks, err := compiler.CompileToInstructions(src, parser.NormalMode)
 	if err != nil {

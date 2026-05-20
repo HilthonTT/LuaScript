@@ -1,0 +1,35 @@
+--!nocheck
+-- The `crypto` module: hashing, HMAC, encoding, and secure randomness.
+local crypto = require("crypto")
+
+print("=== Crypto Module Test ===")
+print("VERSION:", crypto.VERSION)
+print()
+
+-- Hash digests (lowercase hex).
+print("md5    :", crypto.md5("hello"))
+print("sha1   :", crypto.sha1("hello"))
+print("sha256 :", crypto.sha256("hello"))
+print("sha512 :", crypto.sha512("hello"))
+print()
+
+-- HMAC.
+print("hmac_sha256:", crypto.hmac_sha256("secret-key", "message"))
+print()
+
+-- base64 round-trip.
+local b64 = crypto.base64_encode("sakura-lang")
+print("base64 encoded:", b64)
+print("base64 decoded:", crypto.base64_decode(b64))
+print()
+
+-- hex round-trip.
+local hx = crypto.hex_encode("sakura-lang")
+print("hex encoded:", hx)
+print("hex decoded:", crypto.hex_decode(hx))
+print()
+
+-- Secure random bytes (printed as hex so it stays readable).
+local rnd = crypto.random_bytes(16)
+print("random_bytes(16) length:", #rnd)
+print("random_bytes(16) as hex:", crypto.hex_encode(rnd))

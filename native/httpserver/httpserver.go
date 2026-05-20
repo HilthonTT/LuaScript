@@ -1,0 +1,274 @@
+// Package httpserver provides the `httpserver` native module — an HTTP
+// *server* to complement the client-only `http` module.
+//
+// Concurrency model: the sakura VM is single-threaded and not safe for
+// concurrent access, but net/http dispatches every request on its own
+// goroutine. This module bridges the two with a serialized design:
+//
+//   - `server:listen(addr)` BLOCKS on the calling (VM) goroutine and runs
+//     a loop that is the *only* place Lua handlers are ever invoked.
+//   - net/http's per-request goroutines merely marshal the request into a
+//     Lua table, push a job onto a channel, and block waiting for the
+//     reply. They never touch the VM.
+//
+// As a result every handler runs serially on the VM goroutine — simple
+// and race-free, at the cost of no request-level parallelism.
+package httpserver
+
+import (
+	"io"
+	"net/http"
+	"strings"
+
+	"github.com/hilthontt/sakura-lang/vm"
+)
+
+// RegisterHTTPServerPreload installs the `httpserver` module under
+// package.preload.
+func RegisterHTTPServerPreload(v *vm.VM) {
+	pkg, ok := v.Globals.Get("package").(*vm.Table)
+	if !ok {
+		return
+	}
+	preload, ok := pkg.Get("preload").(*vm.Table)
+	if !ok {
+		preload = vm.NewTable(0, 4)
+		pkg.Set("preload", preload)
+	}
+	preload.Set("httpserver", &vm.GoFunc{Name: "preload.httpserver", Fn: httpServerLoader})
+}
+
+func httpServerLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
+	mod := vm.NewTable(0, 2)
+	mod.Set("VERSION", "0.1.0")
+
+	methods := vm.NewTable(0, 1)
+	// httpserver.new() -> a fresh server object.
+	methods.Set("new", &vm.GoFunc{Name: "httpserver:new", Fn: func(_ *vm.VM, _ []vm.Value) []vm.Value {
+		return []vm.Value{newServer()}
+	}})
+
+	mt := vm.NewTable(0, 1)
+	mt.Set("__index", methods)
+	mod.SetMetatable(mt)
+	return []vm.Value{mod}
+}
+
+// job is one request handed from a net/http goroutine to the VM loop.
+type job struct {
+	method string
+	path   string
+	req    *vm.Table
+	reply  chan resp
+}
+
+// resp is the normalized result the VM loop sends back to the waiting
+// net/http goroutine.
+type resp struct {
+	status  int
+	body    string
+	headers map[string]string
+}
+
+// newServer builds a stateful server object. The route table, the
+// optional not-found handler, and the job channel are captured in the
+// method closures so no raw Go handle is exposed to script space.
+func newServer() *vm.Table {
+	// routes is keyed by "METHOD path". It is only mutated by :route
+	// (and its sugar) on the VM goroutine, and only read by the :listen
+	// loop — which runs on that same goroutine — so no lock is needed.
+	routes := map[string]vm.Value{}
+	var notFound vm.Value
+
+	o := vm.NewTable(0, 1)
+	methods := vm.NewTable(0, 12)
+
+	// :route(method, path, handler) — register a handler. handler may be
+	// any callable (a sakura function or a host function).
+	methods.Set("route", &vm.GoFunc{Name: "server:route", Fn: func(_ *vm.VM, a []vm.Value) []vm.Value {
+		_ = vm.TableArg("server:route", 1, a)
+		method := vm.StringArg("server:route", 2, a)
+		path := vm.StringArg("server:route", 3, a)
+		handler := funcArg("server:route", 4, a)
+		routes[strings.ToUpper(method)+" "+path] = handler
+		return nil
+	}})
+
+	// Method sugar: :get/:post/... (path, handler).
+	addVerb := func(name, method string) {
+		site := "server:" + name
+		methods.Set(name, &vm.GoFunc{Name: site, Fn: func(_ *vm.VM, a []vm.Value) []vm.Value {
+			_ = vm.TableArg(site, 1, a)
+			path := vm.StringArg(site, 2, a)
+			handler := funcArg(site, 3, a)
+			routes[method+" "+path] = handler
+			return nil
+		}})
+	}
+	addVerb("get", http.MethodGet)
+	addVerb("post", http.MethodPost)
+	addVerb("put", http.MethodPut)
+	addVerb("patch", http.MethodPatch)
+	addVerb("delete", http.MethodDelete)
+	addVerb("head", http.MethodHead)
+	addVerb("options", http.MethodOptions)
+
+	// :set_not_found(handler) — custom handler for unmatched routes.
+	methods.Set("set_not_found", &vm.GoFunc{Name: "server:set_not_found", Fn: func(_ *vm.VM, a []vm.Value) []vm.Value {
+		_ = vm.TableArg("server:set_not_found", 1, a)
+		notFound = funcArg("server:set_not_found", 2, a)
+		return nil
+	}})
+
+	// :listen(addr) — BLOCKS. Starts the HTTP server and runs the
+	// serialization loop. See the package doc for the concurrency model.
+	methods.Set("listen", &vm.GoFunc{Name: "server:listen", Fn: func(machine *vm.VM, a []vm.Value) []vm.Value {
+		_ = vm.TableArg("server:listen", 1, a)
+		addr := vm.StringArg("server:listen", 2, a)
+
+		jobCh := make(chan job)
+		errCh := make(chan error, 1)
+
+		handler := func(w http.ResponseWriter, r *http.Request) {
+			body, _ := io.ReadAll(r.Body)
+			j := job{
+				method: r.Method,
+				path:   r.URL.Path,
+				req:    buildRequest(r, string(body)),
+				reply:  make(chan resp, 1),
+			}
+			jobCh <- j
+			res := <-j.reply
+			for k, v := range res.headers {
+				w.Header().Set(k, v)
+			}
+			w.WriteHeader(res.status)
+			io.WriteString(w, res.body)
+		}
+
+		srv := &http.Server{Addr: addr, Handler: http.HandlerFunc(handler)}
+		go func() {
+			errCh <- srv.ListenAndServe()
+		}()
+
+		// The loop: the sole place Lua handlers run.
+		for {
+			select {
+			case err := <-errCh:
+				panic(vm.Errorf("server:listen: %s", err.Error()))
+			case j := <-jobCh:
+				h := routes[j.method+" "+j.path]
+				j.reply <- dispatch(machine, h, notFound, j.req)
+			}
+		}
+	}})
+
+	mt := vm.NewTable(0, 1)
+	mt.Set("__index", methods)
+	o.SetMetatable(mt)
+	return o
+}
+
+// dispatch invokes the matched handler (or the not-found handler / a
+// default 404) on the VM goroutine and normalizes its return value into
+// a resp. A handler panic is recovered and turned into a 500 so a single
+// bad request can never take the server down.
+func dispatch(machine *vm.VM, handler, notFound vm.Value, req *vm.Table) (out resp) {
+	if handler == nil {
+		if notFound == nil {
+			return resp{status: http.StatusNotFound, body: "404 page not found\n",
+				headers: map[string]string{"Content-Type": "text/plain; charset=utf-8"}}
+		}
+		handler = notFound
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			msg := "internal server error"
+			if e, ok := r.(error); ok {
+				msg = e.Error()
+			}
+			out = resp{status: http.StatusInternalServerError, body: msg + "\n",
+				headers: map[string]string{"Content-Type": "text/plain; charset=utf-8"}}
+		}
+	}()
+
+	results := machine.CallValue(handler, []vm.Value{req}, 1)
+	var result vm.Value
+	if len(results) > 0 {
+		result = results[0]
+	}
+	return normalize(result)
+}
+
+// normalize turns a handler's return value into a resp. A string becomes
+// a 200 text/plain body; a table is read for status/body/headers; nil
+// (or no return) becomes an empty 200.
+func normalize(result vm.Value) resp {
+	switch v := result.(type) {
+	case nil:
+		return resp{status: http.StatusOK, headers: map[string]string{}}
+	case string:
+		return resp{status: http.StatusOK, body: v,
+			headers: map[string]string{"Content-Type": "text/plain; charset=utf-8"}}
+	case *vm.Table:
+		out := resp{status: http.StatusOK, headers: map[string]string{}}
+		if s, ok := v.Get("status").(int64); ok {
+			out.status = int(s)
+		}
+		if b, ok := v.Get("body").(string); ok {
+			out.body = b
+		}
+		if h, ok := v.Get("headers").(*vm.Table); ok {
+			var k vm.Value
+			for {
+				var hv vm.Value
+				k, hv = h.Next(k)
+				if k == nil {
+					break
+				}
+				ks, kok := k.(string)
+				vs, vok := hv.(string)
+				if kok && vok {
+					out.headers[ks] = vs
+				}
+			}
+		}
+		return out
+	default:
+		panic(vm.Errorf("server handler must return a string or table, got %s", vm.TypeName(result)))
+	}
+}
+
+// buildRequest marshals an *http.Request into the Lua request table that
+// handlers receive as their single argument.
+func buildRequest(r *http.Request, body string) *vm.Table {
+	t := vm.NewTable(0, 7)
+	t.Set("method", r.Method)
+	t.Set("path", r.URL.Path)
+	t.Set("query", r.URL.RawQuery)
+	t.Set("body", body)
+	t.Set("host", r.Host)
+	t.Set("remote_addr", r.RemoteAddr)
+
+	headers := vm.NewTable(0, len(r.Header))
+	for k, vs := range r.Header {
+		headers.Set(k, strings.Join(vs, ", "))
+	}
+	t.Set("headers", headers)
+	return t
+}
+
+// funcArg validates that arg n is a callable (a sakura *Closure or a host
+// *GoFunc) — vm has no combined helper, and ClosureArg would reject
+// *GoFunc handlers.
+func funcArg(name string, n int, args []vm.Value) vm.Value {
+	if n < 1 || n > len(args) {
+		panic(vm.Errorf("bad argument #%d to '%s' (function expected)", n, name))
+	}
+	switch args[n-1].(type) {
+	case *vm.Closure, *vm.GoFunc:
+		return args[n-1]
+	}
+	panic(vm.Errorf("bad argument #%d to '%s' (function expected, got %s)", n, name, vm.TypeName(args[n-1])))
+}
