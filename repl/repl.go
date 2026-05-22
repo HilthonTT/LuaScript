@@ -309,6 +309,10 @@ func (r *REPL) printHelp() {
 		colorDim, colorReset, colorBold, colorReset, colorBold, colorReset)
 	fmt.Fprintf(r.out, "  %s•%s start a chunk with %s--!nocheck%s to skip type checking\n",
 		colorDim, colorReset, colorBold, colorReset)
+	fmt.Fprintf(r.out, "  %s•%s %smatch%s evaluates by pattern:  %smatch n do 1 -> \"one\" _ -> \"many\" end%s\n",
+		colorDim, colorReset, colorBold, colorReset, colorBold, colorReset)
+	fmt.Fprintf(r.out, "  %s•%s compound assignment is supported:  %s+= -= *= /= &= |= <<= >>=%s\n",
+		colorDim, colorReset, colorBold, colorReset)
 
 	fmt.Fprintf(r.out, "\n%sFor CLI options:%s sakura --help\n\n", colorDim, colorReset)
 }

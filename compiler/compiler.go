@@ -4,6 +4,7 @@ import (
 	"github.com/hilthontt/sakura-lang/compiler/ast"
 	"github.com/hilthontt/sakura-lang/compiler/bytecode"
 	"github.com/hilthontt/sakura-lang/compiler/lexer"
+	"github.com/hilthontt/sakura-lang/compiler/optimize"
 	"github.com/hilthontt/sakura-lang/compiler/parser"
 	"github.com/hilthontt/sakura-lang/compiler/typecheck"
 )
@@ -44,6 +45,11 @@ func CompileToInstructionsWith(g *bytecode.Generator, input string, pm parser.Mo
 			return nil, &typecheck.TypeErrors{Errors: errs}
 		}
 	}
+
+	// Constant folding runs after type checking (so the checker sees the
+	// original expressions) and before bytecode generation. It only applies
+	// semantics-preserving rewrites, so it is safe to run unconditionally.
+	optimize.Fold(program)
 
 	g.ResetInstructionSets()
 	g.InitTopLevelScope(program)
