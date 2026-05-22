@@ -55,7 +55,9 @@ type Report struct {
 	Metrics  Metrics
 }
 
-func (r *Report) add(f Finding) { r.Findings = append(r.Findings, f) }
+func (r *Report) add(f Finding) {
+	r.Findings = append(r.Findings, f)
+}
 
 // Options configures the analysis.
 type Options struct {
