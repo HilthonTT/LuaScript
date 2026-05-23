@@ -17,6 +17,7 @@ import (
 	"github.com/hilthontt/sakura-lang/native/math"
 	osNative "github.com/hilthontt/sakura-lang/native/os"
 	regexpNative "github.com/hilthontt/sakura-lang/native/regexp"
+	"github.com/hilthontt/sakura-lang/native/sort"
 	"github.com/hilthontt/sakura-lang/native/timex"
 	"github.com/hilthontt/sakura-lang/native/uuid"
 	"github.com/hilthontt/sakura-lang/repl"
@@ -115,6 +116,7 @@ func run(argv []string) int {
 	r.AddPostInit(timex.RegisterTimePreload)
 	r.AddPostInit(regexpNative.RegisterRegexpPreload)
 	r.AddPostInit(uuid.RegisterUUIDPreload)
+	r.AddPostInit(sort.RegisterSortPreload)
 
 	// No script, or -i requested: drop into the REPL.
 	// NOTE: this preserves the original behavior where `-i file.sakura`

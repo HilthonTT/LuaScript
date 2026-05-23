@@ -18,6 +18,7 @@ import (
 	"github.com/hilthontt/sakura-lang/native/math"
 	osNative "github.com/hilthontt/sakura-lang/native/os"
 	regexpNative "github.com/hilthontt/sakura-lang/native/regexp"
+	"github.com/hilthontt/sakura-lang/native/sort"
 	"github.com/hilthontt/sakura-lang/native/timex"
 	"github.com/hilthontt/sakura-lang/native/uuid"
 	"github.com/hilthontt/sakura-lang/version"
@@ -176,6 +177,7 @@ func runBundled(src string) int {
 	timex.RegisterTimePreload(v)
 	regexpNative.RegisterRegexpPreload(v)
 	uuid.RegisterUUIDPreload(v)
+	sort.RegisterSortPreload(v)
 
 	chunks, err := compiler.CompileToInstructions(src, parser.NormalMode)
 	if err != nil {

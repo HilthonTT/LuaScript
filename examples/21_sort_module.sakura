@@ -1,0 +1,89 @@
+--!nocheck
+-- The `sort` module: in-place array sorting via classic algorithms.
+local sort = require("sort")
+
+print("=== Sort Module Test ===")
+print("VERSION:", sort.VERSION)
+print()
+
+-- Small helper to render arrays inline since we don't have one built in.
+local function show(arr)
+    local out = "{"
+    for i = 1, #arr do
+        if i > 1 then out = out .. ", " end
+        out = out .. tostring(arr[i])
+    end
+    return out .. "}"
+end
+
+-- quicksort on integers.
+local ints = { 3, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5 }
+print("ints before    :", show(ints))
+sort.quicksort(ints)
+print("ints quicksort :", show(ints))
+print()
+
+-- bubble on strings (lexicographic).
+local words = { "banana", "apple", "cherry", "date" }
+print("words before   :", show(words))
+sort.bubble(words)
+print("words bubble   :", show(words))
+print()
+
+-- circle on floats.
+local floats = { 2.5, -1.0, 3.14, 0.0, -0.5 }
+print("floats before  :", show(floats))
+sort.circle(floats)
+print("floats circle  :", show(floats))
+print()
+
+-- simple on a mixed int/float array. The module promotes ints to
+-- float64 so a single total order applies.
+local mixed = { 1, 2.5, 0, -1.5, 3 }
+print("mixed before   :", show(mixed))
+sort.simple(mixed)
+print("mixed simple   :", show(mixed))
+print()
+
+-- The return value is the same table — sort is in place, matching
+-- Lua's table.sort. So you can also write:
+local chained = sort.quicksort({ 9, 7, 8, 6, 5 })
+print("chained        :", show(chained))
+print()
+
+-- Edge cases.
+local empty = {}
+sort.quicksort(empty)
+print("empty          :", show(empty))
+
+local single = { 42 }
+sort.bubble(single)
+print("single         :", show(single))
+
+-- Already sorted — should be a no-op cost-wise but still works.
+local sorted = { 1, 2, 3, 4, 5 }
+sort.circle(sorted)
+print("already sorted :", show(sorted))
+
+-- Reverse sorted — worst case for some algorithms.
+local reverse = { 5, 4, 3, 2, 1 }
+sort.quicksort(reverse)
+print("reverse        :", show(reverse))
+print()
+
+-- Comparing the four algorithms on the same input proves they
+-- all converge on the same answer.
+print("--- algorithm consistency check ---")
+local input = { 7, 2, 9, 1, 5, 3, 8, 4, 6 }
+print("input          :", show(input))
+
+local function copy(arr)
+    local out = {}
+    for i = 1, #arr do out[i] = arr[i] end
+    return out
+end
+
+print("quicksort      :", show(sort.quicksort(copy(input))))
+print("bubble         :", show(sort.bubble(copy(input))))
+print("circle         :", show(sort.circle(copy(input))))
+print("simple         :", show(sort.simple(copy(input))))
