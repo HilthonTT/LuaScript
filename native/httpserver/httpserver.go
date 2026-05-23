@@ -16,11 +16,31 @@
 package httpserver
 
 import (
+	"context"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/hilthontt/sakura-lang/vm"
+)
+
+const (
+	// maxBodyBytes caps the per-request body size. Larger requests get a
+	// 413 and the job is never queued for the VM. Picked to cover typical
+	// form posts and small uploads; a `:max_body_bytes(n)` setter is
+	// intentionally deferred until a script needs it.
+	maxBodyBytes = 8 << 20 // 8 MiB
+
+	// jobChBuffer absorbs short request bursts so per-request goroutines
+	// don't block on the channel send. Handlers still serialize on the VM
+	// goroutine — this just smooths the wake-up cost.
+	jobChBuffer = 64
+
+	// stopGraceTimeout bounds how long :stop will wait for in-flight
+	// handlers to drain before forcibly closing the server.
+	stopGraceTimeout = 5 * time.Second
 )
 
 // RegisterHTTPServerPreload installs the `httpserver` module under
@@ -62,14 +82,19 @@ type resp struct {
 }
 
 // newServer builds a stateful server object. The route table, the
-// optional not-found handler, and the job channel are captured in the
-// method closures so no raw Go handle is exposed to script space.
+// optional not-found handler, the job channel, and the *http.Server
+// pointer are captured in the method closures so no raw Go handle is
+// exposed to script space.
+//
+// Concurrency invariant: routes, notFound, and srv are all written
+// AND read on the VM goroutine. :route / :get / … / :set_not_found
+// mutate them, :listen reads routes/notFound in its for-select loop,
+// and :stop reads srv. The only cross-goroutine touch is :stop ->
+// srv.Shutdown, which is itself goroutine-safe per net/http's contract.
 func newServer() *vm.Table {
-	// routes is keyed by "METHOD path". It is only mutated by :route
-	// (and its sugar) on the VM goroutine, and only read by the :listen
-	// loop — which runs on that same goroutine — so no lock is needed.
 	routes := map[string]vm.Value{}
 	var notFound vm.Value
+	var srv *http.Server
 
 	o := vm.NewTable(0, 1)
 	methods := vm.NewTable(0, 12)
@@ -113,15 +138,30 @@ func newServer() *vm.Table {
 
 	// :listen(addr) — BLOCKS. Starts the HTTP server and runs the
 	// serialization loop. See the package doc for the concurrency model.
+	// Returns cleanly when :stop is called (or when ListenAndServe
+	// returns http.ErrServerClosed); panics only on genuine bind errors.
 	methods.Set("listen", &vm.GoFunc{Name: "server:listen", Fn: func(machine *vm.VM, a []vm.Value) []vm.Value {
 		_ = vm.TableArg("server:listen", 1, a)
 		addr := vm.StringArg("server:listen", 2, a)
 
-		jobCh := make(chan job)
+		jobCh := make(chan job, jobChBuffer)
 		errCh := make(chan error, 1)
 
 		handler := func(w http.ResponseWriter, r *http.Request) {
-			body, _ := io.ReadAll(r.Body)
+			// MaxBytesReader caps the body AND surfaces a typed error on
+			// overflow so we can return 413 cleanly without queueing a
+			// half-read body to the VM.
+			r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				var maxErr *http.MaxBytesError
+				if errors.As(err, &maxErr) {
+					http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+					return
+				}
+				http.Error(w, "bad request body", http.StatusBadRequest)
+				return
+			}
 			j := job{
 				method: r.Method,
 				path:   r.URL.Path,
@@ -137,7 +177,7 @@ func newServer() *vm.Table {
 			io.WriteString(w, res.body)
 		}
 
-		srv := &http.Server{Addr: addr, Handler: http.HandlerFunc(handler)}
+		srv = &http.Server{Addr: addr, Handler: http.HandlerFunc(handler)}
 		go func() {
 			errCh <- srv.ListenAndServe()
 		}()
@@ -146,12 +186,34 @@ func newServer() *vm.Table {
 		for {
 			select {
 			case err := <-errCh:
+				// Clean shutdown via :stop (or any external Shutdown
+				// call) surfaces as ErrServerClosed; return normally.
+				if errors.Is(err, http.ErrServerClosed) {
+					return nil
+				}
 				panic(vm.Errorf("server:listen: %s", err.Error()))
 			case j := <-jobCh:
 				h := routes[j.method+" "+j.path]
 				j.reply <- dispatch(machine, h, notFound, j.req)
 			}
 		}
+	}})
+
+	// :stop() — request graceful shutdown. Safe to call from inside a
+	// handler: Shutdown is dispatched on a background goroutine so the
+	// current handler can finish, the :listen loop drains any queued
+	// jobs, and ListenAndServe's ErrServerClosed unblocks the loop.
+	methods.Set("stop", &vm.GoFunc{Name: "server:stop", Fn: func(_ *vm.VM, a []vm.Value) []vm.Value {
+		_ = vm.TableArg("server:stop", 1, a)
+		if srv == nil {
+			return nil // :listen never started; nothing to do.
+		}
+		go func(s *http.Server) {
+			ctx, cancel := context.WithTimeout(context.Background(), stopGraceTimeout)
+			defer cancel()
+			_ = s.Shutdown(ctx)
+		}(srv)
+		return nil
 	}})
 
 	mt := vm.NewTable(0, 1)
