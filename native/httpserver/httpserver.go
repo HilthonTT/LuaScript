@@ -26,16 +26,7 @@ import (
 // RegisterHTTPServerPreload installs the `httpserver` module under
 // package.preload.
 func RegisterHTTPServerPreload(v *vm.VM) {
-	pkg, ok := v.Globals.Get("package").(*vm.Table)
-	if !ok {
-		return
-	}
-	preload, ok := pkg.Get("preload").(*vm.Table)
-	if !ok {
-		preload = vm.NewTable(0, 4)
-		pkg.Set("preload", preload)
-	}
-	preload.Set("httpserver", &vm.GoFunc{Name: "preload.httpserver", Fn: httpServerLoader})
+	vm.RegisterPreload(v, "httpserver", httpServerLoader)
 }
 
 func httpServerLoader(_ *vm.VM, _ []vm.Value) []vm.Value {

@@ -8,16 +8,7 @@ import (
 
 // RegisterRegexpPreload installs the `regexp` module under package.preload.
 func RegisterRegexpPreload(v *vm.VM) {
-	pkg, ok := v.Globals.Get("package").(*vm.Table)
-	if !ok {
-		return
-	}
-	preload, ok := pkg.Get("preload").(*vm.Table)
-	if !ok {
-		preload = vm.NewTable(0, 4)
-		pkg.Set("preload", preload)
-	}
-	preload.Set("regexp", &vm.GoFunc{Name: "preload.regexp", Fn: regexpLoader})
+	vm.RegisterPreload(v, "regexp", regexpLoader)
 }
 
 func regexpLoader(_ *vm.VM, _ []vm.Value) []vm.Value {

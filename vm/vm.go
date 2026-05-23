@@ -74,18 +74,7 @@ func New() *VM {
 // with no arguments and discards results. Any runtime error surfaces as a
 // non-nil error.
 func (v *VM) Run(main *bytecode.InstructionSet) (err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			switch e := r.(type) {
-			case LuaError:
-				err = e
-			case error:
-				err = e
-			default:
-				err = fmt.Errorf("vm panic: %v", r)
-			}
-		}
-	}()
+	defer v.recoverToError(&err)
 
 	cl := &Closure{Proto: main}
 	v.callClosure(cl, nil, 0)
@@ -96,18 +85,7 @@ func (v *VM) Run(main *bytecode.InstructionSet) (err error) {
 // returned and hands them back to the caller. The REPL uses it to print
 // the value of bare expressions like Lua's interactive `lua` does.
 func (v *VM) RunMainChunkWithResults(main *bytecode.InstructionSet) (results []Value, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			switch e := r.(type) {
-			case LuaError:
-				err = e
-			case error:
-				err = e
-			default:
-				err = fmt.Errorf("vm panic: %v", r)
-			}
-		}
-	}()
+	defer v.recoverToError(&err)
 
 	base := len(v.Stack)
 	cl := &Closure{Proto: main}
@@ -115,6 +93,23 @@ func (v *VM) RunMainChunkWithResults(main *bytecode.InstructionSet) (results []V
 	results = append([]Value(nil), v.Stack[base:]...)
 	v.Stack = v.Stack[:base]
 	return results, nil
+}
+
+// recoverToError is the shared `defer`-installed recover for the
+// top-level Run paths. A LuaError (script-raised) or a Go error
+// surfaces as-is; anything else is wrapped with a "vm panic" prefix so
+// callers can still log without losing the original value.
+func (v *VM) recoverToError(err *error) {
+	if r := recover(); r != nil {
+		switch e := r.(type) {
+		case LuaError:
+			*err = e
+		case error:
+			*err = e
+		default:
+			*err = fmt.Errorf("vm panic: %v", r)
+		}
+	}
 }
 
 // callClosure pushes a new frame for `cl` with `args` and runs until that

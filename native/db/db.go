@@ -18,17 +18,7 @@ import (
 // call, caches the result in `package.loaded`, and returns the cache
 // on every subsequent `require("db")`.
 func RegisterDBPreload(v *vm.VM) {
-	pkg, ok := v.Globals.Get("package").(*vm.Table)
-	if !ok {
-		// Loader wasn't registered.
-		return
-	}
-	preload, ok := pkg.Get("preload").(*vm.Table)
-	if !ok {
-		preload = vm.NewTable(0, 4)
-		pkg.Set("preload", preload)
-	}
-	preload.Set("db", &vm.GoFunc{Name: "preload.db", Fn: dbLoader})
+	vm.RegisterPreload(v, "db", dbLoader)
 }
 
 func dbLoader(_ *vm.VM, _ []vm.Value) []vm.Value {

@@ -9,17 +9,7 @@ import (
 )
 
 func RegisterJSONPreload(v *vm.VM) {
-	pkg, ok := v.Globals.Get("package").(*vm.Table)
-	if !ok {
-		// Loader wasn't registered.
-		return
-	}
-	preload, ok := pkg.Get("preload").(*vm.Table)
-	if !ok {
-		preload = vm.NewTable(0, 4)
-		pkg.Set("preload", preload)
-	}
-	preload.Set("json", &vm.GoFunc{Name: "preload.json", Fn: jsonLoader})
+	vm.RegisterPreload(v, "json", jsonLoader)
 }
 
 func jsonLoader(_ *vm.VM, _ []vm.Value) []vm.Value {

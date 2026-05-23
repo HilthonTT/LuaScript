@@ -62,7 +62,12 @@ func CompileToInstructionsWith(g *bytecode.Generator, input string, pm parser.Mo
 	// produce no value).
 	stmts := program.Block.Statements
 	if program.Block.Return != nil {
-		stmts = append(append([]ast.Statement(nil), stmts...), program.Block.Return)
+		// Single allocation for the splice — the previous
+		// append(append(nil, stmts...), ret) shape grew the slice twice.
+		spliced := make([]ast.Statement, len(stmts)+1)
+		copy(spliced, stmts)
+		spliced[len(stmts)] = program.Block.Return
+		stmts = spliced
 	}
 	return g.GenerateInstructions(stmts), nil
 }

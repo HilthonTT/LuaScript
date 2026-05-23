@@ -9,17 +9,6 @@ import (
 
 	"github.com/hilthontt/sakura-lang/bonsai"
 	"github.com/hilthontt/sakura-lang/formatter"
-	"github.com/hilthontt/sakura-lang/native/crypto"
-	"github.com/hilthontt/sakura-lang/native/db"
-	httpNative "github.com/hilthontt/sakura-lang/native/http"
-	"github.com/hilthontt/sakura-lang/native/httpserver"
-	"github.com/hilthontt/sakura-lang/native/json"
-	"github.com/hilthontt/sakura-lang/native/math"
-	osNative "github.com/hilthontt/sakura-lang/native/os"
-	regexpNative "github.com/hilthontt/sakura-lang/native/regexp"
-	"github.com/hilthontt/sakura-lang/native/sort"
-	"github.com/hilthontt/sakura-lang/native/timex"
-	"github.com/hilthontt/sakura-lang/native/uuid"
 	"github.com/hilthontt/sakura-lang/repl"
 	"github.com/hilthontt/sakura-lang/version"
 	"github.com/hilthontt/sakura-lang/vm"
@@ -105,18 +94,12 @@ func run(argv []string) int {
 	v := vm.New()
 	r := repl.NewREPL(v, os.Stdin, os.Stdout)
 	// Register native modules via the post-init hook so script runs (a fresh
-	// non-REPL-mode VM) and `:reset` (rebuilt REPL VM) both get them.
-	r.AddPostInit(db.RegisterDBPreload)
-	r.AddPostInit(osNative.RegisterOSPreload)
-	r.AddPostInit(math.RegisterMathPreload)
-	r.AddPostInit(json.RegisterJSONPreload)
-	r.AddPostInit(httpNative.RegisterHttpPreload)
-	r.AddPostInit(httpserver.RegisterHTTPServerPreload)
-	r.AddPostInit(crypto.RegisterCryptoPreload)
-	r.AddPostInit(timex.RegisterTimePreload)
-	r.AddPostInit(regexpNative.RegisterRegexpPreload)
-	r.AddPostInit(uuid.RegisterUUIDPreload)
-	r.AddPostInit(sort.RegisterSortPreload)
+	// non-REPL-mode VM) and `:reset` (rebuilt REPL VM) both get them. The
+	// registrar list lives in cmd/natives.go so the bundled-binary code path
+	// in build.go's runBundled can walk the same slice.
+	for _, reg := range nativeRegistrars {
+		r.AddPostInit(reg)
+	}
 
 	// No script, or -i requested: drop into the REPL.
 	// NOTE: this preserves the original behavior where `-i file.sakura`

@@ -14,16 +14,7 @@ import (
 
 // RegisterTimePreload installs the `time` module under package.preload.
 func RegisterTimePreload(v *vm.VM) {
-	pkg, ok := v.Globals.Get("package").(*vm.Table)
-	if !ok {
-		return
-	}
-	preload, ok := pkg.Get("preload").(*vm.Table)
-	if !ok {
-		preload = vm.NewTable(0, 4)
-		pkg.Set("preload", preload)
-	}
-	preload.Set("time", &vm.GoFunc{Name: "preload.time", Fn: timeLoader})
+	vm.RegisterPreload(v, "time", timeLoader)
 }
 
 func timeLoader(_ *vm.VM, _ []vm.Value) []vm.Value {

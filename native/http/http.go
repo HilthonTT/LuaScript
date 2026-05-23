@@ -16,16 +16,7 @@ import (
 // Mirrors the pattern of native/json and native/os — `require("http")`
 // triggers httpLoader on first use.
 func RegisterHttpPreload(v *vm.VM) {
-	pkg, ok := v.Globals.Get("package").(*vm.Table)
-	if !ok {
-		return
-	}
-	preload, ok := pkg.Get("preload").(*vm.Table)
-	if !ok {
-		preload = vm.NewTable(0, 4)
-		pkg.Set("preload", preload)
-	}
-	preload.Set("http", &vm.GoFunc{Name: "preload.http", Fn: httpLoader})
+	vm.RegisterPreload(v, "http", httpLoader)
 }
 
 func httpLoader(_ *vm.VM, _ []vm.Value) []vm.Value {

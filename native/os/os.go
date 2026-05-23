@@ -10,16 +10,7 @@ import (
 )
 
 func RegisterOSPreload(v *vm.VM) {
-	pkg, ok := v.Globals.Get("package").(*vm.Table)
-	if !ok {
-		return
-	}
-	preload, ok := pkg.Get("preload").(*vm.Table)
-	if !ok {
-		preload = vm.NewTable(0, 4)
-		pkg.Set("preload", preload)
-	}
-	preload.Set("os", &vm.GoFunc{Name: "preload.os", Fn: osLoader})
+	vm.RegisterPreload(v, "os", osLoader)
 }
 
 func osLoader(_ *vm.VM, _ []vm.Value) []vm.Value {

@@ -15,16 +15,7 @@ import (
 
 // RegisterCryptoPreload installs the `crypto` module under package.preload.
 func RegisterCryptoPreload(v *vm.VM) {
-	pkg, ok := v.Globals.Get("package").(*vm.Table)
-	if !ok {
-		return
-	}
-	preload, ok := pkg.Get("preload").(*vm.Table)
-	if !ok {
-		preload = vm.NewTable(0, 4)
-		pkg.Set("preload", preload)
-	}
-	preload.Set("crypto", &vm.GoFunc{Name: "preload.crypto", Fn: cryptoLoader})
+	vm.RegisterPreload(v, "crypto", cryptoLoader)
 }
 
 func cryptoLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
@@ -71,37 +62,26 @@ func newCrypto() *vm.Table {
 		return []vm.Value{hex.EncodeToString(mac.Sum(nil))}
 	}})
 
-	// crypto.base64_encode(s) -> standard-encoded string.
-	methods.Set("base64_encode", &vm.GoFunc{Name: "crypto:base64_encode", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
-		s := vm.StringArg("crypto.base64_encode", 1, args)
-		return []vm.Value{base64.StdEncoding.EncodeToString([]byte(s))}
-	}})
-
-	// crypto.base64_decode(s) -> raw string. Malformed input raises.
-	methods.Set("base64_decode", &vm.GoFunc{Name: "crypto:base64_decode", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
-		s := vm.StringArg("crypto.base64_decode", 1, args)
-		out, err := base64.StdEncoding.DecodeString(s)
-		if err != nil {
-			panic(vm.Errorf("crypto.base64_decode: %s", err.Error()))
-		}
-		return []vm.Value{string(out)}
-	}})
-
-	// crypto.hex_encode(s) -> lowercase hex string.
-	methods.Set("hex_encode", &vm.GoFunc{Name: "crypto:hex_encode", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
-		s := vm.StringArg("crypto.hex_encode", 1, args)
-		return []vm.Value{hex.EncodeToString([]byte(s))}
-	}})
-
-	// crypto.hex_decode(s) -> raw string. Malformed input raises.
-	methods.Set("hex_decode", &vm.GoFunc{Name: "crypto:hex_decode", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
-		s := vm.StringArg("crypto.hex_decode", 1, args)
-		out, err := hex.DecodeString(s)
-		if err != nil {
-			panic(vm.Errorf("crypto.hex_decode: %s", err.Error()))
-		}
-		return []vm.Value{string(out)}
-	}})
+	// codecFn wires an encode/decode pair (e.g. base64, hex). Decode is
+	// allowed to fail; encoders can't, so they get the simpler signature.
+	codecFn := func(family string, encode func([]byte) string, decode func(string) ([]byte, error)) {
+		encName := family + "_encode"
+		decName := family + "_decode"
+		methods.Set(encName, &vm.GoFunc{Name: "crypto:" + encName, Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
+			s := vm.StringArg("crypto."+encName, 1, args)
+			return []vm.Value{encode([]byte(s))}
+		}})
+		methods.Set(decName, &vm.GoFunc{Name: "crypto:" + decName, Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
+			s := vm.StringArg("crypto."+decName, 1, args)
+			out, err := decode(s)
+			if err != nil {
+				panic(vm.Errorf("crypto.%s: %s", decName, err.Error()))
+			}
+			return []vm.Value{string(out)}
+		}})
+	}
+	codecFn("base64", base64.StdEncoding.EncodeToString, base64.StdEncoding.DecodeString)
+	codecFn("hex", hex.EncodeToString, hex.DecodeString)
 
 	// crypto.random_bytes(n) -> raw string of n crypto-random bytes.
 	methods.Set("random_bytes", &vm.GoFunc{Name: "crypto:random_bytes", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {

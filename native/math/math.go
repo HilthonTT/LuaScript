@@ -8,17 +8,7 @@ import (
 )
 
 func RegisterMathPreload(v *vm.VM) {
-	pkg, ok := v.Globals.Get("package").(*vm.Table)
-	if !ok {
-		// Loader wasn't registered.
-		return
-	}
-	preload, ok := pkg.Get("preload").(*vm.Table)
-	if !ok {
-		preload = vm.NewTable(0, 4)
-		pkg.Set("preload", preload)
-	}
-	preload.Set("math", &vm.GoFunc{Name: "preload.math", Fn: mathLoader})
+	vm.RegisterPreload(v, "math", mathLoader)
 }
 
 func mathLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
