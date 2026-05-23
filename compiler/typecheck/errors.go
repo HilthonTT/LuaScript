@@ -54,3 +54,23 @@ func sortByLine(errs []TypeError) {
 		return errs[i].Line < errs[j].Line
 	})
 }
+
+// errf records a non-assignability error on the checker's error list.
+func (c *checker) errf(line int, code, format string, args ...any) {
+	c.errors = append(c.errors, TypeError{
+		Line:    line,
+		Code:    code,
+		Message: fmt.Sprintf(format, args...),
+	})
+}
+
+// errAssign records a "type X cannot flow to type Y" error with the two
+// types attached for the formatter.
+func (c *checker) errAssign(line int, got, want *Type) {
+	c.errors = append(c.errors, TypeError{
+		Line: line,
+		Code: "incompat-assign",
+		Got:  got,
+		Want: want,
+	})
+}

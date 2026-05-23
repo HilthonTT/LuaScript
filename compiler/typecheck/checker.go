@@ -1,8 +1,6 @@
 package typecheck
 
 import (
-	"fmt"
-
 	"github.com/hilthontt/sakura-lang/compiler/ast"
 )
 
@@ -81,26 +79,6 @@ func (c *checker) expandRHS(values []ast.Expression, n int) []*Type {
 		}
 	}
 	return out
-}
-
-// errf records a non-assignability error.
-func (c *checker) errf(line int, code, format string, args ...any) {
-	c.errors = append(c.errors, TypeError{
-		Line:    line,
-		Code:    code,
-		Message: fmt.Sprintf(format, args...),
-	})
-}
-
-// errAssign records a "type X cannot flow to type Y" error with the two
-// types attached for the formatter.
-func (c *checker) errAssign(line int, got, want *Type) {
-	c.errors = append(c.errors, TypeError{
-		Line: line,
-		Code: "incompat-assign",
-		Got:  got,
-		Want: want,
-	})
 }
 
 // installGlobals seeds the env with the stdlib type signatures. The full
