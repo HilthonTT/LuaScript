@@ -17,6 +17,9 @@ coverage.*
 *.coverprofile
 profile.cov
 
+# Benchmark output saved by `go test -bench=...` runs
+bench_*.txt
+
 # Dependency directories (remove the comment below to include it)
 # vendor/
 

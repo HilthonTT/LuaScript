@@ -101,10 +101,15 @@ func run(argv []string) int {
 		r.AddPostInit(reg)
 	}
 
+	// -i with a script argument is rejected rather than silently ignoring
+	// the file. "Load script then drop to REPL" would need a new REPL
+	// entry point; until then, refuse the combo so users don't think the
+	// script ran.
+	if *interactive && len(args) > 0 {
+		fmt.Fprintln(os.Stderr, "sakura: -i takes no script argument")
+		return 2
+	}
 	// No script, or -i requested: drop into the REPL.
-	// NOTE: this preserves the original behavior where `-i file.sakura`
-	// ignores the file. If the intent of -i is "load the script, then drop
-	// to REPL," REPL needs a new entry point and this branch should call it.
 	if *interactive || len(args) == 0 {
 		r.Start()
 		return 0
