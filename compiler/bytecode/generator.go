@@ -60,13 +60,26 @@ func (g *Generator) GenerateInstructions(stmts []ast.Statement) []*InstructionSe
 	g.compileStatements(stmts)
 	g.endInstructions(g.current.is, lastLine(stmts))
 
-	// Resolve every forward-jump anchor: every *anchor stored in any param
-	// position is replaced with its final target line.
+	// Resolve every forward-jump anchor: every *anchor stored in any
+	// param position is replaced with its final target line, both in the
+	// Params slice (for disassembly / Inspect) and in the typed A/B fast-
+	// path fields that the VM hot loop reads. For-family opcodes carry
+	// the anchor in the *second* slot (after baseSlot); everything else
+	// carries it first — slot index drives whether the resolved value
+	// lands in A or B.
 	for _, ctx := range g.allContexts() {
 		for _, ins := range ctx.pending {
 			for i, p := range ins.Params {
-				if a, ok := p.(*anchor); ok {
-					ins.Params[i] = a.line
+				a, ok := p.(*anchor)
+				if !ok {
+					continue
+				}
+				ins.Params[i] = a.line
+				switch i {
+				case 0:
+					ins.A = int32(a.line)
+				case 1:
+					ins.B = int32(a.line)
 				}
 			}
 		}

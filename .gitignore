@@ -20,6 +20,13 @@ profile.cov
 # Benchmark output saved by `go test -bench=...` runs
 bench_*.txt
 
+# PGO artifacts produced by scripts/build-pgo.sh
+cpu.pgo
+sakura
+sakura-stage1
+*.prof
+*.pgo
+
 # Dependency directories (remove the comment below to include it)
 # vendor/
 

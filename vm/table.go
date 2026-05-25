@@ -13,6 +13,15 @@ type Table struct {
 	hash      map[Value]Value
 	keys      []Value // hash keys in insertion order; nil entries are tombstones
 	metatable *Table
+
+	// gen is a monotonically-increasing generation counter bumped on
+	// every Set / removeHashKey. The GetGlobal inline cache on
+	// bytecode.Instruction stores the gen value observed at the last
+	// lookup, so a single uint32 compare on the dispatch path replaces
+	// a string-keyed map lookup whenever globals are stable across the
+	// call site. Any mutation invalidates every cache slot at once;
+	// the counter never decreases, so no ABA risk.
+	gen uint32
 }
 
 // Metatable returns the table's metatable, or nil.
@@ -64,6 +73,12 @@ func (t *Table) Set(key, value Value) {
 	if f, ok := key.(float64); ok && math.IsNaN(f) {
 		panic(LuaError("table index is NaN"))
 	}
+	// Bump the generation counter so any GetGlobal inline-cache slot
+	// that snapshotted a prior gen will re-resolve on its next hit. The
+	// bump is unconditional even on no-op writes (e.g. assigning the
+	// same value); the cost is one increment vs. the correctness risk
+	// of letting stale cached values survive a write.
+	t.gen++
 	if i, ok := arrayIndex(key); ok && i >= 1 {
 		if i <= int64(len(t.array)) {
 			t.array[i-1] = value

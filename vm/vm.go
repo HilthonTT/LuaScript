@@ -170,25 +170,13 @@ func computeMaxLocalSlots(p *bytecode.InstructionSet) int {
 	for _, ins := range p.Instructions {
 		switch ins.Opcode {
 		case bytecode.SetLocal, bytecode.GetLocal:
-			if s, ok := ins.Params[0].(int); ok {
-				bump(s)
-			}
+			bump(int(ins.A))
 		case bytecode.ForPrep, bytecode.ForLoop:
-			if s, ok := ins.Params[0].(int); ok {
-				bump(s + 2)
-			}
+			bump(int(ins.A) + 2)
 		case bytecode.TForCall:
-			if s, ok := ins.Params[0].(int); ok {
-				if n, ok := ins.Params[1].(int); ok {
-					bump(s + 2 + n)
-				} else {
-					bump(s + 2)
-				}
-			}
+			bump(int(ins.A) + 2 + int(ins.B))
 		case bytecode.TForLoop:
-			if s, ok := ins.Params[0].(int); ok {
-				bump(s + 3)
-			}
+			bump(int(ins.A) + 3)
 		}
 	}
 	return maxSlot + 1
@@ -335,27 +323,33 @@ func (v *VM) exec(entryDepth int) {
 }
 
 // dispatch executes a single instruction.
+//
+// All per-instruction parameters are read from the typed fast-path fields
+// on bytecode.Instruction (A, B, StrA, BoxedAny). The dense iota switch
+// over Opcode lets the Go compiler emit a jump table for the dispatch
+// itself; the per-field reads avoid the type-assertion + slice bounds
+// check that the older ins.Params[N].(T) layout paid on every dispatch.
 func (v *VM) dispatch(f *CallFrame, ins *bytecode.Instruction) {
 	switch ins.Opcode {
 
 	// ----- constants & literals -----
 	case bytecode.LoadNil:
-		v.pushNils(ins.Params[0].(int))
+		v.pushNils(int(ins.A))
 	case bytecode.LoadTrue:
 		v.push(true)
 	case bytecode.LoadFalse:
 		v.push(false)
 	case bytecode.LoadInt:
-		// Params[0] already holds the int64 boxed in an interface; push it
-		// straight through so the same box is shared by every execution of
-		// this instruction instead of re-boxing (a 386 heap alloc) per push.
-		v.push(ins.Params[0])
+		// BoxedAny carries the int64 already boxed in an interface so the
+		// same box is shared by every execution of this instruction
+		// instead of re-boxing (a 386 heap alloc) per push.
+		v.push(ins.BoxedAny)
 	case bytecode.LoadFloat:
-		v.push(ins.Params[0])
+		v.push(ins.BoxedAny)
 	case bytecode.LoadString:
-		v.push(ins.Params[0])
+		v.push(ins.BoxedAny)
 	case bytecode.LoadVararg:
-		count := ins.Params[0].(int)
+		count := int(ins.A)
 		va := f.Varargs
 		switch {
 		case count < 0:
@@ -367,35 +361,36 @@ func (v *VM) dispatch(f *CallFrame, ins *bytecode.Instruction) {
 			v.pushNils(count - len(va))
 		}
 	case bytecode.Closure:
-		idx := ins.Params[0].(int)
-		proto := f.Closure.Proto.Protos[idx]
+		proto := f.Closure.Proto.Protos[ins.A]
 		v.push(v.makeClosure(f, proto))
 
 	// ----- variables -----
 	case bytecode.GetLocal:
-		slot := ins.Params[0].(int)
-		v.push(*v.localAt(f, slot))
+		v.push(*v.localAt(f, int(ins.A)))
 	case bytecode.SetLocal:
-		slot := ins.Params[0].(int)
-		*v.localAt(f, slot) = v.pop()
+		*v.localAt(f, int(ins.A)) = v.pop()
 	case bytecode.GetUpvalue:
-		idx := ins.Params[0].(int)
-		v.push(f.Closure.Upvalues[idx].Get())
+		v.push(f.Closure.Upvalues[ins.A].Get())
 	case bytecode.SetUpvalue:
-		idx := ins.Params[0].(int)
-		f.Closure.Upvalues[idx].Set(v.pop())
+		f.Closure.Upvalues[ins.A].Set(v.pop())
 	case bytecode.GetGlobal:
-		name := ins.Params[0].(string)
-		v.push(v.Globals.Get(name))
+		// Per-call-site monomorphic inline cache. Globals.gen bumps on
+		// every Set / removeHashKey; on match we skip the string-hash +
+		// map lookup entirely. On miss, do the lookup and store
+		// (gen, val) for next time.
+		if ins.CacheGen() == v.Globals.gen {
+			v.push(ins.CacheVal())
+		} else {
+			val := v.Globals.Get(ins.StrA)
+			ins.SetCache(v.Globals.gen, val)
+			v.push(val)
+		}
 	case bytecode.SetGlobal:
-		name := ins.Params[0].(string)
-		v.Globals.Set(name, v.pop())
+		v.Globals.Set(ins.StrA, v.pop())
 
 	// ----- tables -----
 	case bytecode.NewTable:
-		ah := ins.Params[0].(int)
-		hh := ins.Params[1].(int)
-		v.push(NewTable(ah, hh))
+		v.push(NewTable(int(ins.A), int(ins.B)))
 	case bytecode.GetTable:
 		key := v.pop()
 		obj := v.pop()
@@ -406,22 +401,19 @@ func (v *VM) dispatch(f *CallFrame, ins *bytecode.Instruction) {
 		obj := v.pop()
 		v.newIndexMM(obj, key, val)
 	case bytecode.GetField:
-		key := ins.Params[0].(string)
 		obj := v.pop()
-		v.push(v.indexMM(obj, key))
+		v.push(v.indexMM(obj, ins.StrA))
 	case bytecode.SetField:
-		key := ins.Params[0].(string)
 		val := v.pop()
 		obj := v.pop()
-		v.newIndexMM(obj, key, val)
+		v.newIndexMM(obj, ins.StrA, val)
 	case bytecode.Self:
-		key := ins.Params[0].(string)
 		obj := v.Stack[len(v.Stack)-1] // peek; we want both method and obj
-		v.Stack[len(v.Stack)-1] = v.indexMM(obj, key)
+		v.Stack[len(v.Stack)-1] = v.indexMM(obj, ins.StrA)
 		v.push(obj)
 	case bytecode.SetList:
-		count := ins.Params[0].(int)
-		offset := ins.Params[1].(int)
+		count := int(ins.A)
+		offset := int(ins.B)
 		// Stack layout: [..., table, v1, v2, ..., vCount]
 		valuesStart := len(v.Stack) - count
 		t := v.Stack[valuesStart-1].(*Table)
@@ -488,7 +480,7 @@ func (v *VM) dispatch(f *CallFrame, ins *bytecode.Instruction) {
 
 	// ----- string / length -----
 	case bytecode.Concat:
-		count := ins.Params[0].(int)
+		count := int(ins.A)
 		// Right-associative: reduce pairwise from the right so __concat
 		// metamethods see the same operand pairing as a chained `..`.
 		start := len(v.Stack) - count
@@ -533,65 +525,53 @@ func (v *VM) dispatch(f *CallFrame, ins *bytecode.Instruction) {
 
 	// ----- control flow -----
 	case bytecode.Jump:
-		f.IP = ins.Params[0].(int)
+		f.IP = int(ins.A)
 	case bytecode.JumpIfFalse:
 		x := v.pop()
 		if !IsTruthy(x) {
-			f.IP = ins.Params[0].(int)
+			f.IP = int(ins.A)
 		}
 	case bytecode.JumpIfTrue:
 		x := v.pop()
 		if IsTruthy(x) {
-			f.IP = ins.Params[0].(int)
+			f.IP = int(ins.A)
 		}
 	case bytecode.JumpIfFalseKeep:
 		x := v.Stack[len(v.Stack)-1]
 		if !IsTruthy(x) {
-			f.IP = ins.Params[0].(int)
+			f.IP = int(ins.A)
 		} else {
 			v.pop()
 		}
 	case bytecode.JumpIfTrueKeep:
 		x := v.Stack[len(v.Stack)-1]
 		if IsTruthy(x) {
-			f.IP = ins.Params[0].(int)
+			f.IP = int(ins.A)
 		} else {
 			v.pop()
 		}
 
 	// ----- calls / returns -----
 	case bytecode.Call:
-		nargs := ins.Params[0].(int)
-		nresults := ins.Params[1].(int)
-		v.doCall(nargs, nresults)
+		v.doCall(int(ins.A), int(ins.B))
 	case bytecode.Return:
-		count := ins.Params[0].(int)
-		v.doReturn(f, count)
+		v.doReturn(f, int(ins.A))
 
 	// ----- numeric for -----
 	case bytecode.ForPrep:
-		baseSlot := ins.Params[0].(int)
-		target := ins.Params[1].(int)
-		v.forPrep(f, baseSlot, target)
+		v.forPrep(f, int(ins.A), int(ins.B))
 	case bytecode.ForLoop:
-		baseSlot := ins.Params[0].(int)
-		target := ins.Params[1].(int)
-		v.forLoop(f, baseSlot, target)
+		v.forLoop(f, int(ins.A), int(ins.B))
 
 	// ----- generic for -----
 	case bytecode.TForCall:
-		baseSlot := ins.Params[0].(int)
-		nresults := ins.Params[1].(int)
-		v.tForCall(f, baseSlot, nresults)
+		v.tForCall(f, int(ins.A), int(ins.B))
 	case bytecode.TForLoop:
-		baseSlot := ins.Params[0].(int)
-		target := ins.Params[1].(int)
-		v.tForLoop(f, baseSlot, target)
+		v.tForLoop(f, int(ins.A), int(ins.B))
 
 	// ----- stack utility -----
 	case bytecode.Pop:
-		count := ins.Params[0].(int)
-		v.popN(count)
+		v.popN(int(ins.A))
 	case bytecode.Dup:
 		v.push(v.Stack[len(v.Stack)-1])
 
