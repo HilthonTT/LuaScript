@@ -1,0 +1,2 @@
+local name = `my name is {5 * 8 + 3}!`
+print(`Hello, {name}!`)

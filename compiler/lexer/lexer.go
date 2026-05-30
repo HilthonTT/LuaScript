@@ -193,7 +193,7 @@ func (l *Lexer) nextToken() token.Token {
 			return token.Token{Type: token.String, Literal: lit, Line: line, Column: l.tokenCol}
 		}
 		return l.singleToken(token.LBracket, "[")
-	case '"', '\'':
+	case '"', '\'', '`':
 		lit := l.readString(l.ch)
 		return token.Token{Type: token.String, Literal: lit, Line: line, Column: l.tokenCol}
 	case 0:
@@ -446,7 +446,7 @@ func escapedCharResult(peeked rune) string {
 		return "\f"
 	case '\\':
 		return "\\"
-	case '"':
+	case '"', '`':
 		return "\""
 	case '\'':
 		return "'"

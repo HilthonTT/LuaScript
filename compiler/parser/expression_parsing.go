@@ -66,31 +66,19 @@ func (p *Parser) parsePrefix() ast.Expression {
 		p.nextToken()
 		return exp
 	case token.True:
-		exp := &ast.BooleanLiteral{BaseNode: baseAt(p.curToken), Value: true}
-		p.nextToken()
-		return exp
+		return p.parseTrueLiteral()
 	case token.False:
-		exp := &ast.BooleanLiteral{BaseNode: baseAt(p.curToken), Value: false}
-		p.nextToken()
-		return exp
+		return p.parseFalseLiteral()
 	case token.Int:
 		return p.parseIntegerLiteral()
 	case token.Float:
 		return p.parseFloatLiteral()
 	case token.String:
-		// A string literal occurring at expression-prefix position is just
-		// itself; the postfix-loop later may attach it as a single-arg call.
-		exp := &ast.StringLiteral{BaseNode: baseAt(p.curToken), Value: p.curToken.Literal}
-		p.nextToken()
-		return exp
+		return p.parseStringLiteral()
 	case token.Vararg:
-		exp := &ast.VarargExpression{BaseNode: baseAt(p.curToken)}
-		p.nextToken()
-		return exp
+		return p.parseVarArg()
 	case token.Ident:
-		exp := &ast.Identifier{BaseNode: baseAt(p.curToken), Name: p.curToken.Literal}
-		p.nextToken()
-		return exp
+		return p.parseIdent()
 	case token.LParen:
 		return p.parseParenExpression()
 	case token.LBrace:
