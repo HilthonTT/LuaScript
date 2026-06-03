@@ -34,9 +34,9 @@ print("UNSET_VAR   =", os.getenv("DEFINITELY_NOT_SET_12345"))
 -- shortcut (equivalent to open with o_rdwr|o_create|o_trunc, mode
 -- 0666 & ~umask). It returns a file table whose methods close over
 -- the underlying *os.File on the Go side.
-local path = .lsc_os_demo.txt"
+local path = "luascript_os_demo.txt"
 local f = os.create(path)
-local written = f:write("hello from.lsc\n")
+local written = f:write("hello from luascript\n")
 print("wrote bytes =", written)
 f:close()
 
@@ -72,7 +72,7 @@ rd:close()
 
 -- 7. mkdir + cleanup. Decimal 493 == 0755 (rwxr-xr-x); standard Lua
 -- has no octal literal, so the FileMode bits go in as decimal.
-local dir = .lsc_os_demo_dir"
+local dir = "luascript_os_demo_dir"
 os.mkdir(dir, 493)
 os.remove(dir)
 os.remove(path)
@@ -85,11 +85,11 @@ print("bad open    =", ok, err)
 -- Double-close is a real error here: unlike sql.DB, *os.File is NOT
 -- idempotent on Close (returns os.ErrClosed). The Go side surfaces
 -- it as a panic; pcall catches it.
-local f2 = os.create(.lsc_double_close.txt")
+local f2 = os.create("luascript_double_close.txt")
 f2:close()
 local ok2, err2 = pcall(function() f2:close() end)
 print("dbl close   =", ok2, err2)
-os.remove(.lsc_double_close.txt")
+os.remove("luascript_double_close.txt")
 
 -- 9. Cache check: the second require returns the SAME module table
 -- without re-running the Go loader.

@@ -70,9 +70,18 @@ func (p *Parser) parseStringLiteral() ast.Expression {
 	tok := p.curToken
 	raw := p.curToken.Literal
 
+	// Only backtick-quoted strings (token.InterpString) participate in
+	// `{expr}` interpolation. Plain `"..."` / `'...'` (token.String) are
+	// emitted verbatim even if they contain `{` — they may be JSON, format
+	// strings, etc.
+	if tok.Type != token.InterpString {
+		exp := &ast.StringLiteral{BaseNode: baseAt(p.curToken), Value: p.curToken.Literal}
+		p.nextToken()
+		return exp
+	}
+
+	// Fast path: backtick string with no `{` — just a plain string.
 	if !strings.Contains(raw, "{") && !strings.Contains(raw, "}") {
-		// A string literal occurring at expression-prefix position is just
-		// itself; the postfix-loop later may attach it as a single-arg call.
 		exp := &ast.StringLiteral{BaseNode: baseAt(p.curToken), Value: p.curToken.Literal}
 		p.nextToken()
 		return exp

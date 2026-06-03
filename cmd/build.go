@@ -25,7 +25,7 @@ import (
 // A file with no trailer is just the plain interpreter binary.
 const (
 	trailerMagic    = "LUASCRIPT01"
-	trailerMagicLen = 8
+	trailerMagicLen = len(trailerMagic)
 	trailerFixedLen = trailerMagicLen + 8 /* scriptLen */ + 2 /* versionLen */
 
 	// Sanity bounds to reject obviously corrupt trailers without trying

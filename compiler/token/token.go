@@ -18,10 +18,14 @@ const (
 	EOF     Type = "EOF"
 
 	// Literals
-	Ident  Type = "IDENT"
-	Int    Type = "INT"
-	Float  Type = "FLOAT"
-	String Type = "STRING"
+	Ident        Type = "IDENT"
+	Int          Type = "INT"
+	Float        Type = "FLOAT"
+	String       Type = "STRING"
+	// InterpString is a backtick-quoted string subject to `{expr}`
+	// interpolation. Kept distinct from String so plain `"..."`/`'...'`
+	// strings containing `{` are not mis-parsed as interpolated.
+	InterpString Type = "INTERP_STRING"
 
 	// Arithmetic
 	Plus     Type = "+"

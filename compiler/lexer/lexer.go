@@ -194,8 +194,13 @@ func (l *Lexer) nextToken() token.Token {
 		}
 		return l.singleToken(token.LBracket, "[")
 	case '"', '\'', '`':
-		lit := l.readString(l.ch)
-		return token.Token{Type: token.String, Literal: lit, Line: line, Column: l.tokenCol}
+		quote := l.ch
+		lit := l.readString(quote)
+		typ := token.String
+		if quote == '`' {
+			typ = token.InterpString
+		}
+		return token.Token{Type: typ, Literal: lit, Line: line, Column: l.tokenCol}
 	case 0:
 		return token.Token{Type: token.EOF, Literal: "", Line: line, Column: l.tokenCol}
 	default:

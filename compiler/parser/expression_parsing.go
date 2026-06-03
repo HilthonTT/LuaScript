@@ -34,7 +34,7 @@ func (p *Parser) parseExpressionPrec(minPrec int) ast.Expression {
 	for {
 		// Postfix call forms `f"str"` and `f{tbl}` start with a token that
 		// has no infix entry but should still attach as a call at Call prec.
-		if precedence.Call > minPrec && (p.curTokenIs(token.LBrace) || p.curTokenIs(token.String)) {
+		if precedence.Call > minPrec && (p.curTokenIs(token.LBrace) || p.curTokenIs(token.String) || p.curTokenIs(token.InterpString)) {
 			left = p.parseCallWithSingleArg(left)
 			continue
 		}
@@ -73,7 +73,7 @@ func (p *Parser) parsePrefix() ast.Expression {
 		return p.parseIntegerLiteral()
 	case token.Float:
 		return p.parseFloatLiteral()
-	case token.String:
+	case token.String, token.InterpString:
 		return p.parseStringLiteral()
 	case token.Vararg:
 		return p.parseVarArg()
@@ -285,9 +285,8 @@ func (p *Parser) parseCallWithSingleArg(callee ast.Expression) ast.Expression {
 	tok := p.curToken
 	var arg ast.Expression
 	switch p.curToken.Type {
-	case token.String:
-		arg = &ast.StringLiteral{BaseNode: baseAt(tok), Value: tok.Literal}
-		p.nextToken()
+	case token.String, token.InterpString:
+		arg = p.parseStringLiteral()
 	case token.LBrace:
 		arg = p.parseTableConstructor()
 	}
@@ -369,12 +368,8 @@ func (p *Parser) parseMethodCall(obj ast.Expression) ast.Expression {
 			return nil
 		}
 		p.nextToken()
-	case token.String:
-		strTok := p.curToken
-		args = []ast.Expression{
-			&ast.StringLiteral{BaseNode: baseAt(strTok), Value: strTok.Literal},
-		}
-		p.nextToken()
+	case token.String, token.InterpString:
+		args = []ast.Expression{p.parseStringLiteral()}
 	case token.LBrace:
 		tbl := p.parseTableConstructor()
 		if tbl == nil {

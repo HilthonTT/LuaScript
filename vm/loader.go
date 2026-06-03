@@ -11,7 +11,7 @@ package vm
 // Path resolution:
 //   - cwd-relative (`./?.lsc`, `./?.lua`, …)
 //   - cwd-relative inside `./src/`
-//   - $SAKURA_LIB (the bundled-library root, Goby's `libPath` analogue);
+//   - $LUASCRIPT_LIB (the bundled-library root, Goby's `libPath` analogue);
 //     omitted from the default path entirely when the env var is unset.
 //
 // Both `.lsc` and `.lua` are searched at every path entry, with
@@ -40,7 +40,7 @@ func registerLoader(v *VM) {
 	pkg := NewTable(0, 8)
 
 	path := baseSearchPath
-	if libRoot := os.Getenv("$LUASCRIPT_LIB"); libRoot != "" {
+	if libRoot := os.Getenv("LUASCRIPT_LIB"); libRoot != "" {
 		// Normalize trailing slash to keep template assembly simple.
 		libRoot = strings.TrimRight(libRoot, "/\\")
 		path += ";" +

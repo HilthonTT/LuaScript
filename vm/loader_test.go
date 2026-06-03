@@ -104,14 +104,14 @@ func TestRequireResolvesDottedNameToSubdirectory(t *testing.T) {
 func TestRequirePrefersLuaScriptOverLua(t *testing.T) {
 	dir := t.TempDir()
 	dirSlash := filepath.ToSlash(dir)
-	writeModule(t, dir, "shared.lsc", `return "sakura-version"`)
+	writeModule(t, dir, "shared.lsc", `return "luascript-version"`)
 	writeModule(t, dir, "shared.lua", `return "lua-version"`)
 	src := fmt.Sprintf(`
 		package.path = "%s/?.lsc;%s/?.lua"
 		x = require("shared")
 	`, dirSlash, dirSlash)
 	v := run(t, src)
-	assertGlobalEqual(t, v, "x", "sakura-version")
+	assertGlobalEqual(t, v, "x", "luascript-version")
 }
 
 // ---------------------------------------------------------------------------

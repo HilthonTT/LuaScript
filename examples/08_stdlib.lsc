@@ -30,7 +30,7 @@
 -- 1. Flat module at the stdlib root.
 local strings = require("strings")
 print("trim         = [" .. strings.trim("   hello world   ") .. "]")
-print("starts_with  =", strings.starts_with("luascript", .lsc"))
+print("starts_with  =", strings.starts_with("luascript", "lua"))
 
 local parts = strings.split("a,b,,c", ",")
 io.write("split        = ")

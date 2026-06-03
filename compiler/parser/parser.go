@@ -256,6 +256,8 @@ func describeToken(t token.Token) string {
 		return "number"
 	case token.String:
 		return "string literal"
+	case token.InterpString:
+		return "interpolated string"
 	case token.Ident:
 		return "identifier '" + t.Literal + "'"
 	case token.Illegal:
@@ -284,6 +286,8 @@ func describeTokenType(t token.Type) string {
 		return "float literal"
 	case token.String:
 		return "string literal"
+	case token.InterpString:
+		return "interpolated string"
 	case token.Ident:
 		return "identifier"
 	case token.True:

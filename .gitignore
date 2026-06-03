@@ -22,8 +22,8 @@ bench_*.txt
 
 # PGO artifacts produced by scripts/build-pgo.sh
 cpu.pgo
-sakura
-sakura-stage1
+luascript
+luascript-stage1
 *.prof
 *.pgo
 
