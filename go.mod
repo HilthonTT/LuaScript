@@ -1,6 +1,6 @@
 module github.com/hilthontt/luascript
 
-go 1.26.2
+go 1.26.4
 
 require (
 	github.com/chzyer/readline v1.5.1
