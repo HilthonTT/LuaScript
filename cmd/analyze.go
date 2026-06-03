@@ -4,12 +4,13 @@ import (
 	"flag"
 	"fmt"
 	"io"
+
 	"os"
 
-	"github.com/hilthontt/sakura-lang/compiler/analyze"
+	"github.com/hilthontt/luascript/compiler/analyze"
 )
 
-// runAnalyze implements `sakura analyze <file>` — it runs the static analyzer
+// runAnalyze implements .lsc analyze <file>` — it runs the static analyzer
 // over one source file and prints a human-readable report.
 //
 // Exit codes: 0 = no findings, 1 = findings reported / I/O / parse error,
@@ -28,7 +29,7 @@ func runAnalyze(argv []string) int {
 
 	args := fs.Args()
 	if len(args) != 1 {
-		fmt.Fprintln(os.Stderr, "usage: sakura analyze [-max-complexity N] <script.sakura>")
+		fmt.Fprintln(os.Stderr, "usage:.lsc analyze [-max-complexity N] <script.lsc>")
 		return 2
 	}
 

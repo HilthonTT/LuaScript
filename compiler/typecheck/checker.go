@@ -1,7 +1,7 @@
 package typecheck
 
 import (
-	"github.com/hilthontt/sakura-lang/compiler/ast"
+	"github.com/hilthontt/luascript/compiler/ast"
 )
 
 // Options controls checker behavior. Default zero value = nonstrict

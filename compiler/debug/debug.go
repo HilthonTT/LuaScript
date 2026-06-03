@@ -1,4 +1,4 @@
-// Package debug provides opt-in profiling helpers for the `sakura profile`
+// Package debug provides opt-in profiling helpers for the .lsc profile`
 // subcommand. It is deliberately narrow — anything that flips a global
 // runtime knob (GC percent, memory limit, traceback level) lives at the
 // caller's risk and is not exported here.

@@ -5,9 +5,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/hilthontt/sakura-lang/compiler/ast"
-	"github.com/hilthontt/sakura-lang/compiler/lexer"
-	"github.com/hilthontt/sakura-lang/compiler/parser"
+	"github.com/hilthontt/luascript/compiler/ast"
+	"github.com/hilthontt/luascript/compiler/lexer"
+	"github.com/hilthontt/luascript/compiler/parser"
 )
 
 // Severity ranks a finding's importance.

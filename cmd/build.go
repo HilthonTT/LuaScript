@@ -8,15 +8,15 @@ import (
 	"io"
 	"os"
 
-	"github.com/hilthontt/sakura-lang/compiler"
-	"github.com/hilthontt/sakura-lang/compiler/parser"
-	"github.com/hilthontt/sakura-lang/version"
-	"github.com/hilthontt/sakura-lang/vm"
+	"github.com/hilthontt/luascript/compiler"
+	"github.com/hilthontt/luascript/compiler/parser"
+	"github.com/hilthontt/luascript/version"
+	"github.com/hilthontt/luascript/vm"
 )
 
 // Trailer layout (read backwards from end of file):
 //
-//	<magic>        8 bytes  ("SAKURA01")
+//	<magic>        8 bytes  ("LUASCRIPT01")
 //	<scriptLen>    8 bytes  uint64 little-endian
 //	<versionLen>   2 bytes  uint16 little-endian
 //	<version>      versionLen bytes (ASCII)
@@ -24,7 +24,7 @@ import (
 //
 // A file with no trailer is just the plain interpreter binary.
 const (
-	trailerMagic    = "SAKURA01"
+	trailerMagic    = "LUASCRIPT01"
 	trailerMagicLen = 8
 	trailerFixedLen = trailerMagicLen + 8 /* scriptLen */ + 2 /* versionLen */
 
@@ -89,7 +89,7 @@ func readPayloadFrom(r io.ReaderAt, size int64) (string, bool, error) {
 		return "", false, fmt.Errorf("read trailer version: %w", err)
 	}
 	if string(ver) != version.Version {
-		return "", false, fmt.Errorf("bundled with sakura %q, this is sakura %q", string(ver), version.Version)
+		return "", false, fmt.Errorf("bundled with luascript %q, this is luascript %q", string(ver), version.Version)
 	}
 
 	src := make([]byte, scriptLen)
@@ -160,20 +160,20 @@ func runBundled(src string) int {
 
 	chunks, err := compiler.CompileToInstructions(src, parser.NormalMode)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "sakura:", err)
+		fmt.Fprintln(os.Stderr, "luascript:", err)
 		return 1
 	}
 	if len(chunks) == 0 {
 		return 0
 	}
 	if err := v.Run(chunks[0]); err != nil {
-		fmt.Fprintln(os.Stderr, "sakura:", err)
+		fmt.Fprintln(os.Stderr, "luascript:", err)
 		return 1
 	}
 	return 0
 }
 
-// runBuild implements `sakura build script.sakura -o out.exe`.
+// runBuild implements `luascript build script.lsc -o out.exe`.
 // Exit codes: 0 success, 1 I/O or parse error, 2 usage error.
 func runBuild(argv []string) int {
 	fs := flag.NewFlagSet("build", flag.ContinueOnError)
@@ -187,7 +187,7 @@ func runBuild(argv []string) int {
 	}
 	args := fs.Args()
 	if len(args) != 1 || *out == "" {
-		fmt.Fprintln(os.Stderr, "usage: sakura build -o <output> <script.sakura>")
+		fmt.Fprintln(os.Stderr, "usage: luascript build -o <output> <script.lsc>")
 		return 2
 	}
 	scriptPath := args[0]
@@ -207,19 +207,19 @@ func runBuild(argv []string) int {
 
 	exe, err := os.Executable()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "build: locate sakura:", err)
+		fmt.Fprintln(os.Stderr, "build: locate luascript:", err)
 		return 1
 	}
 	stubAll, err := os.ReadFile(exe)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "build: read sakura:", err)
+		fmt.Fprintln(os.Stderr, "build: read luascript:", err)
 		return 1
 	}
 
 	// Strip any existing trailer so re-bundling doesn't nest payloads.
 	stubLen, err := stubOffsetFrom(bytesReaderAt(stubAll), int64(len(stubAll)))
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "build: inspect sakura:", err)
+		fmt.Fprintln(os.Stderr, "build: inspect luascript:", err)
 		return 1
 	}
 	stub := stubAll[:stubLen]

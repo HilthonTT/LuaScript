@@ -3,7 +3,7 @@ package optimize
 import (
 	"math"
 
-	"github.com/hilthontt/sakura-lang/compiler/ast"
+	"github.com/hilthontt/luascript/compiler/ast"
 )
 
 // num is a numeric literal value tagged with its Lua subtype (integer/float).

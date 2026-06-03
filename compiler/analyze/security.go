@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/hilthontt/sakura-lang/compiler/ast"
+	"github.com/hilthontt/luascript/compiler/ast"
 )
 
-// securityPass flags a small set of risky patterns. It is the Sakura-AST
+// securityPass flags a small set of risky patterns. It is the.lsc-AST
 // rewrite of the original ASTAnalyzer's SecurityAnalysisPass.
 type securityPass struct{}
 

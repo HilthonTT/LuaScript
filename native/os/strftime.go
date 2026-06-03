@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hilthontt/sakura-lang/vm"
+	"github.com/hilthontt/luascript/vm"
 )
 
 // tableInt fetches an integer field from t with a default fallback. Used

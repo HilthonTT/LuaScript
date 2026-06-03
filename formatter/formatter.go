@@ -1,4 +1,4 @@
-// Package formatter is a pretty-printer for sakura-lang source.
+// Package formatter is a pretty-printer for luascript source.
 //
 // The pipeline is:
 //
@@ -21,8 +21,8 @@
 package formatter
 
 import (
-	"github.com/hilthontt/sakura-lang/compiler/lexer"
-	"github.com/hilthontt/sakura-lang/compiler/parser"
+	"github.com/hilthontt/luascript/compiler/lexer"
+	"github.com/hilthontt/luascript/compiler/parser"
 )
 
 // Format reformats `src` and returns the canonical form. A non-nil error

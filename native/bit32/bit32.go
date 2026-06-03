@@ -12,7 +12,7 @@ package bit32
 import (
 	"math/bits"
 
-	"github.com/hilthontt/sakura-lang/vm"
+	"github.com/hilthontt/luascript/vm"
 )
 
 // RegisterBit32Preload installs the bit32 module at package.preload.

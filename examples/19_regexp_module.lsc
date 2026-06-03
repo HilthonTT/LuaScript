@@ -15,7 +15,7 @@ print()
 
 -- capture returns the full match, then each capture group.
 -- (It is named `capture` because `match` is a reserved keyword.)
-local full, user, domain = email:capture("reach me at john@sakura.dev please")
+local full, user, domain = email:capture("reach me at john.lsc.dev please")
 print("capture full  :", full)
 print("capture user  :", user)
 print("capture domain:", domain)

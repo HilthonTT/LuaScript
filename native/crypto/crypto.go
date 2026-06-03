@@ -10,7 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 
-	"github.com/hilthontt/sakura-lang/vm"
+	"github.com/hilthontt/luascript/vm"
 )
 
 // RegisterCryptoPreload installs the `crypto` module under package.preload.

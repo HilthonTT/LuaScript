@@ -1,6 +1,6 @@
 package typecheck
 
-import "github.com/hilthontt/sakura-lang/compiler/ast"
+import "github.com/hilthontt/luascript/compiler/ast"
 
 // resolveAST converts an ast.TypeNode (parsed type syntax) into the
 // checker's internal Type. Aliases are looked up against the env's alias

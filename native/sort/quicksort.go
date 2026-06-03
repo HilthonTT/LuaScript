@@ -1,6 +1,6 @@
 package sort
 
-import "github.com/hilthontt/sakura-lang/native/constraints"
+import "github.com/hilthontt/luascript/native/constraints"
 
 func Partition[T constraints.Ordered](arr []T, low, high int) int {
 	index := low - 1

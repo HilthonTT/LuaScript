@@ -8,7 +8,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/hilthontt/sakura-lang/vm"
+	"github.com/hilthontt/luascript/vm"
 )
 
 // Lua's utf8.charpattern — matches one byte sequence of a UTF-8 character.

@@ -3,8 +3,8 @@ package vm
 import (
 	"fmt"
 
-	"github.com/hilthontt/sakura-lang/compiler/bytecode"
-	"github.com/hilthontt/sakura-lang/compiler/parser"
+	"github.com/hilthontt/luascript/compiler/bytecode"
+	"github.com/hilthontt/luascript/compiler/parser"
 )
 
 // VM is the top-level interpreter state. It owns the operand stack, the

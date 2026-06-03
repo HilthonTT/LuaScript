@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hilthontt/sakura-lang/compiler/lexer"
+	"github.com/hilthontt/luascript/compiler/lexer"
 )
 
 // BenchmarkParseSmokeProgram — parses the same multi-feature program used

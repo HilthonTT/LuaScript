@@ -3,7 +3,7 @@ package sort
 import (
 	"fmt"
 
-	"github.com/hilthontt/sakura-lang/vm"
+	"github.com/hilthontt/luascript/vm"
 )
 
 func RegisterSortPreload(v *vm.VM) {

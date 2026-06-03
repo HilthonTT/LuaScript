@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hilthontt/sakura-lang/compiler"
-	"github.com/hilthontt/sakura-lang/compiler/parser"
+	"github.com/hilthontt/luascript/compiler"
+	"github.com/hilthontt/luascript/compiler/parser"
 )
 
 // run compiles `src` end-to-end (lex → parse → bytecode) and executes it on

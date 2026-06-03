@@ -1,6 +1,6 @@
--- mathx.sakura — a small module exercised by 07_modules.sakura.
+-- mathx.lsc — a small module exercised by 07_modules.lsc.
 --
--- A sakura/Lua module is just a chunk that builds a value (usually a
+-- A.lsc/Lua module is just a chunk that builds a value (usually a
 -- table of functions) and `return`s it. `require` caches the result in
 -- `package.loaded`, so re-requiring the same name doesn't re-run the
 -- file.

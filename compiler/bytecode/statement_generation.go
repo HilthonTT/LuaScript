@@ -3,7 +3,7 @@ package bytecode
 import (
 	"fmt"
 
-	"github.com/hilthontt/sakura-lang/compiler/ast"
+	"github.com/hilthontt/luascript/compiler/ast"
 )
 
 // compileStatements emits the top-level chunk's statement list. The generator

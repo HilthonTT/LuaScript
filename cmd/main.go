@@ -7,21 +7,21 @@ import (
 	"os"
 	"time"
 
-	"github.com/hilthontt/sakura-lang/bonsai"
-	"github.com/hilthontt/sakura-lang/formatter"
-	"github.com/hilthontt/sakura-lang/repl"
-	"github.com/hilthontt/sakura-lang/version"
-	"github.com/hilthontt/sakura-lang/vm"
+	"github.com/hilthontt/luascript/bonsai"
+	"github.com/hilthontt/luascript/formatter"
+	"github.com/hilthontt/luascript/repl"
+	"github.com/hilthontt/luascript/version"
+	"github.com/hilthontt/luascript/vm"
 )
 
 func main() {
 	// If this binary has an embedded script trailer, run it and exit —
 	// the bundled .exe should behave as the user's program, not as the
-	// sakura CLI. Falls through to the normal CLI when no payload is
+	// luascript CLI. Falls through to the normal CLI when no payload is
 	// present (i.e., this is the plain interpreter binary).
 	payload, ok, err := readEmbeddedPayload()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "sakura:", err)
+		fmt.Fprintln(os.Stderr, "luascript:", err)
 		os.Exit(1)
 	}
 	if ok {
@@ -31,7 +31,7 @@ func main() {
 }
 
 func run(argv []string) int {
-	// Subcommand routing happens before flag parsing so that `sakura fmt -w`
+	// Subcommand routing happens before flag parsing so that `luascript fmt -w`
 	// doesn't collide with the top-level flag set.
 	if len(argv) >= 1 && argv[0] == "fmt" {
 		return runFmt(argv[1:])
@@ -46,7 +46,7 @@ func run(argv []string) int {
 		return runProfile(argv[1:])
 	}
 
-	fs := flag.NewFlagSet("sakura", flag.ContinueOnError)
+	fs := flag.NewFlagSet("luascript", flag.ContinueOnError)
 	interactive := fs.Bool("i", false, "start the interactive REPL even if a script is given")
 	showVersion := fs.Bool("v", false, "print version and exit")
 	growBonsai := fs.Bool("bonsai", false, "grow an ASCII bonsai tree and exit")
@@ -56,7 +56,7 @@ func run(argv []string) int {
 	bonsaiMsg := fs.String("bonsai-msg", "", "with -bonsai: attach a message next to the tree")
 	watch := fs.Bool("watch", false, "re-run file on every save")
 	timed := fs.Bool("time", false, "print execution time after the program finishes")
-	dis := fs.Bool("dis", false, "Disassemble a .sakura file")
+	dis := fs.Bool("dis", false, "Disassemble a .lsc file")
 
 	if err := fs.Parse(argv); err != nil {
 		if err == flag.ErrHelp {
@@ -84,13 +84,13 @@ func run(argv []string) int {
 	}
 
 	if *timed && *watch {
-		fmt.Fprintln(os.Stderr, "sakura: --time and --watch are mutually exclusive")
+		fmt.Fprintln(os.Stderr, "luascript: --time and --watch are mutually exclusive")
 		return 2
 	}
 
 	args := fs.Args()
 	if (*timed || *watch) && len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "sakura: --time and --watch require a script file")
+		fmt.Fprintln(os.Stderr, "luascript: --time and --watch require a script file")
 		return 2
 	}
 
@@ -109,7 +109,7 @@ func run(argv []string) int {
 	// entry point; until then, refuse the combo so users don't think the
 	// script ran.
 	if *interactive && len(args) > 0 {
-		fmt.Fprintln(os.Stderr, "sakura: -i takes no script argument")
+		fmt.Fprintln(os.Stderr, "luascript: -i takes no script argument")
 		return 2
 	}
 	// No script, or -i requested: drop into the REPL.
@@ -124,7 +124,7 @@ func run(argv []string) int {
 		r.DisassembleFile(file)
 	case *watch:
 		if err := r.WatchFile(file); err != nil {
-			fmt.Fprintln(os.Stderr, "sakura:", err)
+			fmt.Fprintln(os.Stderr, "luascript:", err)
 			return 1
 		}
 	case *timed:
@@ -137,15 +137,15 @@ func run(argv []string) int {
 	return 0
 }
 
-// runFmt implements `sakura fmt`. Exit codes: 0 success, 1 I/O or parse
+// runFmt implements `luascript fmt`. Exit codes: 0 success, 1 I/O or parse
 // error, 2 usage error. Mirrors gofmt's flag surface (-w write in place;
 // -d diff is out of scope for v1).
 //
 // Modes:
 //
-//	sakura fmt file.sakura     -> reformat and print to stdout
-//	sakura fmt -w file.sakura  -> reformat in place
-//	sakura fmt -               -> read stdin, write stdout
+//	luascript fmt file.lsc     -> reformat and print to stdout
+//	luascript fmt -w file.lsc  -> reformat in place
+//	luascript fmt -               -> read stdin, write stdout
 //
 // On parse error the original source is left untouched and the error is
 // reported on stderr.
@@ -163,7 +163,7 @@ func runFmt(argv []string) int {
 	}
 	files := fs.Args()
 	if len(files) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: sakura fmt [-w] [-width N] [-indent N] file.sk... | -")
+		fmt.Fprintln(os.Stderr, "usage: luascript fmt [-w] [-width N] [-indent N] file.sk... | -")
 		return 2
 	}
 	opts := formatter.Options{Width: *width, Indent: *indent}

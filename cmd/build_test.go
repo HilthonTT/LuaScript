@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hilthontt/sakura-lang/version"
+	"github.com/hilthontt/luascript/version"
 )
 
 // buildBundle is a test helper that mirrors runBuild's trailer-write
@@ -50,7 +50,7 @@ func TestTrailerRoundtrip(t *testing.T) {
 }
 
 func TestNoTrailer(t *testing.T) {
-	// A plain interpreter binary — no SAKURA01 magic anywhere — must
+	// A plain interpreter binary — no.lsc01 magic anywhere — must
 	// return (false, nil), not an error.
 	plain := []byte("not-a-bundle-just-an-exe-image-with-no-trailer")
 	got, ok, err := readPayloadFrom(bytesReaderAt(plain), int64(len(plain)))

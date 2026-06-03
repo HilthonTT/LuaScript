@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hilthontt/sakura-lang/compiler/ast"
-	"github.com/hilthontt/sakura-lang/compiler/lexer"
+	"github.com/hilthontt/luascript/compiler/ast"
+	"github.com/hilthontt/luascript/compiler/lexer"
 )
 
 func newWithSource(src string) *Parser {

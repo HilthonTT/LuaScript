@@ -8,10 +8,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/hilthontt/sakura-lang/compiler"
-	"github.com/hilthontt/sakura-lang/compiler/parser"
-	native_db "github.com/hilthontt/sakura-lang/native/db"
-	"github.com/hilthontt/sakura-lang/vm"
+	"github.com/hilthontt/luascript/compiler"
+	"github.com/hilthontt/luascript/compiler/parser"
+	native_db "github.com/hilthontt/luascript/native/db"
+	"github.com/hilthontt/luascript/vm"
 )
 
 // ---------------------------------------------------------------------------
@@ -157,7 +157,7 @@ func (s *fakeStmt) Query(args []driver.Value) (driver.Rows, error) {
 }
 
 func init() {
-	sql.Register("sakuratest", fakeDriver{})
+	sql.Register("luascripttest", fakeDriver{})
 }
 
 // ---------------------------------------------------------------------------
@@ -214,7 +214,7 @@ func TestModuleExposesOpenAndVersion(t *testing.T) {
 func TestExecReturnsRowCount(t *testing.T) {
 	v := runDB(t, `
 		local db = require("db")
-		local c = db.open("sakuratest", "exec1")
+		local c = db.open("luascripttest", "exec1")
 		n = c:exec("set foo bar")
 		c:close()
 	`)
@@ -226,7 +226,7 @@ func TestExecReturnsRowCount(t *testing.T) {
 func TestQueryReturnsRows(t *testing.T) {
 	v := runDB(t, `
 		local db = require("db")
-		local c = db.open("sakuratest", "query1")
+		local c = db.open("luascripttest", "query1")
 		c:exec("set a 1")
 		c:exec("set b 2")
 		local rows = c:query("all")
@@ -249,7 +249,7 @@ func TestQueryReturnsRows(t *testing.T) {
 func TestPingAndClose(t *testing.T) {
 	v := runDB(t, `
 		local db = require("db")
-		local c = db.open("sakuratest", "ping1")
+		local c = db.open("luascripttest", "ping1")
 		c:ping()
 		c:close()
 		r = "ok"

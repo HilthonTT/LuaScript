@@ -1,7 +1,7 @@
 package typecheck
 
 // stdlib_types.go declares the type signatures of every built-in name
-// reachable from sakura programs. The list mirrors the VM's stdlib
+// reachable from.lsc programs. The list mirrors the VM's stdlib
 // registration files (vm/stdlib.go, vm/stdlib_modules.go, vm/coroutine.go,
 // vm/loader.go) — additions there must be reflected here, otherwise the
 // checker treats new globals as `any` (gradual fallback) which silently

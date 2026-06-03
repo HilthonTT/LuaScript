@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/hilthontt/sakura-lang/compiler/ast"
+	"github.com/hilthontt/luascript/compiler/ast"
 )
 
 // lintPass reports unused locals, variable shadowing, and unreachable code.

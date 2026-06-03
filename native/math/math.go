@@ -4,7 +4,7 @@ import (
 	"math"
 	"math/rand"
 
-	"github.com/hilthontt/sakura-lang/vm"
+	"github.com/hilthontt/luascript/vm"
 )
 
 func RegisterMathPreload(v *vm.VM) {

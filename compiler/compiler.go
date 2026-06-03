@@ -1,12 +1,12 @@
 package compiler
 
 import (
-	"github.com/hilthontt/sakura-lang/compiler/ast"
-	"github.com/hilthontt/sakura-lang/compiler/bytecode"
-	"github.com/hilthontt/sakura-lang/compiler/lexer"
-	"github.com/hilthontt/sakura-lang/compiler/optimize"
-	"github.com/hilthontt/sakura-lang/compiler/parser"
-	"github.com/hilthontt/sakura-lang/compiler/typecheck"
+	"github.com/hilthontt/luascript/compiler/ast"
+	"github.com/hilthontt/luascript/compiler/bytecode"
+	"github.com/hilthontt/luascript/compiler/lexer"
+	"github.com/hilthontt/luascript/compiler/optimize"
+	"github.com/hilthontt/luascript/compiler/parser"
+	"github.com/hilthontt/luascript/compiler/typecheck"
 )
 
 func CompileToInstructions(input string, pm parser.Mode) ([]*bytecode.InstructionSet, error) {

@@ -1,6 +1,6 @@
 package vm
 
-import "github.com/hilthontt/sakura-lang/compiler/bytecode"
+import "github.com/hilthontt/luascript/compiler/bytecode"
 
 // Closure is a Lua-defined function: a function prototype plus the upvalues
 // captured at the moment the closure was created.

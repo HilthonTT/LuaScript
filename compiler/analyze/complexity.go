@@ -3,7 +3,7 @@ package analyze
 import (
 	"fmt"
 
-	"github.com/hilthontt/sakura-lang/compiler/ast"
+	"github.com/hilthontt/luascript/compiler/ast"
 )
 
 // complexityPass computes cyclomatic complexity per function and records

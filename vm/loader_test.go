@@ -34,9 +34,9 @@ func setupModuleDir(t *testing.T, name, src string) (string, string) {
 // ---------------------------------------------------------------------------
 
 func TestRequireLoadsModuleAndReturnsValue(t *testing.T) {
-	dir, _ := setupModuleDir(t, "greet.sakura", `return {hello = "hi"}`)
+	dir, _ := setupModuleDir(t, "greet.lsc", `return {hello = "hi"}`)
 	src := fmt.Sprintf(`
-		package.path = "%s/?.sakura"
+		package.path = "%s/?.lsc"
 		m = require("greet")
 		r = m.hello
 	`, dir)
@@ -47,25 +47,25 @@ func TestRequireLoadsModuleAndReturnsValue(t *testing.T) {
 func TestRequireCachesModuleSecondCallNoReExec(t *testing.T) {
 	dir := t.TempDir()
 	dirSlash := filepath.ToSlash(dir)
-	writeModule(t, dir, "counter.sakura", `
+	writeModule(t, dir, "counter.lsc", `
 		_G.counterRuns = (_G.counterRuns or 0) + 1
 		return _G.counterRuns
 	`)
 	src := fmt.Sprintf(`
-		package.path = "%s/?.sakura"
+		package.path = "%s/?.lsc"
 		_G = _ENV or {} -- no _ENV in this VM; counter via package.loaded check below
 		first = require("counter")
 		second = require("counter")
 	`, dirSlash)
 	// Our VM has no _ENV; rewrite the test using a global the module mutates directly.
 	src = fmt.Sprintf(`
-		package.path = "%s/?.sakura"
+		package.path = "%s/?.lsc"
 		first = require("counter")
 		second = require("counter")
 		same = (first == second)
 	`, dirSlash)
 	// And replace the counter file with one that uses globals directly.
-	writeModule(t, dir, "counter.sakura", `
+	writeModule(t, dir, "counter.lsc", `
 		runs = (runs or 0) + 1
 		return runs
 	`)
@@ -87,10 +87,10 @@ func TestRequireResolvesDottedNameToSubdirectory(t *testing.T) {
 	if err := os.MkdirAll(subdir, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	writeModule(t, subdir, "time.sakura", `return "from src/time"`)
+	writeModule(t, subdir, "time.lsc", `return "from src/time"`)
 	dirSlash := filepath.ToSlash(dir)
 	src := fmt.Sprintf(`
-		package.path = "%s/?.sakura"
+		package.path = "%s/?.lsc"
 		t = require("src.time")
 	`, dirSlash)
 	v := run(t, src)
@@ -98,16 +98,16 @@ func TestRequireResolvesDottedNameToSubdirectory(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// .sakura wins over .lua when both exist
+// .lsc wins over .lua when both exist
 // ---------------------------------------------------------------------------
 
-func TestRequirePrefersSakuraOverLua(t *testing.T) {
+func TestRequirePrefersLuaScriptOverLua(t *testing.T) {
 	dir := t.TempDir()
 	dirSlash := filepath.ToSlash(dir)
-	writeModule(t, dir, "shared.sakura", `return "sakura-version"`)
+	writeModule(t, dir, "shared.lsc", `return "sakura-version"`)
 	writeModule(t, dir, "shared.lua", `return "lua-version"`)
 	src := fmt.Sprintf(`
-		package.path = "%s/?.sakura;%s/?.lua"
+		package.path = "%s/?.lsc;%s/?.lua"
 		x = require("shared")
 	`, dirSlash, dirSlash)
 	v := run(t, src)
@@ -120,7 +120,7 @@ func TestRequirePrefersSakuraOverLua(t *testing.T) {
 
 func TestRequireMissingModuleErrors(t *testing.T) {
 	src := `
-		package.path = "/nonexistent/?.sakura"
+		package.path = "/nonexistent/?.lsc"
 		m = require("nothing.here")
 	`
 	msg := runErr(t, src)
@@ -161,20 +161,20 @@ func TestPreloadHookRunsOnce(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestSearchpathFindsExistingFile(t *testing.T) {
-	dir, _ := setupModuleDir(t, "lib.sakura", `return 1`)
+	dir, _ := setupModuleDir(t, "lib.lsc", `return 1`)
 	src := fmt.Sprintf(`
-		fpath = package.searchpath("lib", "%s/?.sakura;%s/?.lua")
+		fpath = package.searchpath("lib", "%s/?.lsc;%s/?.lua")
 	`, dir, dir)
 	v := run(t, src)
 	got, ok := global(t, v, "fpath").(string)
-	if !ok || !strings.HasSuffix(filepath.ToSlash(got), "/lib.sakura") {
-		t.Errorf("searchpath = %v, want path ending in /lib.sakura", got)
+	if !ok || !strings.HasSuffix(filepath.ToSlash(got), "/lib.lsc") {
+		t.Errorf("searchpath = %v, want path ending in /lib.lsc", got)
 	}
 }
 
 func TestSearchpathReturnsNilAndMessageOnMiss(t *testing.T) {
 	src := `
-		fpath, msg = package.searchpath("missing", "/nope/?.sakura")
+		fpath, msg = package.searchpath("missing", "/nope/?.lsc")
 	`
 	v := run(t, src)
 	assertGlobalEqual(t, v, "fpath", nil)
@@ -189,7 +189,7 @@ func TestSearchpathReturnsNilAndMessageOnMiss(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestLoadfileReturnsCallableChunk(t *testing.T) {
-	_, fpath := setupModuleDir(t, "x.sakura", `return 7`)
+	_, fpath := setupModuleDir(t, "x.lsc", `return 7`)
 	src := fmt.Sprintf(`
 		fn = loadfile("%s")
 		r = fn()
@@ -200,7 +200,7 @@ func TestLoadfileReturnsCallableChunk(t *testing.T) {
 
 func TestLoadfileReturnsErrOnMissing(t *testing.T) {
 	src := `
-		fn, err = loadfile("/no/such/file.sakura")
+		fn, err = loadfile("/no/such/file.lsc")
 	`
 	v := run(t, src)
 	assertGlobalEqual(t, v, "fn", nil)
@@ -211,7 +211,7 @@ func TestLoadfileReturnsErrOnMissing(t *testing.T) {
 }
 
 func TestDofileRunsImmediately(t *testing.T) {
-	_, fpath := setupModuleDir(t, "y.sakura", `return 99`)
+	_, fpath := setupModuleDir(t, "y.lsc", `return 99`)
 	src := fmt.Sprintf(`
 		r = dofile("%s")
 	`, fpath)
@@ -233,12 +233,12 @@ func TestLoadCompilesString(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestModuleReceivesNameAndPathAsVarargs(t *testing.T) {
-	dir, _ := setupModuleDir(t, "hello.sakura", `
+	dir, _ := setupModuleDir(t, "hello.lsc", `
 		local n = ...
 		return n
 	`)
 	src := fmt.Sprintf(`
-		package.path = "%s/?.sakura"
+		package.path = "%s/?.lsc"
 		got = require("hello")
 	`, dir)
 	v := run(t, src)

@@ -9,7 +9,7 @@ package timex
 import (
 	"time"
 
-	"github.com/hilthontt/sakura-lang/vm"
+	"github.com/hilthontt/luascript/vm"
 )
 
 // RegisterTimePreload installs the `time` module under package.preload.

@@ -3,10 +3,10 @@ package parser
 import (
 	"fmt"
 
-	"github.com/hilthontt/sakura-lang/compiler/ast"
-	"github.com/hilthontt/sakura-lang/compiler/parser/errors"
-	"github.com/hilthontt/sakura-lang/compiler/parser/precedence"
-	"github.com/hilthontt/sakura-lang/compiler/token"
+	"github.com/hilthontt/luascript/compiler/ast"
+	"github.com/hilthontt/luascript/compiler/parser/errors"
+	"github.com/hilthontt/luascript/compiler/parser/precedence"
+	"github.com/hilthontt/luascript/compiler/token"
 )
 
 // ---------------------------------------------------------------------------

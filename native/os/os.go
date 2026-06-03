@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hilthontt/sakura-lang/vm"
+	"github.com/hilthontt/luascript/vm"
 )
 
 // processStart anchors os.clock() so it reports time since process start.
@@ -277,7 +277,7 @@ func newOS() *vm.Table {
 	// race issues; this implementation avoids them by reserving the
 	// name on the filesystem before returning it.
 	methods.Set("tmpname", &vm.GoFunc{Name: "os:tmpname", Fn: func(_ *vm.VM, _ []vm.Value) []vm.Value {
-		f, err := osStd.CreateTemp("", "sakura_tmp_*")
+		f, err := osStd.CreateTemp("", "lsc_tmp_*")
 		if err != nil {
 			panic(vm.Errorf("os:tmpname: %s", err.Error()))
 		}
@@ -286,7 +286,7 @@ func newOS() *vm.Table {
 		return []vm.Value{name}
 	}})
 
-	// os.setlocale(locale?, category?) — sakura does not localise
+	// os.setlocale(locale?, category?) — luascript does not localise
 	// strftime, so this accepts any locale string and returns it
 	// unchanged (matching the C-runtime contract of "succeeds, but
 	// doesn't actually re-localise unless the requested locale
@@ -391,7 +391,7 @@ func newOSFile(handle *osStd.File) *vm.Table {
 	// stat() -> { name, size, mode, mod_time, is_dir }.
 	// mod_time is RFC3339Nano-formatted to match the db module's
 	// time.Time handling — keeps a single, predictable shape on the
-	// sakura side without needing a date type.
+	// LuaScript side without needing a date type.
 	methods.Set("stat", &vm.GoFunc{Name: "file:stat", Fn: func(_ *vm.VM, _ []vm.Value) []vm.Value {
 		info, err := handle.Stat()
 		if err != nil {

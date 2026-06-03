@@ -1,5 +1,5 @@
 // Package errors defines the typed parser error used throughout the
-// sakura-lang front-end. Lua 5.4 has a small, focused set of failure modes,
+// luascript front-end. Lua 5.4 has a small, focused set of failure modes,
 // so the categories here are intentionally narrow.
 package errors
 

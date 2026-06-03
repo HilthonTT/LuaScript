@@ -3,13 +3,13 @@
 -- `require` searches `package.path`, reads the matching file, compiles
 -- it, runs it once, and caches the chunk's return value in
 -- `package.loaded`. The directory of the script being run is added to
--- `package.path` automatically, so this example finds `mathx.sakura`
+-- `package.path` automatically, so this example finds `mathx.lsc`
 -- sitting next to it no matter which directory you launch it from:
 --
---     sakura examples/07_modules.sakura        # from the repo root
---     cd examples && sakura 07_modules.sakura  # or from examples/
+--    .lsc examples/07_modules.lsc        # from the repo root
+--     cd examples &&.lsc 07_modules.lsc  # or from examples/
 --
--- (The plain cwd-relative entries `./?.sakura`, `./src/?.sakura`, … are
+-- (The plain cwd-relative entries `./?.lsc`, `./src/?.lsc`, … are
 -- still searched too, after the script-directory entries.)
 
 local mathx = require("mathx")
@@ -38,7 +38,7 @@ print("searchpath    =", resolved)
 -- beyond "whatever the chunk returned"). `loadfile` is the same but
 -- hands you back the closure instead of running it.
 --
---     local chunk = loadfile("mathx.sakura")
+--     local chunk = loadfile("mathx.lsc")
 --     local mod   = chunk()
 --
 -- `load` does the same for a source string:

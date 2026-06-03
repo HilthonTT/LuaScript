@@ -1,5 +1,5 @@
 --!nocheck
--- collections/list.sakura — submodule of the `collections` package.
+-- collections/list.lsc — submodule of the `collections` package.
 --
 -- Reached two ways:
 --   require "collections.list"   -- dotted name: dot -> "/" in the path

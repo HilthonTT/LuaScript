@@ -1,4 +1,4 @@
-// Package bytecode emits a stack-based instruction stream for sakura-lang
+// Package bytecode emits a stack-based instruction stream for luascript
 // (Lua 5.4 syntax). The VM model is conventional stack-based: every
 // expression leaves a single value on top of the stack unless it is a
 // "multi-value" producer (call, method call, vararg) appearing in a

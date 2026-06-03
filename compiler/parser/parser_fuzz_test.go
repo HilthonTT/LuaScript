@@ -3,7 +3,7 @@ package parser
 import (
 	"testing"
 
-	"github.com/hilthontt/sakura-lang/compiler/lexer"
+	"github.com/hilthontt/luascript/compiler/lexer"
 )
 
 // FuzzParser asserts two invariants on arbitrary input:

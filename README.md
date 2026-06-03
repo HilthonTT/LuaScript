@@ -1,4 +1,4 @@
-# sakura-lang
+# luascript
 
 A Lua-flavored language with a stack-based virtual machine and **Luau-style gradual types**, written in Go.
 
@@ -25,10 +25,10 @@ The `main` package lives in `./cmd`, so run the interpreter with `go run ./cmd`:
 go run ./cmd
 
 # Run a script
-go run ./cmd examples/05_types.sakura
+go run ./cmd examples/05_types.lsc
 
 # Force the REPL even when a script is supplied
-go run ./cmd -i examples/05_types.sakura
+go run ./cmd -i examples/05_types.lsc
 
 # Print version
 go run ./cmd -v
@@ -37,86 +37,87 @@ go run ./cmd -v
 Build a binary:
 
 ```sh
-go build -o sakura ./cmd
-./sakura examples/01_basics.sakura
+go build -o.lsc ./cmd
+..lsc examples/01_basics.lsc
 ```
 
 ## Bundling a script into a standalone .exe
 
-`sakura build` produces a single executable that contains both the interpreter and your script — drop it on a machine that doesn't have sakura installed and double-click it.
+.lsc build` produces a single executable that contains both the interpreter and your script — drop it on a machine that doesn't have.lsc installed and double-click it.
 
 ```sh
-# Build sakura first, then have it bundle your script:
-go build -o sakura ./cmd
-./sakura build -o hello.exe examples/01_basics.sakura
+# Build.lsc first, then have it bundle your script:
+go build -o.lsc ./cmd
+..lsc build -o hello.exe examples/01_basics.lsc
 ./hello.exe                # runs the embedded script
 ```
 
-| Flag        | Effect                                          |
-| ----------- | ----------------------------------------------- |
-| `-o PATH`   | Output path for the bundled binary (required).  |
+| Flag      | Effect                                         |
+| --------- | ---------------------------------------------- |
+| `-o PATH` | Output path for the bundled binary (required). |
 
-Mechanics: the script is appended to a copy of the sakura binary along with a 18-byte magic trailer. On startup the bundled .exe inspects its own tail, detects the trailer, and runs the embedded script in `parser.NormalMode` with the same VM and native modules the interpreter uses. Syntax is checked at bundle time, so you can't ship a broken .exe by accident.
+Mechanics: the script is appended to a copy of the.lsc binary along with a 18-byte magic trailer. On startup the bundled .exe inspects its own tail, detects the trailer, and runs the embedded script in `parser.NormalMode` with the same VM and native modules the interpreter uses. Syntax is checked at bundle time, so you can't ship a broken .exe by accident.
 
 Limitations (v1):
+
 - The bundled binary matches the host platform — no cross-compilation flag yet.
 - Bundled scripts don't see `os.Args`.
 - Antivirus heuristics occasionally flag self-modifying-style .exes; code-signing fixes it. This is the same trade-off PyInstaller and Bun's `--compile` have.
 
 ## Bonsai mode
 
-For a break from the language work, `sakura` ships with a small ASCII-bonsai grower. It is unrelated to the Lua runtime — just a fun side mode.
+For a break from the language work, .lsc` ships with a small ASCII-bonsai grower. It is unrelated to the Lua runtime — just a fun side mode.
 
 ```sh
 # Grow a tree in the alt-screen (press q or Ctrl+C to leave)
-./sakura -bonsai
+..lsc -bonsai
 
 # Print a single tree to stdout instead
-./sakura -bonsai -bonsai-print
+..lsc -bonsai -bonsai-print
 
 # Animate growth step-by-step
-./sakura -bonsai -bonsai-live
+..lsc -bonsai -bonsai-live
 
 # Reproducible tree from a seed
-./sakura -bonsai -seed 42
+..lsc -bonsai -seed 42
 
 # Attach a message next to the tree
-./sakura -bonsai -bonsai-msg "hello, world"
+..lsc -bonsai -bonsai-msg "hello, world"
 ```
 
-| Flag            | Effect                                                                 |
-| --------------- | ---------------------------------------------------------------------- |
-| `-bonsai`       | Grow an ASCII bonsai tree and exit.                                    |
-| `-seed N`       | RNG seed for reproducible trees (`0` = random).                        |
-| `-bonsai-print` | Print the tree to stdout instead of staying in the alt-screen.        |
-| `-bonsai-live`  | Animate growth step-by-step.                                          |
-| `-bonsai-msg S` | Attach a message next to the tree.                                    |
+| Flag            | Effect                                                         |
+| --------------- | -------------------------------------------------------------- |
+| `-bonsai`       | Grow an ASCII bonsai tree and exit.                            |
+| `-seed N`       | RNG seed for reproducible trees (`0` = random).                |
+| `-bonsai-print` | Print the tree to stdout instead of staying in the alt-screen. |
+| `-bonsai-live`  | Animate growth step-by-step.                                   |
+| `-bonsai-msg S` | Attach a message next to the tree.                             |
 
 ## Examples
 
 A walk-through set lives in `examples/`. Most are runnable straight from the
 repo root with `go run ./cmd examples/<file>`:
 
-| File | What it shows |
-| ---- | ------------- |
-| `01_basics.sakura` | variables, control flow, primitive values, logical operators |
-| `02_functions.sakura` | recursion, closures and upvalues, multi-return, higher-order functions |
-| `03_tables_and_metatables.sakura` | records, arrays, methods, operator overloading via `__add`, `__index` |
-| `04_coroutines.sakura` | `coroutine.create` / `resume` / `yield` / `wrap` |
-| `05_types.sakura` | the full Luau-style type surface — primitives, optionals, unions, function types, type aliases, type assertions |
-| `06_strict_mode.sakura` | `--!strict` enforcement and what it rejects |
-| `07_modules.sakura` | `require`, `package.path`, `package.loaded`, `searchpath` — imports `mathx.sakura` next to it |
-| `08_stdlib.sakura` | a bundled-library set loaded via `$SAKURA_LIB` — flat modules, dotted submodules, package `init` files |
-| `09_native_module.sakura` | importing a host-provided native module (`native/db`) |
-| `10_os_module.sakura` | importing a host-provided native module (`native/os`) |
-| `11_compounds.sakura` | compound assignment operators (`x op= e`) |
-| `12_math_module.sakura` | the `math` native module |
-| `13_json_module.sakura` | the `json` native module |
-| `14_window.sakura` | the `window` GUI module (Fyne backend; `-tags sakura_no_window` to opt out) |
-| `15_io.sakura` | the full Lua-5.4 `io` library (file handles, `:read`/`:write`/`:lines`/`:seek`) |
-| `16_bit_utf8.sakura` | the `bit32` and `utf8` native modules |
-| `17_os_full.sakura` | the expanded `os` parity surface (`date`, `time`, `clock`, `execute`, `rename`, `tmpname`, `setlocale`) |
-| `18_patterns.sakura` | full Lua-pattern surface (`find`/`match`/`gmatch`/`gsub` with `%a %d %w` classes, `()` captures, `%b()` balanced, `%f[set]` frontier) |
+| File                           | What it shows                                                                                                                         |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `01_basics.lsc`                | variables, control flow, primitive values, logical operators                                                                          |
+| `02_functions.lsc`             | recursion, closures and upvalues, multi-return, higher-order functions                                                                |
+| `03_tables_and_metatables.lsc` | records, arrays, methods, operator overloading via `__add`, `__index`                                                                 |
+| `04_coroutines.lsc`            | `coroutine.create` / `resume` / `yield` / `wrap`                                                                                      |
+| `05_types.lsc`                 | the full Luau-style type surface — primitives, optionals, unions, function types, type aliases, type assertions                       |
+| `06_strict_mode.lsc`           | `--!strict` enforcement and what it rejects                                                                                           |
+| `07_modules.lsc`               | `require`, `package.path`, `package.loaded`, `searchpath` — imports `mathx.lsc` next to it                                            |
+| `08_stdlib.lsc`                | a bundled-library set loaded via `.lsc_LIB` — flat modules, dotted submodules, package `init` files                                   |
+| `09_native_module.lsc`         | importing a host-provided native module (`native/db`)                                                                                 |
+| `10_os_module.lsc`             | importing a host-provided native module (`native/os`)                                                                                 |
+| `11_compounds.lsc`             | compound assignment operators (`x op= e`)                                                                                             |
+| `12_math_module.lsc`           | the `math` native module                                                                                                              |
+| `13_json_module.lsc`           | the `json` native module                                                                                                              |
+| `14_window.lsc`                | the `window` GUI module (Fyne backend; `-tags.lsc_no_window` to opt out)                                                              |
+| `15_io.lsc`                    | the full Lua-5.4 `io` library (file handles, `:read`/`:write`/`:lines`/`:seek`)                                                       |
+| `16_bit_utf8.lsc`              | the `bit32` and `utf8` native modules                                                                                                 |
+| `17_os_full.lsc`               | the expanded `os` parity surface (`date`, `time`, `clock`, `execute`, `rename`, `tmpname`, `setlocale`)                               |
+| `18_patterns.lsc`              | full Lua-pattern surface (`find`/`match`/`gmatch`/`gsub` with `%a %d %w` classes, `()` captures, `%b()` balanced, `%f[set]` frontier) |
 
 ### Running the module examples
 
@@ -125,37 +126,37 @@ that matter for these examples, searched in this order:
 
 1. **The directory of the script being run** — added automatically. So a
    module sitting next to your script is always found, no matter which
-   directory you launched from. This is why `07_modules.sakura` just works:
+   directory you launched from. This is why `07_modules.lsc` just works:
 
    ```sh
-   go run ./cmd examples/07_modules.sakura     # mathx.sakura is found next to it
+   go run ./cmd examples/07_modules.lsc     # mathx.lsc is found next to it
    ```
 
-2. **`$SAKURA_LIB`** — a bundled-library root, read once at startup. It is
-   *not* on the path unless you set it. `08_stdlib.sakura` is the demo for
+2. **`.lsc_LIB`** — a bundled-library root, read once at startup. It is
+   _not_ on the path unless you set it. `08_stdlib.lsc` is the demo for
    exactly this: its modules live under `examples/stdlib/` (not next to the
-   script), so it needs `SAKURA_LIB` pointed there. Run it from the repo root:
+   script), so it needs .lsc_LIB` pointed there. Run it from the repo root:
 
    ```sh
    # bash
-   SAKURA_LIB=./examples/stdlib go run ./cmd examples/08_stdlib.sakura
+   .lsc_LIB=./examples/stdlib go run ./cmd examples/08_stdlib.lsc
    # PowerShell
-   $env:SAKURA_LIB="./examples/stdlib"; go run ./cmd examples/08_stdlib.sakura
+   $env.lsc_LIB="./examples/stdlib"; go run ./cmd examples/08_stdlib.lsc
    # cmd.exe
-   set SAKURA_LIB=./examples/stdlib && go run ./cmd examples/08_stdlib.sakura
+   set.lsc_LIB=./examples/stdlib && go run ./cmd examples/08_stdlib.lsc
    ```
 
-   `$SAKURA_LIB` is resolved relative to your current working directory — if
+   `.lsc_LIB` is resolved relative to your current working directory — if
    you run from somewhere other than the repo root, adjust the path
    accordingly (e.g. `../examples/stdlib` from inside `cmd/`).
 
-Between the two, the plain cwd-relative entries (`./?.sakura`, `./src/?.sakura`,
+Between the two, the plain cwd-relative entries (`./?.lsc`, `./src/?.lsc`,
 …) are searched as well, so a module under your working directory is still
 found even when it sits nowhere near the script.
 
 The native-module examples (`09`, `10`, `12`, `13`) pull their modules from
 the host via `package.preload`, so they need neither a path entry nor
-`$SAKURA_LIB`.
+`.lsc_LIB`.
 
 A taste, in case you don't want to open files:
 
@@ -197,7 +198,7 @@ print(dist({ x = 3, y = 4 }))   -- 5.0
 
 ## Type system
 
-sakura's type system is **gradual** in the Luau sense: annotations are optional, untyped code is treated as `any`, and `any` flows into and out of any typed slot.
+LuaScript's type system is **gradual** in the Luau sense: annotations are optional, untyped code is treated as `any`, and `any` flows into and out of any typed slot.
 
 ```lua
 -- Annotations on locals, parameters, returns. Untyped slots stay any.
@@ -231,12 +232,12 @@ local n: number = raw :: number
 
 A leading `--!strict`, `--!nonstrict`, or `--!nocheck` on the first line of a file controls how strictly that file is checked.
 
-| Directive       | Effect                                                                 |
-| --------------- | ---------------------------------------------------------------------- |
-| (none)          | Default. Gradual checking.                                             |
-| `--!strict`     | Implicit-any parameters become errors.                                 |
-| `--!nonstrict`  | Same as the default. Useful for explicitness.                          |
-| `--!nocheck`    | Skip the type pass for this file entirely.                             |
+| Directive      | Effect                                        |
+| -------------- | --------------------------------------------- |
+| (none)         | Default. Gradual checking.                    |
+| `--!strict`    | Implicit-any parameters become errors.        |
+| `--!nonstrict` | Same as the default. Useful for explicitness. |
+| `--!nocheck`   | Skip the type pass for this file entirely.    |
 
 ### Not in v1 (deliberately)
 
@@ -253,29 +254,29 @@ These are explicitly named in error messages where relevant, so users hit a clea
 
 Launch with `go run ./cmd` (no arguments). Built-in commands:
 
-| Command       | Effect                                            |
-| ------------- | ------------------------------------------------- |
-| `help`        | print the help screen                             |
-| `exit`, `quit`| leave the REPL                                    |
-| `reset`       | rebuild the VM (clears all globals and user state)|
-| `clear`       | clear the screen                                  |
+| Command        | Effect                                             |
+| -------------- | -------------------------------------------------- |
+| `help`         | print the help screen                              |
+| `exit`, `quit` | leave the REPL                                     |
+| `reset`        | rebuild the VM (clears all globals and user state) |
+| `clear`        | clear the screen                                   |
 
 Key bindings: **Ctrl+C** cancels the current input, **Ctrl+D** exits, **Ctrl+R** searches history.
 
 Bare expressions print their value:
 
 ```
- sakura » 1 + 2
+.lsc » 1 + 2
 => 3
- sakura » {1, 2, 3}
+.lsc » {1, 2, 3}
 => table: 0xc000...
 ```
 
 Top-level `local` persists across REPL chunks (it's promoted to a global at compile time so subsequent inputs can read it):
 
 ```
- sakura » local greeting = "hi"
- sakura » print(greeting)
+.lsc » local greeting = "hi"
+.lsc » print(greeting)
 hi
 ```
 
@@ -284,17 +285,17 @@ Inside any nested scope (`do`/`if`/`for`/function body) `local` keeps standard L
 Incomplete input opens a continuation prompt:
 
 ```
- sakura » function double(x)
+.lsc » function double(x)
    …      return x * 2
    …    end
- sakura » print(double(21))
+.lsc » print(double(21))
 42
 ```
 
 Type errors land with a distinct prefix so they're easy to spot:
 
 ```
- sakura » local x: number = "hi"
+.lsc » local x: number = "hi"
 type-error: Type "string" could not be converted into "number" at line 1
 ```
 
@@ -312,9 +313,9 @@ type-error: Type "string" could not be converted into "number" at line 1
 │   └── compiler.go    top-level pipeline (lex → parse → typecheck → bytecode)
 ├── vm/                stack VM, closures, metatables, coroutines, stdlib
 ├── repl/              interactive REPL (readline + engine wrapper)
-├── examples/          runnable .sakura programs that double as tutorials
+├── examples/          runnable .lsc programs that double as tutorials
 ├── version/           version string
-└── cmd/               CLI entrypoint (main.go) + `sakura build` bundler
+└── cmd/               CLI entrypoint (main.go) + .lsc build` bundler
 ```
 
 The compiler is designed so each stage is independently testable and the AST is the only contract between parser, type checker, and bytecode generator. The VM never sees source text or types; the parser never sees instructions.

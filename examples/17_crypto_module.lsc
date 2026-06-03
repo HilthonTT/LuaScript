@@ -18,13 +18,13 @@ print("hmac_sha256:", crypto.hmac_sha256("secret-key", "message"))
 print()
 
 -- base64 round-trip.
-local b64 = crypto.base64_encode("sakura-lang")
+local b64 = crypto.base64_encode("luascript")
 print("base64 encoded:", b64)
 print("base64 decoded:", crypto.base64_decode(b64))
 print()
 
 -- hex round-trip.
-local hx = crypto.hex_encode("sakura-lang")
+local hx = crypto.hex_encode("luascript")
 print("hex encoded:", hx)
 print("hex decoded:", crypto.hex_decode(hx))
 print()

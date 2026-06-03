@@ -1,7 +1,7 @@
 // Package httpserver provides the `httpserver` native module — an HTTP
 // *server* to complement the client-only `http` module.
 //
-// Concurrency model: the sakura VM is single-threaded and not safe for
+// Concurrency model: the.lsc VM is single-threaded and not safe for
 // concurrent access, but net/http dispatches every request on its own
 // goroutine. This module bridges the two with a serialized design:
 //
@@ -23,7 +23,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hilthontt/sakura-lang/vm"
+	"github.com/hilthontt/luascript/vm"
 )
 
 const (
@@ -100,7 +100,7 @@ func newServer() *vm.Table {
 	methods := vm.NewTable(0, 12)
 
 	// :route(method, path, handler) — register a handler. handler may be
-	// any callable (a sakura function or a host function).
+	// any callable (a.lsc function or a host function).
 	methods.Set("route", &vm.GoFunc{Name: "server:route", Fn: func(_ *vm.VM, a []vm.Value) []vm.Value {
 		_ = vm.TableArg("server:route", 1, a)
 		method := vm.StringArg("server:route", 2, a)
@@ -312,7 +312,7 @@ func buildRequest(r *http.Request, body string) *vm.Table {
 	return t
 }
 
-// funcArg validates that arg n is a callable (a sakura *Closure or a host
+// funcArg validates that arg n is a callable (a.lsc *Closure or a host
 // *GoFunc) — vm has no combined helper, and ClosureArg would reject
 // *GoFunc handlers.
 func funcArg(name string, n int, args []vm.Value) vm.Value {

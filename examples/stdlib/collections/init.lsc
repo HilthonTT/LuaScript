@@ -1,6 +1,6 @@
--- collections/init.sakura — "package" entry point.
+-- collections/init.lsc — "package" entry point.
 --
--- Resolves via the `$SAKURA_LIB/?/init.sakura` rule, so
+-- Resolves via the `.lsc_LIB/?/init.lsc` rule, so
 -- `require "collections"` runs THIS file. The convention mirrors
 -- Lua: a directory becomes a package by exposing an init module that
 -- aggregates submodules.

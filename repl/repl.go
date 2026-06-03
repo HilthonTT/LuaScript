@@ -8,13 +8,13 @@ import (
 	"strings"
 
 	"github.com/chzyer/readline"
-	"github.com/hilthontt/sakura-lang/compiler"
-	"github.com/hilthontt/sakura-lang/compiler/bytecode"
-	"github.com/hilthontt/sakura-lang/compiler/parser"
-	parserrors "github.com/hilthontt/sakura-lang/compiler/parser/errors"
-	"github.com/hilthontt/sakura-lang/compiler/typecheck"
-	"github.com/hilthontt/sakura-lang/version"
-	"github.com/hilthontt/sakura-lang/vm"
+	"github.com/hilthontt/luascript/compiler"
+	"github.com/hilthontt/luascript/compiler/bytecode"
+	"github.com/hilthontt/luascript/compiler/parser"
+	parserrors "github.com/hilthontt/luascript/compiler/parser/errors"
+	"github.com/hilthontt/luascript/compiler/typecheck"
+	"github.com/hilthontt/luascript/version"
+	"github.com/hilthontt/luascript/vm"
 )
 
 type REPL struct {
@@ -55,7 +55,7 @@ func (r *REPL) runPostInits(v *vm.VM) {
 
 func (r *REPL) Start() {
 	fmt.Fprint(r.out, Logo)
-	fmt.Fprintf(r.out, "  %sSakura REPL %s%s — a Lua-flavored language on a stack VM\n",
+	fmt.Fprintf(r.out, "  %sluascript REPL %s%s — a Lua-flavored language on a stack VM\n",
 		colorBold, version.Version, colorReset)
 	fmt.Fprintf(r.out, "  %sType 'help' for commands · Ctrl+C cancels input · Ctrl+D exits%s\n\n",
 		colorDim, colorReset)
@@ -66,12 +66,12 @@ func (r *REPL) Start() {
 func (r *REPL) RunFile(path string) {
 	src, err := os.ReadFile(path)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "sakura:", err)
+		fmt.Fprintln(os.Stderr, "luascript:", err)
 		os.Exit(1)
 	}
 	chunks, err := compiler.CompileToInstructions(string(src), parser.NormalMode)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "sakura:", err)
+		fmt.Fprintln(os.Stderr, "luascript:", err)
 		os.Exit(1)
 	}
 	v := vm.New()
@@ -84,7 +84,7 @@ func (r *REPL) RunFile(path string) {
 	// chunks[0] is the main chunk; nested function protos follow and are
 	// reached through the main chunk's Protos table at runtime.
 	if err := v.Run(chunks[0]); err != nil {
-		fmt.Fprintln(os.Stderr, "sakura:", err)
+		fmt.Fprintln(os.Stderr, "luascript:", err)
 		os.Exit(1)
 	}
 }
@@ -95,7 +95,7 @@ func (r *REPL) RunFile(path string) {
 func NewREPL(v *vm.VM, _ io.Reader, out io.Writer) *REPL {
 	rl, err := readline.NewEx(&readline.Config{
 		Prompt:                 promptReady,
-		HistoryFile:            os.ExpandEnv("$HOME/.sakura_repl_history"),
+		HistoryFile:            os.ExpandEnv("$HOME/.lsc_repl_history"),
 		AutoComplete:           newCompleter(),
 		InterruptPrompt:        "\nInterrupted (Ctrl+D to exit)",
 		EOFPrompt:              "exit",
@@ -163,7 +163,7 @@ func (r *REPL) bye() {
 func (r *REPL) printError(err error) {
 	// Surface type-check errors on a per-line basis with a distinct
 	// `type-error:` prefix so users can tell them apart from runtime
-	// errors. Runtime/parse errors keep the standard `sakura:` prefix.
+	// errors. Runtime/parse errors keep the standard `luascript:` prefix.
 	if te, ok := err.(*typecheck.TypeErrors); ok {
 		for _, e := range te.Errors {
 			fmt.Fprintf(os.Stderr, "%stype-error:%s %s\n",
@@ -171,7 +171,7 @@ func (r *REPL) printError(err error) {
 		}
 		return
 	}
-	fmt.Fprintf(os.Stderr, "%ssakura:%s %v\n", colorErr, colorReset, err)
+	fmt.Fprintf(os.Stderr, "%luascript:%s %v\n", colorErr, colorReset, err)
 }
 
 func (r *REPL) processInput(input string) {
@@ -280,7 +280,7 @@ func (r *REPL) printResults(results []vm.Value) {
 
 func (r *REPL) printHelp() {
 	fmt.Fprint(r.out, Logo)
-	fmt.Fprintf(r.out, "  %sSakura REPL %s%s\n\n", colorBold, version.Version, colorReset)
+	fmt.Fprintf(r.out, "  %sluascript REPL %s%s\n\n", colorBold, version.Version, colorReset)
 
 	fmt.Fprintf(r.out, "%sCommands%s\n", colorBold, colorReset)
 	rows := []struct{ name, desc string }{
@@ -314,18 +314,18 @@ func (r *REPL) printHelp() {
 	fmt.Fprintf(r.out, "  %s•%s compound assignment is supported:  %s+= -= *= /= &= |= <<= >>=%s\n",
 		colorDim, colorReset, colorBold, colorReset)
 
-	fmt.Fprintf(r.out, "\n%sFor CLI options:%s sakura --help\n\n", colorDim, colorReset)
+	fmt.Fprintf(r.out, "\n%sFor CLI options:%s luascript --help\n\n", colorDim, colorReset)
 }
 
 func (r *REPL) DisassembleFile(path string) {
 	src, err := os.ReadFile(path)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "sakura:", err)
+		fmt.Fprintln(os.Stderr, "luascript:", err)
 		os.Exit(1)
 	}
 	chunks, err := compiler.CompileToInstructions(string(src), parser.NormalMode)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "sakura:", err)
+		fmt.Fprintln(os.Stderr, "luascript:", err)
 		os.Exit(1)
 	}
 

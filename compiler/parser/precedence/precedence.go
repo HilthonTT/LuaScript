@@ -18,7 +18,7 @@
 //	postfix  .  [  (  :  {  string-call                    -- Call
 package precedence
 
-import "github.com/hilthontt/sakura-lang/compiler/token"
+import "github.com/hilthontt/luascript/compiler/token"
 
 // Precedence levels, low → high. Right-associativity is *not* encoded here;
 // callers handle it at parse time by recursing with Level-1 on the RHS.

@@ -9,13 +9,13 @@ package vm
 // cache so each module runs at most once.
 //
 // Path resolution:
-//   - cwd-relative (`./?.sakura`, `./?.lua`, …)
+//   - cwd-relative (`./?.lsc`, `./?.lua`, …)
 //   - cwd-relative inside `./src/`
 //   - $SAKURA_LIB (the bundled-library root, Goby's `libPath` analogue);
 //     omitted from the default path entirely when the env var is unset.
 //
-// Both `.sakura` and `.lua` are searched at every path entry, with
-// `.sakura` preferred so project-local `.sakura` files can shadow vanilla
+// Both `.lsc` and `.lua` are searched at every path entry, with
+// `.lsc` preferred so project-local `.lsc` files can shadow vanilla
 // Lua libs of the same name.
 
 import (
@@ -24,29 +24,29 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/hilthontt/sakura-lang/compiler"
-	"github.com/hilthontt/sakura-lang/compiler/parser"
+	"github.com/hilthontt/luascript/compiler"
+	"github.com/hilthontt/luascript/compiler/parser"
 )
 
 // pathTemplate joins multiple search rules separated by `;`. `?` is
 // substituted with the resolved module name. Within a single rule we list
-// .sakura before .lua so .sakura wins.
-const baseSearchPath = "./?.sakura;./?.lua;./?/init.sakura;./?/init.lua;./src/?.sakura;./src/?.lua;./src/?/init.sakura;./src/?/init.lua"
+// .lsc before .lua so .lsc wins.
+const baseSearchPath = "./?.lsc;./?.lua;./?/init.lsc;./?/init.lua;./src/?.lsc;./src/?.lua;./src/?/init.lsc;./src/?/init.lua"
 
 // registerLoader installs the loader globals + the `package` table. Called
-// from VM.New(). Reads $SAKURA_LIB once at startup; any later changes to
+// from VM.New(). Reads $LUASCRIPT_LIB once at startup; any later changes to
 // the env var are ignored (matches Goby's behaviour).
 func registerLoader(v *VM) {
 	pkg := NewTable(0, 8)
 
 	path := baseSearchPath
-	if libRoot := os.Getenv("SAKURA_LIB"); libRoot != "" {
+	if libRoot := os.Getenv("$LUASCRIPT_LIB"); libRoot != "" {
 		// Normalize trailing slash to keep template assembly simple.
 		libRoot = strings.TrimRight(libRoot, "/\\")
 		path += ";" +
-			libRoot + "/?.sakura;" +
+			libRoot + "/?.lsc;" +
 			libRoot + "/?.lua;" +
-			libRoot + "/?/init.sakura;" +
+			libRoot + "/?/init.lsc;" +
 			libRoot + "/?/init.lua"
 	}
 	pkg.Set("path", path)
@@ -87,9 +87,9 @@ func (v *VM) AddScriptDir(dir string) {
 	// Forward slashes to match baseSearchPath's template style and Lua's
 	// package.config dirsep; os.Stat accepts either on Windows anyway.
 	dir = strings.TrimRight(filepath.ToSlash(dir), "/")
-	prefix := dir + "/?.sakura;" +
+	prefix := dir + "/?.lsc;" +
 		dir + "/?.lua;" +
-		dir + "/?/init.sakura;" +
+		dir + "/?/init.lsc;" +
 		dir + "/?/init.lua"
 	if cur, _ := pkg.Get("path").(string); cur != "" {
 		pkg.Set("path", prefix+";"+cur)

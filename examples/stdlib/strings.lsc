@@ -1,7 +1,7 @@
 --!nocheck
--- strings.sakura — flat module living at the SAKURA_LIB root.
+-- strings.lsc — flat module living at the.lsc_LIB root.
 --
--- Resolves via the `$SAKURA_LIB/?.sakura` entry that the loader
+-- Resolves via the `.lsc_LIB/?.lsc` entry that the loader
 -- appends to `package.path` when the env var is set
 -- (vm/loader.go:42-50). `require "strings"` -> this file.
 

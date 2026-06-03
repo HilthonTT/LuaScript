@@ -1,16 +1,16 @@
-// Package db is the host-side bridge between sakura code and Go's
+// Package db is the host-side bridge between.lsc code and Go's
 // database/sql. The package itself is driver-agnostic — drivers are
 // registered via blank imports in companion files gated by build tags.
 // To add a new driver (e.g. sqlite, mysql) drop a `driver_<name>.go`
 // next to this file with a `//go:build` line and a `_ "..."` import.
-// To omit the default Postgres driver, build with `-tags sakura_no_postgres`.
+// To omit the default Postgres driver, build with `-tags.lsc_no_postgres`.
 package db
 
 import (
 	"database/sql"
 	"time"
 
-	"github.com/hilthontt/sakura-lang/vm"
+	"github.com/hilthontt/luascript/vm"
 )
 
 // RegisterDBPreload installs a single loader entry. The loader is a
@@ -34,7 +34,7 @@ func dbLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
 // above, so driver = "postgres" + a libpq DSN works out of the box.
 // Other drivers (mysql, sqlite, …) just need their own blank import.
 //
-// On error we panic with a vm.LuaError so the sakura side can catch it
+// On error we panic with a vm.LuaError so the.lsc side can catch it
 // with pcall(); successful return value is a connection table whose
 // methods close over the underlying *sql.DB.
 func dbOpen(_ *vm.VM, args []vm.Value) []vm.Value {
@@ -143,7 +143,7 @@ func newConn(handle *sql.DB) *vm.Table {
 	return conn
 }
 
-// toDriverArgs converts the bind-parameter slice from sakura-side
+// toDriverArgs converts the bind-parameter slice from.lsc-side
 // values into the `any` slice database/sql expects. Lua's value types
 // (int64, float64, string, bool, nil) are all valid driver.Value
 // types, so the conversion is mostly a pass-through.
@@ -166,7 +166,7 @@ func toDriverArgs(vals []vm.Value) []any {
 // goToLua maps the values that database/sql's Scan(*any) hands back
 // into the runtime's Value subset. RawBytes / []byte come back as
 // strings (the common case for text columns); time.Time becomes an
-// RFC3339 string so sakura code has a stable shape without a date
+// RFC3339 string so.lsc code has a stable shape without a date
 // type.
 func goToLua(v any) vm.Value {
 	switch x := v.(type) {

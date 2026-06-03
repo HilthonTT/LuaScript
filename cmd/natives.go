@@ -1,22 +1,22 @@
 package main
 
 import (
-	"github.com/hilthontt/sakura-lang/native/bit32"
-	"github.com/hilthontt/sakura-lang/native/compression"
-	"github.com/hilthontt/sakura-lang/native/crypto"
-	"github.com/hilthontt/sakura-lang/native/db"
-	httpNative "github.com/hilthontt/sakura-lang/native/http"
-	"github.com/hilthontt/sakura-lang/native/httpserver"
-	"github.com/hilthontt/sakura-lang/native/iox"
-	"github.com/hilthontt/sakura-lang/native/json"
-	"github.com/hilthontt/sakura-lang/native/math"
-	osNative "github.com/hilthontt/sakura-lang/native/os"
-	regexpNative "github.com/hilthontt/sakura-lang/native/regexp"
-	"github.com/hilthontt/sakura-lang/native/sort"
-	"github.com/hilthontt/sakura-lang/native/timex"
-	"github.com/hilthontt/sakura-lang/native/utf8x"
-	"github.com/hilthontt/sakura-lang/native/uuid"
-	"github.com/hilthontt/sakura-lang/vm"
+	"github.com/hilthontt/luascript/native/bit32"
+	"github.com/hilthontt/luascript/native/compression"
+	"github.com/hilthontt/luascript/native/crypto"
+	"github.com/hilthontt/luascript/native/db"
+	httpNative "github.com/hilthontt/luascript/native/http"
+	"github.com/hilthontt/luascript/native/httpserver"
+	"github.com/hilthontt/luascript/native/iox"
+	"github.com/hilthontt/luascript/native/json"
+	"github.com/hilthontt/luascript/native/math"
+	osNative "github.com/hilthontt/luascript/native/os"
+	regexpNative "github.com/hilthontt/luascript/native/regexp"
+	"github.com/hilthontt/luascript/native/sort"
+	"github.com/hilthontt/luascript/native/timex"
+	"github.com/hilthontt/luascript/native/utf8x"
+	"github.com/hilthontt/luascript/native/uuid"
+	"github.com/hilthontt/luascript/vm"
 )
 
 // nativeRegistrars is the single source of truth for which native

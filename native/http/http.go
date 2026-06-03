@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hilthontt/sakura-lang/vm"
+	"github.com/hilthontt/luascript/vm"
 )
 
 // RegisterHttpPreload installs the `http` module under package.preload.

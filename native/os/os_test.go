@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hilthontt/sakura-lang/compiler"
-	"github.com/hilthontt/sakura-lang/compiler/parser"
-	native_os "github.com/hilthontt/sakura-lang/native/os"
-	"github.com/hilthontt/sakura-lang/vm"
+	"github.com/hilthontt/luascript/compiler"
+	"github.com/hilthontt/luascript/compiler/parser"
+	native_os "github.com/hilthontt/luascript/native/os"
+	"github.com/hilthontt/luascript/vm"
 )
 
 // runOS compiles and runs `src` on a VM with the os module preloaded.
@@ -69,7 +69,7 @@ func TestHostnameReturnsString(t *testing.T) {
 func TestGetenvReturnsNilForUnset(t *testing.T) {
 	v := runOS(t, `
 		local os = require("os")
-		r = os.getenv("__SAKURA_DEFINITELY_UNSET__")
+		r = os.getenv("_.lsc_DEFINITELY_UNSET__")
 	`)
 	if got := v.Globals.Get("r"); got != nil {
 		t.Errorf("getenv of unset = %v (%T), want nil", got, got)

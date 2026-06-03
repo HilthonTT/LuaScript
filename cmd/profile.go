@@ -7,20 +7,20 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/hilthontt/sakura-lang/compiler"
-	"github.com/hilthontt/sakura-lang/compiler/bytecode"
-	"github.com/hilthontt/sakura-lang/compiler/debug"
-	"github.com/hilthontt/sakura-lang/compiler/parser"
-	"github.com/hilthontt/sakura-lang/vm"
+	"github.com/hilthontt/luascript/compiler"
+	"github.com/hilthontt/luascript/compiler/bytecode"
+	"github.com/hilthontt/luascript/compiler/debug"
+	"github.com/hilthontt/luascript/compiler/parser"
+	"github.com/hilthontt/luascript/vm"
 )
 
-// runProfile implements `sakura profile`. It runs a script with CPU
+// runProfile implements `luascript profile`. It runs a script with CPU
 // and/or heap profiling enabled and writes the profile(s) to disk. The
 // output is consumable by `go tool pprof` and by `go build -pgo=…`.
 //
 // Usage:
 //
-//	sakura profile [-cpu cpu.prof] [-mem mem.prof] [-count N] [-mem-stats] script.sakura
+//	luascript profile [-cpu cpu.prof] [-mem mem.prof] [-count N] [-mem-stats] script.lsc
 //
 // Exit codes: 0 success, 1 runtime/I-O error, 2 usage error.
 func runProfile(argv []string) int {
@@ -38,29 +38,29 @@ func runProfile(argv []string) int {
 	}
 	args := fs.Args()
 	if len(args) != 1 {
-		fmt.Fprintln(os.Stderr, "usage: sakura profile [-cpu cpu.prof] [-mem mem.prof] [-count N] [-mem-stats] script.sakura")
+		fmt.Fprintln(os.Stderr, "usage: luascript profile [-cpu cpu.prof] [-mem mem.prof] [-count N] [-mem-stats] script.lsc")
 		return 2
 	}
 	if *count < 1 {
-		fmt.Fprintln(os.Stderr, "sakura profile: -count must be ≥ 1")
+		fmt.Fprintln(os.Stderr, "luascript profile: -count must be ≥ 1")
 		return 2
 	}
 
 	path := args[0]
 	src, err := os.ReadFile(path)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "sakura profile:", err)
+		fmt.Fprintln(os.Stderr, "luascript profile:", err)
 		return 1
 	}
 	chunks, err := compiler.CompileToInstructions(string(src), parser.NormalMode)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "sakura profile:", err)
+		fmt.Fprintln(os.Stderr, "luascript profile:", err)
 		return 1
 	}
 
 	prof, err := debug.Start(*cpuOut, *memOut)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "sakura profile:", err)
+		fmt.Fprintln(os.Stderr, "luascript profile:", err)
 		// Stop is a no-op on a half-initialised handle; call it to release
 		// whichever file did open.
 		_ = prof.Stop()
@@ -72,21 +72,21 @@ func runProfile(argv []string) int {
 	elapsed := time.Since(start)
 
 	if stopErr := prof.Stop(); stopErr != nil {
-		fmt.Fprintln(os.Stderr, "sakura profile:", stopErr)
+		fmt.Fprintln(os.Stderr, "luascript profile:", stopErr)
 		if runErr == nil {
 			runErr = stopErr
 		}
 	}
 
 	if runErr != nil {
-		fmt.Fprintln(os.Stderr, "sakura profile:", runErr)
+		fmt.Fprintln(os.Stderr, "luascript profile:", runErr)
 		return 1
 	}
 
-	fmt.Fprintf(os.Stderr, "sakura profile: %d run(s) in %v\n", *count, elapsed)
+	fmt.Fprintf(os.Stderr, "luascript profile: %d run(s) in %v\n", *count, elapsed)
 	if *cpuOut != "" {
 		fmt.Fprintf(os.Stderr, "  cpu profile: %s\n", *cpuOut)
-		fmt.Fprintf(os.Stderr, "  pgo build:   go build -pgo=%s -o sakura ./cmd\n", *cpuOut)
+		fmt.Fprintf(os.Stderr, "  pgo build:   go build -pgo=%s -o luascript ./cmd\n", *cpuOut)
 	}
 	if *memOut != "" {
 		fmt.Fprintf(os.Stderr, "  mem profile: %s\n", *memOut)

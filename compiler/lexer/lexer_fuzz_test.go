@@ -3,7 +3,7 @@ package lexer
 import (
 	"testing"
 
-	"github.com/hilthontt/sakura-lang/compiler/token"
+	"github.com/hilthontt/luascript/compiler/token"
 )
 
 // FuzzLexer asserts that no input — however malformed — can cause the lexer

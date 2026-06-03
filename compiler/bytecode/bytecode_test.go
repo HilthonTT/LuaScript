@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hilthontt/sakura-lang/compiler/ast"
-	"github.com/hilthontt/sakura-lang/compiler/token"
+	"github.com/hilthontt/luascript/compiler/ast"
+	"github.com/hilthontt/luascript/compiler/token"
 )
 
 func base(line int) *ast.BaseNode {

@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/hilthontt/sakura-lang/vm"
+	"github.com/hilthontt/luascript/vm"
 )
 
 func RegisterCompressionPreload(v *vm.VM) {
@@ -50,7 +50,7 @@ func newCompression() *vm.Table {
 	}})
 
 	// compression.encode(message) -> { bits = "0101...", codes = {{sym, code}, ...} }
-	// The returned table is opaque from sakura's side — pass it straight to decode.
+	// The returned table is opaque from.lsc's side — pass it straight to decode.
 	methods.Set("encode", &vm.GoFunc{Name: "compression:encode", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 		msg := vm.StringArg("compression.encode", 1, args)
 		codes, err := buildCodes(msg)
@@ -159,7 +159,7 @@ func bitsToString(bits []bool) string {
 // codesToTable serialises the codebook as an array of {symbol, code}
 // pairs, sorted by symbol for reproducible output. Each pair is a
 // 1-indexed sub-table so the codebook iterates cleanly with
-// `for _, p in ipairs(codes)` on the sakura side.
+// `for _, p in ipairs(codes)` on the.lsc side.
 func codesToTable(codes map[rune][]bool) *vm.Table {
 	runes := make([]rune, 0, len(codes))
 	for r := range codes {

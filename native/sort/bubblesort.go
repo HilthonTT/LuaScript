@@ -1,6 +1,6 @@
 package sort
 
-import "github.com/hilthontt/sakura-lang/native/constraints"
+import "github.com/hilthontt/luascript/native/constraints"
 
 func Bubble[T constraints.Ordered](arr []T) []T {
 	swapped := true

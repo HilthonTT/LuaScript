@@ -2,7 +2,7 @@
 -- The `httpserver` module: a serialized HTTP server.
 --
 -- Handlers run one at a time on the script's own thread, so they can
--- freely use any sakura value without worrying about concurrency.
+-- freely use any.lsc value without worrying about concurrency.
 --
 -- A handler receives a `req` table and returns either:
 --   * a string                       -> 200, text/plain, that body
@@ -17,7 +17,7 @@ local server = httpserver.new()
 
 -- A plain-string handler: 200 text/plain.
 server:get("/", function(req)
-    return "Hello from sakura-lang! You asked for " .. req.path
+    return "Hello from luascript! You asked for " .. req.path
 end)
 
 -- A table handler: full control over status and headers.

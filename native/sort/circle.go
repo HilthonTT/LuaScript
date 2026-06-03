@@ -1,6 +1,6 @@
 package sort
 
-import "github.com/hilthontt/sakura-lang/native/constraints"
+import "github.com/hilthontt/luascript/native/constraints"
 
 // Circle sorts an array using the circle sort algorithm.
 func Circle[T constraints.Ordered](arr []T) []T {

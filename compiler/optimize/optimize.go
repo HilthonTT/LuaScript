@@ -1,6 +1,6 @@
 package optimize
 
-import "github.com/hilthontt/sakura-lang/compiler/ast"
+import "github.com/hilthontt/luascript/compiler/ast"
 
 // Fold rewrites prog in place, replacing constant expressions with literals.
 // It is safe to call unconditionally; on a program with no foldable

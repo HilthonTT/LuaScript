@@ -1,30 +1,30 @@
 #!/usr/bin/env bash
-# build-pgo.sh — three-step Profile-Guided Optimization build of sakura.
+# build-pgo.sh — three-step Profile-Guided Optimization build of.lsc.
 #
-#   1. build a non-PGO sakura
-#   2. run it under `sakura profile` against a representative workload
+#   1. build a non-PGO.lsc
+#   2. run it under .lsc profile` against a representative workload
 #      to collect a CPU profile
-#   3. rebuild with `go build -pgo=<profile> -o sakura ./cmd`
+#   3. rebuild with `go build -pgo=<profile> -o.lsc ./cmd`
 #
 # The resulting binary feeds the collected CPU hotspots back into the Go
 # compiler's inlining / devirtualisation heuristics. Typical wins on a
 # tight interpreter loop are 5-15%.
 #
 # Usage:
-#   scripts/build-pgo.sh                    # profiles examples/02_functions.sakura
+#   scripts/build-pgo.sh                    # profiles examples/02_functions.lsc
 #   scripts/build-pgo.sh path/to/script.sk  # profiles your own workload
 #
-# Pre-reqs: bash, go ≥ 1.21 (for -pgo), the sakura source tree.
+# Pre-reqs: bash, go ≥ 1.21 (for -pgo), the.lsc source tree.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
-WORKLOAD="${1:-examples/02_functions.sakura}"
+WORKLOAD="${1:-examples/02_functions.lsc}"
 CPU_PROFILE="${REPO_ROOT}/cpu.pgo"
-STAGE1_BIN="${REPO_ROOT}/sakura-stage1"
-FINAL_BIN="${REPO_ROOT}/sakura"
+STAGE1_BIN="${REPO_ROOT}.lsc-stage1"
+FINAL_BIN="${REPO_ROOT}.lsc"
 
 if [[ ! -f "$WORKLOAD" ]]; then
     echo "build-pgo: workload not found: $WORKLOAD" >&2

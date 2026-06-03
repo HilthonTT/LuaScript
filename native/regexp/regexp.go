@@ -3,7 +3,7 @@ package regexp
 import (
 	"regexp"
 
-	"github.com/hilthontt/sakura-lang/vm"
+	"github.com/hilthontt/luascript/vm"
 )
 
 // RegisterRegexpPreload installs the `regexp` module under package.preload.
@@ -60,7 +60,7 @@ func newRegex(re *regexp.Regexp) *vm.Table {
 	// re:capture(s) -> first match, then any capture groups as extra
 	// return values. Returns nil when there is no match. (Named
 	// `capture` rather than `match` because `match` is a reserved
-	// keyword in sakura — see the match statement.)
+	// keyword in.lsc — see the match statement.)
 	methods.Set("capture", &vm.GoFunc{Name: "regex:capture", Fn: func(_ *vm.VM, a []vm.Value) []vm.Value {
 		_ = vm.TableArg("regex:capture", 1, a)
 		s := vm.StringArg("regex:capture", 2, a)

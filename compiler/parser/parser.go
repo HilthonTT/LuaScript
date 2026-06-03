@@ -11,10 +11,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/hilthontt/sakura-lang/compiler/ast"
-	"github.com/hilthontt/sakura-lang/compiler/lexer"
-	"github.com/hilthontt/sakura-lang/compiler/parser/errors"
-	"github.com/hilthontt/sakura-lang/compiler/token"
+	"github.com/hilthontt/luascript/compiler/ast"
+	"github.com/hilthontt/luascript/compiler/lexer"
+	"github.com/hilthontt/luascript/compiler/parser/errors"
+	"github.com/hilthontt/luascript/compiler/token"
 )
 
 // Mode controls REPL-friendly error reporting (e.g. distinguishing
@@ -40,7 +40,7 @@ type Parser struct {
 	// peek2Token() and consumed by the next nextToken() call. The Lua 5.4
 	// grammar is mostly LL(2)-or-less, but the Luau-style type-assertion
 	// vs goto-label disambiguation needs to look two tokens past `::`.
-	peek2     *token.Token
+	peek2 *token.Token
 
 	// matchCounter generates unique scrutinee-binding names for the
 	// parser-level `match` desugar (compiler/parser/match_statement.go).

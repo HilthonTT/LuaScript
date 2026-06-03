@@ -1,4 +1,4 @@
-// Package typecheck is the Luau-style gradual type checker for sakura-lang.
+// Package typecheck is the Luau-style gradual type checker for luascript.
 //
 // The pass runs between parser and bytecode generator. It consumes the AST
 // (compiler/ast), builds an internal Type representation, walks the

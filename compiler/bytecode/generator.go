@@ -1,6 +1,6 @@
 package bytecode
 
-import "github.com/hilthontt/sakura-lang/compiler/ast"
+import "github.com/hilthontt/luascript/compiler/ast"
 
 // funcCtx is the per-function emission state. The main chunk is itself a
 // vararg function with no parameters.

@@ -22,11 +22,11 @@ const Oops = `
  ╚═════╝  ╚═════╝ ╚═╝     ╚══════╝`
 
 const (
-	// Sakura-themed colors — modern Windows terminals (10+) handle these
+	//.lsc-themed colors — modern Windows terminals (10+) handle these
 	// natively via virtual-terminal processing; chzyer/readline turns that
 	// on for us.
-	promptReady = "\033[35m sakura » \033[0m" // Magenta — classic sakura feel
-	contPrompt  = "\033[31m   … \033[0m"      // Red — visually distinct from ready prompt
+	promptReady = "\033[35m.lsc » \033[0m" // Magenta — classic.lsc feel
+	contPrompt  = "\033[31m   … \033[0m"   // Red — visually distinct from ready prompt
 
 	// Output accents. Keep these subtle so they don't compete with user output.
 	colorErr   = "\033[31m" // red — error messages

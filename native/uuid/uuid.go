@@ -5,7 +5,7 @@ import (
 	"encoding/hex"
 	"regexp"
 
-	"github.com/hilthontt/sakura-lang/vm"
+	"github.com/hilthontt/luascript/vm"
 )
 
 // uuidV4Pattern matches a canonical version-4 UUID, case-insensitively.

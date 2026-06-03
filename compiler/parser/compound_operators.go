@@ -1,6 +1,6 @@
 package parser
 
-import "github.com/hilthontt/sakura-lang/compiler/token"
+import "github.com/hilthontt/luascript/compiler/token"
 
 // compoundOps maps a compound-assignment token to the binary operator
 // string used by ast.BinaryExpression. We desugar `x op= e` into

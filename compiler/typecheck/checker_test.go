@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hilthontt/sakura-lang/compiler/lexer"
-	"github.com/hilthontt/sakura-lang/compiler/parser"
+	"github.com/hilthontt/luascript/compiler/lexer"
+	"github.com/hilthontt/luascript/compiler/parser"
 )
 
 // runCheck parses src and runs the checker. Returns the error list.

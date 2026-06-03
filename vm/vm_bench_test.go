@@ -3,9 +3,9 @@ package vm
 import (
 	"testing"
 
-	"github.com/hilthontt/sakura-lang/compiler"
-	"github.com/hilthontt/sakura-lang/compiler/bytecode"
-	"github.com/hilthontt/sakura-lang/compiler/parser"
+	"github.com/hilthontt/luascript/compiler"
+	"github.com/hilthontt/luascript/compiler/bytecode"
+	"github.com/hilthontt/luascript/compiler/parser"
 )
 
 // compileBench compiles src once for use across b.N iterations. Compile

@@ -3,10 +3,10 @@ package analyze
 import (
 	"fmt"
 
-	"github.com/hilthontt/sakura-lang/compiler/ast"
+	"github.com/hilthontt/luascript/compiler/ast"
 )
 
-// walker is a generic recursive AST traversal. The Sakura AST has no shared
+// walker is a generic recursive AST traversal. The.lsc AST has no shared
 // visitor, so the analyzer provides its own. onStmt / onExpr (either may be
 // nil) are invoked on every statement / expression node, parents before
 // children. When stopAtFunc is set, the walk does not descend into nested

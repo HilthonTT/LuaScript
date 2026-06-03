@@ -17,7 +17,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/hilthontt/sakura-lang/vm"
+	"github.com/hilthontt/luascript/vm"
 )
 
 // RegisterIOPreload installs the io module at package.preload as "io".
@@ -149,7 +149,7 @@ func newIO() *vm.Table {
 	})
 
 	add("tmpfile", func(_ *vm.VM, _ []vm.Value) []vm.Value {
-		f, err := os.CreateTemp("", "sakura_io_*")
+		f, err := os.CreateTemp("", "lsc_tmp_*")
 		if err != nil {
 			return []vm.Value{nil, err.Error()}
 		}

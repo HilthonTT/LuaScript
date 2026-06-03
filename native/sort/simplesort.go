@@ -1,6 +1,6 @@
 package sort
 
-import "github.com/hilthontt/sakura-lang/native/constraints"
+import "github.com/hilthontt/luascript/native/constraints"
 
 // SimpleSort by skipping an unnecessary comparison of the first and last.
 func Simple[T constraints.Ordered](arr []T) []T {

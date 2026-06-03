@@ -3,9 +3,9 @@ package optimize
 import (
 	"testing"
 
-	"github.com/hilthontt/sakura-lang/compiler/ast"
-	"github.com/hilthontt/sakura-lang/compiler/lexer"
-	"github.com/hilthontt/sakura-lang/compiler/parser"
+	"github.com/hilthontt/luascript/compiler/ast"
+	"github.com/hilthontt/luascript/compiler/lexer"
+	"github.com/hilthontt/luascript/compiler/parser"
 )
 
 // parseExpr parses `local _v = <src>`, runs Fold, and returns the folded
@@ -27,25 +27,25 @@ func parseExpr(t *testing.T, src string) ast.Expression {
 
 func TestFoldInteger(t *testing.T) {
 	cases := map[string]int64{
-		"1 + 2":        3,
-		"2 * 3 + 1":    7,
-		"10 - 4":       6,
-		"7 // 2":       3,
-		"-7 // 2":      -4,
-		"7 % 3":        1,
-		"-7 % 3":       2,
-		"3 < 5 and 9":  9, // logical short-circuit then int
-		"-5":           -5,
-		"- -5":         5,
-		`#"hello"`:     5,
-		"~0":           -1,
-		"5 & 3":        1,
-		"5 | 2":        7,
-		"6 ~ 3":        5,
-		"1 << 4":       16,
-		"256 >> 4":     16,
-		"1 << 64":      0,
-		"(1 + 2) * 3":  9,
+		"1 + 2":       3,
+		"2 * 3 + 1":   7,
+		"10 - 4":      6,
+		"7 // 2":      3,
+		"-7 // 2":     -4,
+		"7 % 3":       1,
+		"-7 % 3":      2,
+		"3 < 5 and 9": 9, // logical short-circuit then int
+		"-5":          -5,
+		"- -5":        5,
+		`#"hello"`:    5,
+		"~0":          -1,
+		"5 & 3":       1,
+		"5 | 2":       7,
+		"6 ~ 3":       5,
+		"1 << 4":      16,
+		"256 >> 4":    16,
+		"1 << 64":     0,
+		"(1 + 2) * 3": 9,
 	}
 	for src, want := range cases {
 		got := parseExpr(t, src)
@@ -62,12 +62,12 @@ func TestFoldInteger(t *testing.T) {
 
 func TestFoldFloat(t *testing.T) {
 	cases := map[string]float64{
-		"1 + 2.0": 3.0,
-		"1 / 2":   0.5,
-		"2 ^ 10":  1024.0,
+		"1 + 2.0":  3.0,
+		"1 / 2":    0.5,
+		"2 ^ 10":   1024.0,
 		"7.0 // 2": 3.0,
-		"5.5 % 2": 1.5,
-		"-2.5":    -2.5,
+		"5.5 % 2":  1.5,
+		"-2.5":     -2.5,
 	}
 	for src, want := range cases {
 		got := parseExpr(t, src)

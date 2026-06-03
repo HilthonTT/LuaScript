@@ -3,7 +3,7 @@ package lexer
 import (
 	"strings"
 
-	"github.com/hilthontt/sakura-lang/compiler/token"
+	"github.com/hilthontt/luascript/compiler/token"
 )
 
 type Lexer struct {

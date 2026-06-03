@@ -1,5 +1,5 @@
--- Sakura basics: variables, arithmetic, control flow, the standard
--- value types. Run with:  sakura examples/01_basics.sakura
+--.lsc basics: variables, arithmetic, control flow, the standard
+-- value types. Run with: .lsc examples/01_basics.lsc
 local greeting = "hello"
 local count = 3
 local emphatic = true

@@ -88,7 +88,7 @@ func ToString(v Value) string {
 // ToStringMM renders val to its string form, honouring the `__tostring`
 // metamethod on tables and other values that have one. Numeric/string/bool/
 // nil values skip the lookup and route to ToString directly — they cannot
-// carry metatables in current sakura. If `__tostring` is defined but does
+// carry metatables in current.lsc. If `__tostring` is defined but does
 // not return a string, Lua's rule applies: it is an error. Here we surface
 // that as a panic with a Lua-style message so it lands as a runtime error.
 //

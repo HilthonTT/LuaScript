@@ -123,7 +123,7 @@ type goldenFile struct {
 	text string
 }
 
-// goldenExamples loads every *.sakura file in ../examples/ as a test
+// goldenExamples loads every *.lsc file in ../examples/ as a test
 // corpus. Skipped (with no failure) if the directory is missing so the
 // package is testable in isolation.
 func goldenExamples(t *testing.T) []goldenFile {
@@ -136,7 +136,7 @@ func goldenExamples(t *testing.T) []goldenFile {
 	}
 	var out []goldenFile
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".sakura") {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".lsc") {
 			continue
 		}
 		b, err := os.ReadFile(filepath.Join(dir, e.Name()))

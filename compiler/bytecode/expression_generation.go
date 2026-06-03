@@ -3,7 +3,7 @@ package bytecode
 import (
 	"fmt"
 
-	"github.com/hilthontt/sakura-lang/compiler/ast"
+	"github.com/hilthontt/luascript/compiler/ast"
 )
 
 // compileExpression emits code that leaves exactly one value on top of the

@@ -1,4 +1,4 @@
-// Package ast defines the abstract syntax tree for sakura-lang, a language
+// Package ast defines the abstract syntax tree for luascript, a language
 // with the syntax of Lua 5.4. The node shapes here mirror the productions in
 // the Lua 5.4 reference manual, §9 (The Complete Syntax of Lua).
 package ast
@@ -6,7 +6,7 @@ package ast
 import (
 	"bytes"
 
-	"github.com/hilthontt/sakura-lang/compiler/token"
+	"github.com/hilthontt/luascript/compiler/token"
 )
 
 // BaseNode carries the location and lexeme that every AST node tracks.
