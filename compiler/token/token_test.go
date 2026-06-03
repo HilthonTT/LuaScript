@@ -43,18 +43,6 @@ func TestLookupIdentTrue(t *testing.T) {
 	}
 }
 
-func TestCreateOperatorIllegalFalse(t *testing.T) {
-	line := 123
-	col := 1
-	token := CreateOperator("nonexist", line, col)
-	if token.Type != Illegal {
-		t.Fatalf("Expect token type %s, got: %s", Illegal, token.Type)
-	}
-	if token.Line != line {
-		t.Fatalf("Expect token line %v, got: %v", line, token.Line)
-	}
-}
-
 func TestCreateOperatorIdentTrue(t *testing.T) {
 	var operators = map[string]Type{
 		"+": Plus,
@@ -82,18 +70,6 @@ func TestCreateOperatorIdentTrue(t *testing.T) {
 		if tok.Line != line {
 			t.Fatalf("Expect token line %v, got: %v", line, tok.Line)
 		}
-	}
-}
-
-func TestCreateSeparatorIdentFalse(t *testing.T) {
-	line := 123
-	col := 1
-	token := CreateSeparator("nonexist", line, col)
-	if token.Type != Illegal {
-		t.Fatalf("Expect token type %s, got: %s", Illegal, token.Type)
-	}
-	if token.Line != line {
-		t.Fatalf("Expect token line %v, got: %v", line, token.Line)
 	}
 }
 

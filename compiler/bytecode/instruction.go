@@ -104,6 +104,14 @@ const (
 	// --- frame ---
 	Leave // ends instruction set (REPL friendly fallback / chunk terminator)
 
+	// MarkArgs records the current stack height onto the VM's call-mark
+	// stack. Emitted by compileCall/compileMethodCall ONLY when the call
+	// has a multi-value last argument (call, methodcall, or vararg in
+	// last position). The matching Call opcode encoded with nargs=-1
+	// pops the mark to recover the args base — needed because the spread
+	// length isn't known until runtime.
+	MarkArgs
+
 	InstructionCount
 )
 
@@ -167,6 +175,7 @@ var InstructionNameTable = []string{
 	Pop:             "pop",
 	Dup:             "dup",
 	Leave:           "leave",
+	MarkArgs:        "markargs",
 }
 
 // Instruction is one emitted opcode plus its parameters and source line.

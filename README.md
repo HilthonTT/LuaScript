@@ -13,7 +13,7 @@ The implementation is a clean-room rewrite focused on being readable end-to-end:
 - **Type checker** — gradual: untyped code is implicitly `any`; annotations opt in. Primitives, function types, optionals, unions, type aliases (including structural table shapes), type assertions. Stdlib has hand-written signatures so `math.sqrt(true)` is a compile error.
 - **Bytecode** — stack-based with closure upvalues, vararg passing, generic-`for` iteration, and a one-time scan that fills `NumLocals` at runtime where the generator left it blank. Types are erased before this stage — the VM never sees them.
 - **VM** — closures, metatables, coroutines (via goroutines + channels), `pcall`/`error` unwinding.
-- **Standard library** — `print`/`tostring`/`tonumber`, `ipairs`/`pairs`/`next`, `pcall`/`assert`/`error`, raw and metatable helpers, plus `math`, `string` (no patterns yet), `table`, `io.write`/`read`, `coroutine`, and `package`/`require`.
+- **Standard library** — `print`/`tostring`/`tonumber`, `ipairs`/`pairs`/`next`, `pcall`/`assert`/`error`, raw and metatable helpers, plus `math`, `string` (full Lua pattern surface: `find`/`match`/`gmatch`/`gsub`), `table`, `io.write`/`read`, `coroutine`, and `package`/`require`. `__tostring` is honoured by `tostring`, `print`, `io.write`, `error`, and the REPL.
 - **REPL** — readline-driven, history-backed, with continuation prompts for incomplete input. Top-level `local` declarations persist across REPL chunks (a deliberate convenience deviation from `lua`). Type-check errors are surfaced with a distinct `type-error:` prefix.
 
 ## Quick start
@@ -112,6 +112,11 @@ repo root with `go run ./cmd examples/<file>`:
 | `11_compounds.sakura` | compound assignment operators (`x op= e`) |
 | `12_math_module.sakura` | the `math` native module |
 | `13_json_module.sakura` | the `json` native module |
+| `14_window.sakura` | the `window` GUI module (Fyne backend; `-tags sakura_no_window` to opt out) |
+| `15_io.sakura` | the full Lua-5.4 `io` library (file handles, `:read`/`:write`/`:lines`/`:seek`) |
+| `16_bit_utf8.sakura` | the `bit32` and `utf8` native modules |
+| `17_os_full.sakura` | the expanded `os` parity surface (`date`, `time`, `clock`, `execute`, `rename`, `tmpname`, `setlocale`) |
+| `18_patterns.sakura` | full Lua-pattern surface (`find`/`match`/`gmatch`/`gsub` with `%a %d %w` classes, `()` captures, `%b()` balanced, `%f[set]` frontier) |
 
 ### Running the module examples
 
@@ -316,12 +321,12 @@ The compiler is designed so each stage is independently testable and the AST is 
 
 ## Non-goals (for now)
 
-- Lua patterns (`string.match` / `gmatch` / `gsub`) — `string.find` is plain-substring only.
-- `io.open` and the file-handle stdlib.
-- The `debug` and `os` libraries.
+- The `debug` library.
 - Garbage-collection metamethods (`__gc`, `__close` enforcement).
 
 These are deliberate omissions, not bugs — they're listed so contributors know what's out of scope rather than wondering whether to file an issue.
+
+Previously listed but now shipped: Lua patterns, `io.open` + full file-handle stdlib, expanded `os`.
 
 ## Contributing
 

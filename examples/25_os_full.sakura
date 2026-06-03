@@ -1,0 +1,34 @@
+-- Lua 5.4 parity for the os module.
+
+local os = require("os")
+
+print("--- time and date ---")
+local t = os.time()
+print("epoch       ", t)
+print("date '*t'   ", os.date("*t", t).year)
+print("date strftime", os.date("%Y-%m-%d", t))
+print("date with !", os.date("!%H:%M UTC", t))
+
+print("--- difftime / clock ---")
+print("difftime   ", os.difftime(t + 60, t))    -- 60
+local start = os.clock()
+for i = 1, 100000 do end
+print("clock delta ", os.clock() >= start)      -- true
+
+print("--- mktime from table ---")
+local mk = os.time{year=2024, month=1, day=1, hour=0, min=0, sec=0}
+print("mktime     ", os.date("%Y-%m-%d %H:%M:%S", mk))
+
+print("--- env ---")
+local _ = os.setenv("SAKURA_OS_TEST", "ok")
+print("getenv     ", os.getenv("SAKURA_OS_TEST"))
+
+print("--- tmpname + rename ---")
+local p = os.tmpname()
+print("tmpname    ", p ~= nil)
+local p2 = p .. ".renamed"
+os.rename(p, p2)
+os.remove(p2)
+
+print("--- execute ---")
+print("shell exists ", os.execute())

@@ -1,0 +1,52 @@
+-- io module: file handles with read/write/lines/seek/close.
+
+local io = require("io")
+local os = require("os")
+
+-- Write a small file. os.tmpname gives a portable scratch path.
+local tmp = os.tmpname()
+local f = io.open(tmp, "w")
+f:write("alpha\n")
+f:write("beta\n")
+f:write("gamma\n")
+f:close()
+
+-- Read it back as a whole
+local r = io.open(tmp, "r")
+local all = r:read("*a")
+print("--- full read ---")
+print(all)
+r:close()
+
+-- Iterate line-by-line
+print("--- lines ---")
+for line in io.lines(tmp) do
+    print(line)
+end
+
+-- Seek + partial read
+local s = io.open(tmp, "r")
+s:seek("set", 6)            -- skip "alpha\n"
+local nextLine = s:read("*l")
+print("--- after seek(6) ---")
+print(nextLine)             -- beta
+s:close()
+
+-- io.type
+print("--- type ---")
+local t = io.open(tmp, "r")
+print(io.type(t))           -- file
+t:close()
+print(io.type(t))           -- closed file
+print(io.type({}))          -- nil
+
+-- io.tmpfile round-trip
+local tf = io.tmpfile()
+tf:write("ephemeral")
+tf:seek("set", 0)
+print("--- tmpfile ---")
+print(tf:read("*a"))
+tf:close()
+
+-- Clean up
+os.remove(tmp)

@@ -73,8 +73,6 @@ func stdlibGlobals() map[string]*Type {
 	g["load"] = NewFunction([]*Type{anyT, Optional(stringT), Optional(stringT), Optional(anyT)},
 		[]*Type{Optional(anyT), Optional(stringT)}, false, nil)
 
-	// ----- modules ------------------------------------------------------------
-
 	g["math"] = mathModule()
 	g["string"] = stringModule()
 	g["table"] = tableModule()
@@ -84,10 +82,6 @@ func stdlibGlobals() map[string]*Type {
 
 	return g
 }
-
-// ---------------------------------------------------------------------------
-// math
-// ---------------------------------------------------------------------------
 
 func mathModule() *Type {
 	one := []*Type{numberT}
@@ -141,10 +135,6 @@ func mathModule() *Type {
 	}, nil)
 }
 
-// ---------------------------------------------------------------------------
-// string
-// ---------------------------------------------------------------------------
-
 func stringModule() *Type {
 	return NewTable([]TableField{
 		// (string) -> number
@@ -179,12 +169,20 @@ func stringModule() *Type {
 
 		// (string, ...) -> string
 		{Key: "format", Type: NewFunction([]*Type{stringT}, []*Type{stringT}, true, anyT)},
+
+		// Lua-pattern members. Captures are dynamic — typed as any — so
+		// match/gmatch results compose with the rest of the runtime.
+		{Key: "match", Type: NewFunction(
+			[]*Type{stringT, stringT, Optional(numberT)},
+			[]*Type{Optional(anyT)}, true, anyT)},
+		{Key: "gmatch", Type: NewFunction(
+			[]*Type{stringT, stringT},
+			[]*Type{anyT}, false, nil)},
+		{Key: "gsub", Type: NewFunction(
+			[]*Type{stringT, stringT, anyT, Optional(numberT)},
+			[]*Type{stringT, numberT}, false, nil)},
 	}, nil)
 }
-
-// ---------------------------------------------------------------------------
-// table
-// ---------------------------------------------------------------------------
 
 func tableModule() *Type {
 	return NewTable([]TableField{
@@ -214,10 +212,6 @@ func tableModule() *Type {
 	}, nil)
 }
 
-// ---------------------------------------------------------------------------
-// io  (limited surface — only write/read l|L)
-// ---------------------------------------------------------------------------
-
 func ioModule() *Type {
 	return NewTable([]TableField{
 		{Key: "write", Type: NewFunction(nil, nil, true, anyT)},
@@ -227,10 +221,6 @@ func ioModule() *Type {
 			[]*Type{Optional(stringT)}, false, nil)},
 	}, nil)
 }
-
-// ---------------------------------------------------------------------------
-// coroutine
-// ---------------------------------------------------------------------------
 
 func coroutineModule() *Type {
 	return NewTable([]TableField{
@@ -249,10 +239,6 @@ func coroutineModule() *Type {
 		{Key: "isyieldable", Type: NewFunction(nil, []*Type{booleanT}, false, nil)},
 	}, nil)
 }
-
-// ---------------------------------------------------------------------------
-// package
-// ---------------------------------------------------------------------------
 
 func packageModule() *Type {
 	return NewTable([]TableField{

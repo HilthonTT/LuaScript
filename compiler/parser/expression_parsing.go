@@ -316,7 +316,12 @@ func (p *Parser) parseIndexBracket(obj ast.Expression) ast.Expression {
 func (p *Parser) parseIndexDot(obj ast.Expression) ast.Expression {
 	tok := p.curToken
 	p.nextToken() // consume '.'
-	if !p.expectCur(token.Ident) {
+	// Field names may use any identifier OR a soft/contextual keyword
+	// (`match`). Hard keywords like `if`/`end` are still rejected.
+	if !p.curTokenIsFieldName() {
+		p.errorAt(p.curToken, errors.UnexpectedTokenError, "",
+			"expected field name after '.', got "+describeToken(p.curToken),
+			"")
 		return nil
 	}
 	name := p.curToken.Literal
@@ -330,13 +335,24 @@ func (p *Parser) parseIndexDot(obj ast.Expression) ast.Expression {
 	}
 }
 
+// curTokenIsFieldName reports whether the current token is acceptable as
+// a field/method name (i.e. after '.' or ':'). Plain identifiers always
+// qualify; contextual keywords (`match`) qualify because they are not
+// reserved in expression positions.
+func (p *Parser) curTokenIsFieldName() bool {
+	return p.curTokenIs(token.Ident) || p.curTokenIs(token.Match)
+}
+
 // parseMethodCall handles `obj:method(args)` (and `obj:method"str"`,
 // `obj:method{tbl}`). Lua's grammar requires `:` to be immediately followed
 // by Name and then a call-args group.
 func (p *Parser) parseMethodCall(obj ast.Expression) ast.Expression {
 	tok := p.curToken
 	p.nextToken() // consume ':'
-	if !p.expectCur(token.Ident) {
+	if !p.curTokenIsFieldName() {
+		p.errorAt(p.curToken, errors.UnexpectedTokenError, "",
+			"expected method name after ':', got "+describeToken(p.curToken),
+			"")
 		return nil
 	}
 	method := p.curToken.Literal
@@ -427,7 +443,12 @@ func (p *Parser) parseFunctionBody(headerTok token.Token) *ast.FunctionExpressio
 		}
 	}
 
+	// A function body opens a fresh loop scope: `break` inside the body
+	// must NOT escape into a loop that encloses the function definition.
+	savedLoopDepth := p.loopDepth
+	p.loopDepth = 0
 	body := p.parseBlock()
+	p.loopDepth = savedLoopDepth
 	if p.error != nil {
 		return nil
 	}

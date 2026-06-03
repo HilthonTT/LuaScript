@@ -1,0 +1,29 @@
+-- Demo for the bit32 and utf8 native modules.
+
+local bit32 = require("bit32")
+local utf8  = require("utf8")
+
+-- bit32: classic bit-twiddling
+print("band      ", bit32.band(0xF0F0, 0x0FF0))            -- 0x00F0 = 240
+print("bor       ", bit32.bor(0xF000, 0x000F))             -- 0xF00F = 61455
+print("bxor      ", bit32.bxor(0xFFFF, 0x0F0F))            -- 0xF0F0 = 61680
+print("bnot      ", bit32.bnot(0))                          -- 0xFFFFFFFF = 4294967295
+print("lshift    ", bit32.lshift(1, 8))                     -- 256
+print("rshift    ", bit32.rshift(0x100, 4))                 -- 16
+print("arshift   ", bit32.arshift(0xFFFFFFFE, 1))           -- still all-ones except low bit
+print("lrotate   ", bit32.lrotate(0x80000001, 1))           -- 0x00000003
+print("extract   ", bit32.extract(0xABCD, 4, 4))            -- nibble 1: 0xC = 12
+print("replace   ", bit32.replace(0xABCD, 0xE, 4, 4))       -- 0xAECD
+print("btest     ", bit32.btest(0xF0, 0x80))                -- true
+print("bswap     ", bit32.bswap(0x11223344))                -- 0x44332211 = 1144201745
+
+-- utf8: code-point work
+local hi = "héllo " .. utf8.char(0x1F44B)
+print("utf8.len  ", utf8.len(hi))                            -- 7
+print("char back ", utf8.char(0x4E2D, 0x6587))               -- 中文
+local cp1, cp2 = utf8.codepoint("AB", 1, 2)
+print("codepoint ", cp1, cp2)                                -- 65, 66
+
+for p, c in utf8.codes("héy") do
+    print("codes     ", p, c)
+end

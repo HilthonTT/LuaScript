@@ -1,0 +1,43 @@
+-- Lua-style string patterns: find / match / gmatch / gsub.
+-- These are NOT PCRE; the syntax is documented in Lua 5.4 §6.4.1.
+
+-- find: returns start, end[, captures...]
+local s, e = string.find("hello world", "world")
+print("find       ", s, e)                              -- 7 11
+
+-- match: returns captures or whole match
+print("match (cap)", string.match("price: $42", "%$(%d+)"))   -- 42
+local w1, w2 = string.match("hello world", "(%w+) (%w+)")
+print("match (mr) ", w1, w2)                            -- hello world
+
+-- gmatch: iterator
+print("gmatch words:")
+for w in string.gmatch("the quick brown fox", "%a+") do
+    print("           ", w)
+end
+
+print("gmatch pairs:")
+for k, v in string.gmatch("a=1, b=2, c=3", "(%a+)=(%d+)") do
+    print("           ", k, "=", v)
+end
+
+-- gsub: substitute. Returns new string + count.
+print("gsub string ", string.gsub("hello world", "o", "0"))   -- hell0 w0rld, 2
+print("gsub limit  ", string.gsub("aaaa", "a", "b", 2))       -- bbaa, 2
+print("gsub backref", string.gsub("John Smith", "(%w+) (%w+)", "%2 %1"))
+
+-- Function replacement: transform each match.
+local result = string.gsub("hello", ".", function(c)
+    return string.upper(c)
+end)
+print("gsub fn     ", result)                            -- HELLO
+
+-- Character classes: %a %d %s %w + their uppercase complements.
+print("classes     ",
+    string.match("abc123", "^%a+"),                      -- abc
+    string.match("abc123", "%d+$"),                      -- 123
+    string.match("a b\tc", "%s"))                        -- (space)
+
+-- Balanced: %b<open><close>. Frontier: %f[set].
+print("balanced    ", string.match("f(x, y(z)) tail", "%b()"))
+print("frontier    ", string.match("  hello world", "%f[%a]%a+"))

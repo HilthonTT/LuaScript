@@ -305,14 +305,33 @@ func buildStringLibrary() *Table {
 		return []Value{string(buf)}
 	})
 	add("find", func(_ *VM, args []Value) []Value {
-		// Plain-substring only — Lua patterns are deliberately out of scope
-		// for this VM. For pattern-style searches the caller should pass a
-		// trailing `true` to force plain mode (we treat any call as plain).
+		// Lua semantics: returns startPos, endPos[, captures...]. The
+		// optional 4th `plain` arg bypasses pattern matching; otherwise
+		// any magic character engages the pattern engine. Plain-only
+		// patterns auto-fast-path through strings.Index for performance.
 		s := StringArg("string.find", 1, args)
 		pat := StringArg("string.find", 2, args)
 		init := int64(1)
 		if len(args) >= 3 {
-			init = IntArg("string.find", 3, args)
+			if n, ok := args[2].(int64); ok {
+				init = n
+			} else if n, ok := ToInteger(args[2]); ok {
+				init = n
+			}
+		}
+		plain := false
+		if len(args) >= 4 {
+			plain = IsTruthy(args[3])
+		}
+		if !plain && PatternHasSpecials(pat) {
+			startByte, endByte, caps, ok := PatternFind(s, pat, int(init))
+			if !ok {
+				return []Value{nil}
+			}
+			out := make([]Value, 0, 2+len(caps))
+			out = append(out, int64(startByte), int64(endByte))
+			out = append(out, caps...)
+			return out
 		}
 		ln := int64(len(s))
 		if init < 0 {
@@ -331,6 +350,48 @@ func buildStringLibrary() *Table {
 		startPos := init + int64(idx)
 		endPos := startPos + int64(len(pat)) - 1
 		return []Value{startPos, endPos}
+	})
+	add("match", func(_ *VM, args []Value) []Value {
+		s := StringArg("string.match", 1, args)
+		pat := StringArg("string.match", 2, args)
+		init := int64(1)
+		if len(args) >= 3 {
+			if n, ok := ToInteger(args[2]); ok {
+				init = n
+			}
+		}
+		return PatternMatch(s, pat, int(init))
+	})
+	add("gmatch", func(_ *VM, args []Value) []Value {
+		s := StringArg("string.gmatch", 1, args)
+		pat := StringArg("string.gmatch", 2, args)
+		it := NewGMatchIter(s, pat)
+		iter := &GoFunc{Name: "string:gmatch:iter", Fn: func(_ *VM, _ []Value) []Value {
+			r := it.Next()
+			if r == nil {
+				return []Value{nil}
+			}
+			return r
+		}}
+		return []Value{iter}
+	})
+	add("gsub", func(v *VM, args []Value) []Value {
+		s := StringArg("string.gsub", 1, args)
+		pat := StringArg("string.gsub", 2, args)
+		if len(args) < 3 {
+			panic(Errorf("bad argument #3 to 'gsub' (string/table/function expected)"))
+		}
+		repl := args[2]
+		n := -1
+		if len(args) >= 4 {
+			if i, ok := ToInteger(args[3]); ok {
+				n = int(i)
+			}
+		}
+		out, count := PatternGSub(s, pat, repl, n, func(fn Value, fnArgs []Value) []Value {
+			return v.CallValue(fn, fnArgs, -1)
+		})
+		return []Value{out, int64(count)}
 	})
 	add("format", func(_ *VM, args []Value) []Value {
 		// Thin wrapper around Go's fmt.Sprintf. Lua's % directives are
@@ -455,9 +516,9 @@ func buildIOLibrary() *Table {
 	}
 
 	stdinReader := bufio.NewReader(os.Stdin)
-	add("write", func(_ *VM, args []Value) []Value {
+	add("write", func(v *VM, args []Value) []Value {
 		for _, a := range args {
-			fmt.Fprint(os.Stdout, ToString(a))
+			fmt.Fprint(os.Stdout, ToStringMM(v, a))
 		}
 		return nil
 	})

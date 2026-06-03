@@ -663,6 +663,44 @@ func TestMatchMissingDo(t *testing.T) {
 	}
 }
 
+// TestBreakInsideLoopParses confirms `break` is accepted in each loop
+// construct. Behaviour: parses cleanly with one statement (the loop itself).
+func TestBreakInsideLoopParses(t *testing.T) {
+	cases := []string{
+		"while true do break end",
+		"repeat break until true",
+		"for i = 1, 10 do break end",
+		"for k, v in pairs(t) do break end",
+		"while true do if x then break end end",
+		"for i = 1, 3 do for j = 1, 3 do break end end",
+	}
+	for _, src := range cases {
+		p := New(lexer.New(src))
+		_, err := p.ParseProgram()
+		if err != nil {
+			t.Errorf("expected %q to parse, got error: %s", src, err.Message)
+		}
+	}
+}
+
+// TestBreakOutsideLoopErrors confirms the parser rejects `break` at chunk
+// scope, inside a `do` block, or inside a function body that is itself
+// inside a loop (function bodies start a fresh loop scope, matching Lua).
+func TestBreakOutsideLoopErrors(t *testing.T) {
+	cases := []string{
+		"break",
+		"do break end",
+		"if x then break end",
+		"for i = 1, 10 do local f = function() break end end",
+	}
+	for _, src := range cases {
+		msg := parseError(t, src)
+		if !contains(msg, "break") || !contains(msg, "outside a loop") {
+			t.Errorf("expected break-outside-loop error for %q, got: %s", src, msg)
+		}
+	}
+}
+
 // contains is a tiny helper to keep test assertions readable.
 func contains(s, sub string) bool {
 	for i := 0; i+len(sub) <= len(s); i++ {

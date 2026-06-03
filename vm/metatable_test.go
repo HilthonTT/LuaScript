@@ -240,3 +240,50 @@ func TestArithOnTableWithoutMetamethodErrors(t *testing.T) {
 		t.Errorf("error = %q, want it to mention arithmetic", msg)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// __tostring — invoked by tostring(), print(), io.write(), error(value)
+// ---------------------------------------------------------------------------
+
+func TestTostringMetamethod(t *testing.T) {
+	v := run(t, `
+		obj = setmetatable({}, {__tostring = function(self) return "custom-repr" end})
+		r = tostring(obj)
+	`)
+	assertGlobalEqual(t, v, "r", "custom-repr")
+}
+
+func TestTostringFallsBackWithoutMetamethod(t *testing.T) {
+	v := run(t, `
+		obj = {}
+		r = tostring(obj)
+	`)
+	g := v.Globals.Get("r")
+	s, ok := g.(string)
+	if !ok || !strings.HasPrefix(s, "table:") {
+		t.Errorf("expected default 'table: …' rendering, got %q", s)
+	}
+}
+
+func TestErrorRoutesThroughTostringMetamethod(t *testing.T) {
+	// error(value) where value has __tostring should surface that string
+	// (not Go's default %v) when caught with pcall.
+	v := run(t, `
+		obj = setmetatable({}, {__tostring = function() return "boom" end})
+		ok, err = pcall(function() error(obj) end)
+	`)
+	assertGlobalEqual(t, v, "ok", false)
+	if g, ok := v.Globals.Get("err").(string); !ok || g != "boom" {
+		t.Errorf("error metamessage = %q, want %q", g, "boom")
+	}
+}
+
+func TestTostringMetamethodMustReturnString(t *testing.T) {
+	msg := runErr(t, `
+		obj = setmetatable({}, {__tostring = function() return 42 end})
+		print(obj)
+	`)
+	if !strings.Contains(msg, "__tostring") {
+		t.Errorf("error = %q, want it to mention __tostring", msg)
+	}
+}

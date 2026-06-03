@@ -1,17 +1,20 @@
 package main
 
 import (
+	"github.com/hilthontt/sakura-lang/native/bit32"
 	"github.com/hilthontt/sakura-lang/native/compression"
 	"github.com/hilthontt/sakura-lang/native/crypto"
 	"github.com/hilthontt/sakura-lang/native/db"
 	httpNative "github.com/hilthontt/sakura-lang/native/http"
 	"github.com/hilthontt/sakura-lang/native/httpserver"
+	"github.com/hilthontt/sakura-lang/native/iox"
 	"github.com/hilthontt/sakura-lang/native/json"
 	"github.com/hilthontt/sakura-lang/native/math"
 	osNative "github.com/hilthontt/sakura-lang/native/os"
 	regexpNative "github.com/hilthontt/sakura-lang/native/regexp"
 	"github.com/hilthontt/sakura-lang/native/sort"
 	"github.com/hilthontt/sakura-lang/native/timex"
+	"github.com/hilthontt/sakura-lang/native/utf8x"
 	"github.com/hilthontt/sakura-lang/native/uuid"
 	"github.com/hilthontt/sakura-lang/vm"
 )
@@ -37,6 +40,9 @@ var nativeRegistrars = []func(*vm.VM){
 	uuid.RegisterUUIDPreload,
 	sort.RegisterSortPreload,
 	compression.RegisterCompressionPreload,
+	bit32.RegisterBit32Preload,
+	utf8x.RegisterUTF8Preload,
+	iox.RegisterIOPreload,
 }
 
 // registerAllNatives applies each registrar to the given VM directly.

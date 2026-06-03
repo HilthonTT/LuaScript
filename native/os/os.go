@@ -3,11 +3,20 @@ package os
 import (
 	"io"
 	osStd "os"
+	"os/exec"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/hilthontt/sakura-lang/vm"
 )
+
+// processStart anchors os.clock() so it reports time since process start.
+// Lua's os.clock returns process CPU time, but goroutines and the runtime
+// scheduler make that hard to measure portably; wall-clock-since-start is
+// a defensible, predictable substitute for the typical "how long did
+// this benchmark take" use of the function.
+var processStart = time.Now()
 
 func RegisterOSPreload(v *vm.VM) {
 	vm.RegisterPreload(v, "os", osLoader)
@@ -139,6 +148,179 @@ func newOS() *vm.Table {
 			panic(vm.Errorf("os:hostname: %s", err.Error()))
 		}
 		return []vm.Value{name}
+	}})
+
+	// ---- Lua 5.4 parity additions ----
+
+	// os.time([table]) — current epoch, or mktime from a table with
+	// year/month/day/hour/min/sec fields. Matches Lua's calendar
+	// table shape (year/month/day required; hour/min/sec default 12/0/0).
+	methods.Set("time", &vm.GoFunc{Name: "os:time", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
+		if len(args) == 0 || args[0] == nil {
+			return []vm.Value{time.Now().Unix()}
+		}
+		t, ok := args[0].(*vm.Table)
+		if !ok {
+			panic(vm.Errorf("bad argument #1 to 'time' (table expected)"))
+		}
+		year := tableInt(t, "year", 1970)
+		month := tableInt(t, "month", 1)
+		day := tableInt(t, "day", 1)
+		hour := tableInt(t, "hour", 12)
+		min := tableInt(t, "min", 0)
+		sec := tableInt(t, "sec", 0)
+		tm := time.Date(int(year), time.Month(month), int(day),
+			int(hour), int(min), int(sec), 0, time.Local)
+		return []vm.Value{tm.Unix()}
+	}})
+
+	// os.date([format[, time]]) — strftime-style formatting. Without
+	// args returns the local time in a reasonable default.
+	methods.Set("date", &vm.GoFunc{Name: "os:date", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
+		format := "%c"
+		if len(args) >= 1 {
+			if s, ok := args[0].(string); ok {
+				format = s
+			}
+		}
+		var t time.Time
+		if len(args) >= 2 {
+			ts, ok := vm.ToInteger(args[1])
+			if !ok {
+				panic(vm.Errorf("bad argument #2 to 'date' (number expected)"))
+			}
+			t = time.Unix(ts, 0)
+		} else {
+			t = time.Now()
+		}
+		// Leading '!' switches to UTC, like Lua.
+		if strings.HasPrefix(format, "!") {
+			t = t.UTC()
+			format = format[1:]
+		} else {
+			t = t.Local()
+		}
+		// "*t" or "*T" returns a calendar table.
+		if format == "*t" || format == "*T" {
+			out := vm.NewTable(0, 8)
+			out.Set("year", int64(t.Year()))
+			out.Set("month", int64(t.Month()))
+			out.Set("day", int64(t.Day()))
+			out.Set("hour", int64(t.Hour()))
+			out.Set("min", int64(t.Minute()))
+			out.Set("sec", int64(t.Second()))
+			out.Set("wday", int64(int(t.Weekday())+1)) // Lua: Sunday = 1
+			out.Set("yday", int64(t.YearDay()))
+			out.Set("isdst", false) // Go does not expose DST as a bool
+			return []vm.Value{out}
+		}
+		return []vm.Value{strftime(format, t)}
+	}})
+
+	// os.difftime(t2, t1) — seconds between two epoch ints. Lua returns
+	// a float; we follow that even though the difference is an integer
+	// here, so existing Lua code that does math on the result keeps
+	// behaving the same.
+	methods.Set("difftime", &vm.GoFunc{Name: "os:difftime", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
+		t2 := vm.FloatArg("difftime", 1, args)
+		t1 := vm.FloatArg("difftime", 2, args)
+		return []vm.Value{t2 - t1}
+	}})
+
+	// os.clock() — seconds since process start as a float. See the
+	// processStart comment for the rationale.
+	methods.Set("clock", &vm.GoFunc{Name: "os:clock", Fn: func(_ *vm.VM, _ []vm.Value) []vm.Value {
+		return []vm.Value{time.Since(processStart).Seconds()}
+	}})
+
+	// os.execute([cmd]) — run cmd via the system shell. Returns
+	// (true, "exit", code) on success, (nil, "exit"|"signal", code)
+	// on failure. With no arg, returns true (a shell exists).
+	methods.Set("execute", &vm.GoFunc{Name: "os:execute", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
+		if len(args) == 0 || args[0] == nil {
+			return []vm.Value{true}
+		}
+		cmdStr := vm.StringArg("execute", 1, args)
+		var cmd *exec.Cmd
+		if runtime.GOOS == "windows" {
+			cmd = exec.Command("cmd", "/C", cmdStr)
+		} else {
+			cmd = exec.Command("sh", "-c", cmdStr)
+		}
+		cmd.Stdin = osStd.Stdin
+		cmd.Stdout = osStd.Stdout
+		cmd.Stderr = osStd.Stderr
+		err := cmd.Run()
+		if err == nil {
+			return []vm.Value{true, "exit", int64(0)}
+		}
+		if ee, ok := err.(*exec.ExitError); ok {
+			return []vm.Value{nil, "exit", int64(ee.ExitCode())}
+		}
+		return []vm.Value{nil, "exit", int64(-1)}
+	}})
+
+	// os.rename(oldpath, newpath) — returns true on success or
+	// (nil, msg) on failure, matching Lua.
+	methods.Set("rename", &vm.GoFunc{Name: "os:rename", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
+		from := vm.StringArg("rename", 1, args)
+		to := vm.StringArg("rename", 2, args)
+		if err := osStd.Rename(from, to); err != nil {
+			return []vm.Value{nil, err.Error()}
+		}
+		return []vm.Value{true}
+	}})
+
+	// os.tmpname() — returns a path for a new temp file. Uses
+	// os.CreateTemp under the hood and closes the file right away
+	// (the file is created but empty). Lua's tmpname has historical
+	// race issues; this implementation avoids them by reserving the
+	// name on the filesystem before returning it.
+	methods.Set("tmpname", &vm.GoFunc{Name: "os:tmpname", Fn: func(_ *vm.VM, _ []vm.Value) []vm.Value {
+		f, err := osStd.CreateTemp("", "sakura_tmp_*")
+		if err != nil {
+			panic(vm.Errorf("os:tmpname: %s", err.Error()))
+		}
+		name := f.Name()
+		_ = f.Close()
+		return []vm.Value{name}
+	}})
+
+	// os.setlocale(locale?, category?) — sakura does not localise
+	// strftime, so this accepts any locale string and returns it
+	// unchanged (matching the C-runtime contract of "succeeds, but
+	// doesn't actually re-localise unless the requested locale
+	// happens to be the current one"). A nil request returns
+	// "C", the canonical untouched locale.
+	methods.Set("setlocale", &vm.GoFunc{Name: "os:setlocale", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
+		if len(args) == 0 || args[0] == nil {
+			return []vm.Value{"C"}
+		}
+		if s, ok := args[0].(string); ok {
+			return []vm.Value{s}
+		}
+		return []vm.Value{nil}
+	}})
+
+	// os.getcwd() — alias for pwd that matches the unix name. pwd is
+	// kept for back-compat with existing scripts.
+	methods.Set("getcwd", &vm.GoFunc{Name: "os:getcwd", Fn: func(_ *vm.VM, _ []vm.Value) []vm.Value {
+		pwd, err := osStd.Getwd()
+		if err != nil {
+			panic(vm.Errorf("os:getcwd: %s", err.Error()))
+		}
+		return []vm.Value{pwd}
+	}})
+
+	// os.setenv(key, value) — Lua-the-language doesn't have this, but
+	// it is a common ask and rounds out the env accessor pair.
+	methods.Set("setenv", &vm.GoFunc{Name: "os:setenv", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
+		key := vm.StringArg("setenv", 1, args)
+		val := vm.StringArg("setenv", 2, args)
+		if err := osStd.Setenv(key, val); err != nil {
+			return []vm.Value{nil, err.Error()}
+		}
+		return []vm.Value{true}
 	}})
 
 	mt := vm.NewTable(0, 1)

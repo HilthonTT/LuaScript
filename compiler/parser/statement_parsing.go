@@ -109,6 +109,12 @@ func (p *Parser) parseReturnStatement() *ast.ReturnStatement {
 
 func (p *Parser) parseBreakStatement() ast.Statement {
 	tok := p.curToken
+	if p.loopDepth == 0 {
+		p.errorAt(tok, errors.SyntaxError, "break",
+			"'break' outside a loop",
+			"break is only valid inside a for, while, or repeat loop")
+		return nil
+	}
 	p.nextToken()
 	return &ast.BreakStatement{BaseNode: baseAt(tok)}
 }
@@ -315,7 +321,9 @@ func (p *Parser) parseWhileStatement() ast.Statement {
 		return nil
 	}
 	p.nextToken() // consume 'do'
+	p.loopDepth++
 	body := p.parseBlock()
+	p.loopDepth--
 	if !p.curTokenIs(token.End) {
 		p.errorAt(tok, errors.UnexpectedTokenError, "while",
 			fmt.Sprintf("missing 'end' to close 'while' started on line %d", tok.Line),
@@ -330,7 +338,9 @@ func (p *Parser) parseRepeatStatement() ast.Statement {
 	tok := p.curToken
 	p.nextToken() // consume 'repeat'
 
+	p.loopDepth++
 	body := p.parseBlock()
+	p.loopDepth--
 	if !p.curTokenIs(token.Until) {
 		p.errorAt(tok, errors.UnexpectedTokenError, "repeat",
 			fmt.Sprintf("missing 'until' to close 'repeat' started on line %d, got %s",
@@ -408,7 +418,9 @@ func (p *Parser) parseNumericFor(tok token.Token, name string) ast.Statement {
 		return nil
 	}
 	p.nextToken() // consume 'do'
+	p.loopDepth++
 	body := p.parseBlock()
+	p.loopDepth--
 	if !p.curTokenIs(token.End) {
 		p.errorAt(tok, errors.UnexpectedTokenError, "for",
 			fmt.Sprintf("missing 'end' to close numeric 'for' started on line %d", tok.Line),
@@ -454,7 +466,9 @@ func (p *Parser) parseGenericFor(tok token.Token, firstName string) ast.Statemen
 		return nil
 	}
 	p.nextToken() // consume 'do'
+	p.loopDepth++
 	body := p.parseBlock()
+	p.loopDepth--
 	if !p.curTokenIs(token.End) {
 		p.errorAt(tok, errors.UnexpectedTokenError, "for",
 			fmt.Sprintf("missing 'end' to close generic 'for' started on line %d", tok.Line),

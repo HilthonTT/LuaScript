@@ -171,14 +171,39 @@ func (g *Generator) compileIndexStorePrep(is *InstructionSet, e *ast.IndexExpres
 
 func (g *Generator) compileCall(is *InstructionSet, e *ast.CallExpression, nresults int) {
 	g.compileExpression(is, e.Func)
+	// When the last argument is multi-value (call/methodcall/vararg) we
+	// don't know its actual width until runtime, so we mark the args
+	// base on the VM's mark stack and emit Call with nargs=-1; doCall
+	// then computes nargs from `top - mark`. Pure-fixed-arity calls keep
+	// the fast static path with no mark overhead.
+	variadic := len(e.Args) > 0 && isMultiValue(e.Args[len(e.Args)-1])
+	if variadic {
+		is.define(MarkArgs, e.Line())
+	}
 	g.compileCallArgs(is, e.Args, e.Line())
-	is.define(Call, e.Line(), len(e.Args), nresults)
+	nargs := len(e.Args)
+	if variadic {
+		nargs = -1
+	}
+	is.define(Call, e.Line(), nargs, nresults)
 }
 
 func (g *Generator) compileMethodCall(is *InstructionSet, e *ast.MethodCallExpression, nresults int) {
-	g.compileExpression(is, e.Object)   // [..., obj]
+	g.compileExpression(is, e.Object) // [..., obj]
+	variadic := len(e.Args) > 0 && isMultiValue(e.Args[len(e.Args)-1])
+	if variadic {
+		// Mark goes BEFORE Self: Self consumes obj and pushes [method, obj]
+		// at the same height boundary, so mark = post-MarkArgs height
+		// naturally coincides with obj's slot after Self runs — i.e. the
+		// args-base position, matching doCall's `argsStart = mark` rule.
+		is.define(MarkArgs, e.Line())
+	}
 	is.define(Self, e.Line(), e.Method) // [..., method, obj]
 	g.compileCallArgs(is, e.Args, e.Line())
+	if variadic {
+		is.define(Call, e.Line(), -1, nresults)
+		return
+	}
 	is.define(Call, e.Line(), len(e.Args)+1, nresults)
 }
 

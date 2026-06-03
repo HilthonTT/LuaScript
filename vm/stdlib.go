@@ -99,10 +99,10 @@ func builtinRawlen(_ *VM, args []Value) []Value {
 	return []Value{t.Len()}
 }
 
-func builtinPrint(_ *VM, args []Value) []Value {
+func builtinPrint(v *VM, args []Value) []Value {
 	parts := make([]string, len(args))
 	for i, a := range args {
-		parts[i] = ToString(a)
+		parts[i] = ToStringMM(v, a)
 	}
 	fmt.Println(strings.Join(parts, "\t"))
 	return nil
@@ -112,11 +112,11 @@ func builtinType(_ *VM, args []Value) []Value {
 	return []Value{TypeName(AnyArg("type", 1, args))}
 }
 
-func builtinTostring(_ *VM, args []Value) []Value {
+func builtinTostring(v *VM, args []Value) []Value {
 	if len(args) == 0 {
 		return []Value{"nil"}
 	}
-	return []Value{ToString(args[0])}
+	return []Value{ToStringMM(v, args[0])}
 }
 
 func builtinTonumber(_ *VM, args []Value) []Value {
@@ -192,7 +192,7 @@ func builtinNext(_ *VM, args []Value) []Value {
 	return []Value{k, val}
 }
 
-func builtinError(_ *VM, args []Value) []Value {
+func builtinError(v *VM, args []Value) []Value {
 	var msg Value
 	if len(args) > 0 {
 		msg = args[0]
@@ -203,7 +203,7 @@ func builtinError(_ *VM, args []Value) []Value {
 	case nil:
 		panic(LuaError("nil"))
 	default:
-		panic(LuaError(ToString(m)))
+		panic(LuaError(ToStringMM(v, m)))
 	}
 }
 

@@ -35,6 +35,13 @@ type VM struct {
 	frames   []*CallFrame
 	openUpvs []*Upvalue // sorted ascending by Index; head of the open-upvalue chain
 
+	// callMarks tracks variadic-call argument bases. compileCall emits a
+	// MarkArgs opcode before pushing args when the last argument is a
+	// multi-value producer (call/methodcall/vararg). The matching Call
+	// opcode (encoded with nargs=-1) pops the latest mark to learn the
+	// args' starting slot, since the spread width isn't known statically.
+	callMarks []int
+
 	// framePool recycles CallFrame structs. Frames are pushed here by
 	// unwindFrame once they are fully dead (popped off v.frames, stack
 	// truncated) and handed back out by callClosure. Recycling is safe
@@ -426,14 +433,53 @@ func (v *VM) dispatch(f *CallFrame, ins *bytecode.Instruction) {
 	case bytecode.Add:
 		b := v.pop()
 		a := v.pop()
+		// Hot path: same-type numeric operands skip the type-switch +
+		// string-keyed dispatch in arithMM entirely. Wraparound semantics
+		// match Lua 5.4 (signed two's-complement, no overflow check).
+		if ai, ok := a.(int64); ok {
+			if bi, ok := b.(int64); ok {
+				v.push(ai + bi)
+				return
+			}
+		}
+		if af, ok := a.(float64); ok {
+			if bf, ok := b.(float64); ok {
+				v.push(af + bf)
+				return
+			}
+		}
 		v.push(v.arithMM(a, b, "+", metaAdd))
 	case bytecode.Sub:
 		b := v.pop()
 		a := v.pop()
+		if ai, ok := a.(int64); ok {
+			if bi, ok := b.(int64); ok {
+				v.push(ai - bi)
+				return
+			}
+		}
+		if af, ok := a.(float64); ok {
+			if bf, ok := b.(float64); ok {
+				v.push(af - bf)
+				return
+			}
+		}
 		v.push(v.arithMM(a, b, "-", metaSub))
 	case bytecode.Mul:
 		b := v.pop()
 		a := v.pop()
+		if ai, ok := a.(int64); ok {
+			if bi, ok := b.(int64); ok {
+				v.push(ai * bi)
+				return
+			}
+		}
+		if af, ok := a.(float64); ok {
+			if bf, ok := b.(float64); ok {
+				v.push(af * bf)
+				return
+			}
+		}
 		v.push(v.arithMM(a, b, "*", metaMul))
 	case bytecode.Div:
 		b := v.pop()
@@ -505,10 +551,34 @@ func (v *VM) dispatch(f *CallFrame, ins *bytecode.Instruction) {
 	case bytecode.Lt:
 		b := v.pop()
 		a := v.pop()
+		if ai, ok := a.(int64); ok {
+			if bi, ok := b.(int64); ok {
+				v.push(ai < bi)
+				return
+			}
+		}
+		if af, ok := a.(float64); ok {
+			if bf, ok := b.(float64); ok {
+				v.push(af < bf)
+				return
+			}
+		}
 		v.push(v.lessMM(a, b))
 	case bytecode.Le:
 		b := v.pop()
 		a := v.pop()
+		if ai, ok := a.(int64); ok {
+			if bi, ok := b.(int64); ok {
+				v.push(ai <= bi)
+				return
+			}
+		}
+		if af, ok := a.(float64); ok {
+			if bf, ok := b.(float64); ok {
+				v.push(af <= bf)
+				return
+			}
+		}
 		v.push(v.lessOrEqualMM(a, b))
 	case bytecode.Gt:
 		b := v.pop()
@@ -552,6 +622,8 @@ func (v *VM) dispatch(f *CallFrame, ins *bytecode.Instruction) {
 		}
 
 	// ----- calls / returns -----
+	case bytecode.MarkArgs:
+		v.callMarks = append(v.callMarks, len(v.Stack))
 	case bytecode.Call:
 		v.doCall(int(ins.A), int(ins.B))
 	case bytecode.Return:
@@ -619,12 +691,20 @@ func (v *VM) makeClosure(parent *CallFrame, proto *bytecode.InstructionSet) *Clo
 // at Stack[sp-nargs-1]; arguments at Stack[sp-nargs..sp]. Results land on
 // the stack adjusted to nresults.
 func (v *VM) doCall(nargs, nresults int) {
+	var argsStart int
 	if nargs < 0 {
-		// "all from top" — we don't currently emit Call with -1 nargs; the
-		// codegen always specifies nargs explicitly.
-		panic("vm: Call with -1 nargs is unsupported")
+		// Variadic call: codegen emitted MarkArgs before the args so the
+		// args base could be recovered now. Pop the latest mark; argsStart
+		// is the slot of the first arg (== fnSlot+1).
+		if len(v.callMarks) == 0 {
+			panic("vm: Call with nargs=-1 but no MarkArgs mark on stack")
+		}
+		argsStart = v.callMarks[len(v.callMarks)-1]
+		v.callMarks = v.callMarks[:len(v.callMarks)-1]
+		nargs = len(v.Stack) - argsStart
+	} else {
+		argsStart = len(v.Stack) - nargs
 	}
-	argsStart := len(v.Stack) - nargs
 	fn := v.Stack[argsStart-1]
 
 	switch g := fn.(type) {

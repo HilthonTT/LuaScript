@@ -272,8 +272,8 @@ func (r *REPL) printResults(results []vm.Value) {
 		return
 	}
 	parts := make([]string, len(results))
-	for i, v := range results {
-		parts[i] = vm.ToString(v)
+	for i, val := range results {
+		parts[i] = vm.ToStringMM(r.vm, val)
 	}
 	fmt.Fprintf(r.out, "%s=>%s %s\n", colorOK, colorReset, strings.Join(parts, "\t"))
 }

@@ -47,6 +47,12 @@ type Parser struct {
 	// Each `match` rewrites its scrutinee to a fresh `__match_N` local so
 	// nested matches don't shadow each other in a confusing way.
 	matchCounter int
+
+	// loopDepth tracks how many for/while/repeat loops enclose the
+	// current cursor. parseBreakStatement rejects `break` when it's 0.
+	// Function bodies save and zero this — break does not escape into
+	// the enclosing loop across a function boundary, matching Lua.
+	loopDepth int
 }
 
 // New constructs a parser ready to consume the supplied lexer's tokens.
