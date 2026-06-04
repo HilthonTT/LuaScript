@@ -283,7 +283,7 @@ Bare expressions print their value:
 ```
 luascript » 1 + 2
 => 3
-.lsc » {1, 2, 3}
+luascript » {1, 2, 3}
 => table: 0xc000...
 ```
 
