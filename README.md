@@ -102,37 +102,37 @@ For a break from the language work, `luascript` ships with a small ASCII-bonsai 
 A walk-through set lives in `examples/`. Most are runnable straight from the
 repo root with `go run ./cmd examples/<file>`:
 
-| File                            | What it shows                                                                                                                         |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `01_basics.lsc`                 | variables, control flow, primitive values, logical operators                                                                          |
-| `02_functions.lsc`              | recursion, closures and upvalues, multi-return, higher-order functions                                                                |
-| `03_tables_and_metatables.lsc`  | records, arrays, methods, operator overloading via `__add`, `__index`                                                                 |
-| `04_coroutines.lsc`             | `coroutine.create` / `resume` / `yield` / `wrap`                                                                                      |
-| `05_types.lsc`                  | the full Luau-style type surface — primitives, optionals, unions, function types, type aliases, type assertions                       |
-| `06_strict_mode.lsc`            | `--!strict` enforcement and what it rejects                                                                                           |
-| `07_modules.lsc`                | `require`, `package.path`, `package.loaded`, `searchpath` — imports `mathx.lsc` next to it                                            |
-| `08_stdlib.lsc`                 | a bundled-library set loaded via `LUASCRIPT_LIB` — flat modules, dotted submodules, package `init` files                              |
-| `09_native_module.lsc`          | importing a host-provided native module (`native/db`)                                                                                 |
-| `10_os_module.lsc`              | importing a host-provided native module (`native/os`)                                                                                 |
-| `11_compounds.lsc`              | compound assignment operators (`x op= e`)                                                                                             |
-| `12_math_module.lsc`            | the `math` native module                                                                                                              |
-| `13_json_module.lsc`            | the `json` native module                                                                                                              |
-| `14_match.lsc`                  | `match` statement — parser-level desugar into `if/elseif`, `_` wildcard                                                               |
-| `15_http_module.lsc`            | the `http` client native module (shortcuts, `http.request{...}`, stateful clients)                                                    |
-| `16_httpserver_module.lsc`      | the `httpserver` native module — handlers, `:listen` / `:stop`                                                                        |
-| `17_crypto_module.lsc`          | the `crypto` native module — hashing, HMAC, random bytes                                                                              |
-| `18_time_module.lsc`            | the `time` native module — durations, timers, formatting                                                                              |
-| `19_regexp_module.lsc`          | the `regexp` native module (Go regex; `:capture`, not `:match`)                                                                       |
-| `20_uuid_module.lsc`            | the `uuid` native module                                                                                                              |
-| `21_sort_module.lsc`            | the `sort` native module — `sort.sort` / `stable` / `reverse` / `is_sorted`                                                           |
-| `22_string_interpolation.lsc`   | backtick string interpolation: `` `hello {name}` `` desugars to `..`-concat                                                           |
-| `23_io.lsc`                     | the full Lua-5.4 `io` library (file handles, `:read`/`:write`/`:lines`/`:seek`)                                                       |
-| `24_bit_utf8.lsc`               | the `bit32` and `utf8` native modules                                                                                                 |
-| `25_os_full.lsc`                | the expanded `os` parity surface (`date`, `time`, `clock`, `execute`, `rename`, `tmpname`, `setlocale`)                               |
-| `26_patterns.lsc`               | full Lua-pattern surface (`find`/`match`/`gmatch`/`gsub` with `%a %d %w` classes, `()` captures, `%b()` balanced, `%f[set]` frontier) |
-| `27_debug_module.lsc`           | the `debug` native module — `traceback`, `getinfo`, hook stubs                                                                        |
-| `28_compression_module.lsc`     | the `compression` native module — gzip, zlib, deflate                                                                                 |
-| `29_enums.lsc`                  | `enum Name V1, V2 end` — int-auto-increment, frozen via `__newindex` proxy                                                            |
+| File                           | What it shows                                                                                                                         |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `01_basics.lsc`                | variables, control flow, primitive values, logical operators                                                                          |
+| `02_functions.lsc`             | recursion, closures and upvalues, multi-return, higher-order functions                                                                |
+| `03_tables_and_metatables.lsc` | records, arrays, methods, operator overloading via `__add`, `__index`                                                                 |
+| `04_coroutines.lsc`            | `coroutine.create` / `resume` / `yield` / `wrap`                                                                                      |
+| `05_types.lsc`                 | the full Luau-style type surface — primitives, optionals, unions, function types, type aliases, type assertions                       |
+| `06_strict_mode.lsc`           | `--!strict` enforcement and what it rejects                                                                                           |
+| `07_modules.lsc`               | `require`, `package.path`, `package.loaded`, `searchpath` — imports `mathx.lsc` next to it                                            |
+| `08_stdlib.lsc`                | a bundled-library set loaded via `LUASCRIPT_LIB` — flat modules, dotted submodules, package `init` files                              |
+| `09_native_module.lsc`         | importing a host-provided native module (`native/db`)                                                                                 |
+| `10_os_module.lsc`             | importing a host-provided native module (`native/os`)                                                                                 |
+| `11_compounds.lsc`             | compound assignment operators (`x op= e`)                                                                                             |
+| `12_math_module.lsc`           | the `math` native module                                                                                                              |
+| `13_json_module.lsc`           | the `json` native module                                                                                                              |
+| `14_match.lsc`                 | `match` statement — parser-level desugar into `if/elseif`, `_` wildcard                                                               |
+| `15_http_module.lsc`           | the `http` client native module (shortcuts, `http.request{...}`, stateful clients)                                                    |
+| `16_httpserver_module.lsc`     | the `httpserver` native module — handlers, `:listen` / `:stop`                                                                        |
+| `17_crypto_module.lsc`         | the `crypto` native module — hashing, HMAC, random bytes                                                                              |
+| `18_time_module.lsc`           | the `time` native module — durations, timers, formatting                                                                              |
+| `19_regexp_module.lsc`         | the `regexp` native module (Go regex; `:capture`, not `:match`)                                                                       |
+| `20_uuid_module.lsc`           | the `uuid` native module                                                                                                              |
+| `21_sort_module.lsc`           | the `sort` native module — `sort.sort` / `stable` / `reverse` / `is_sorted`                                                           |
+| `22_string_interpolation.lsc`  | backtick string interpolation: `` `hello {name}` `` desugars to `..`-concat                                                           |
+| `23_io.lsc`                    | the full Lua-5.4 `io` library (file handles, `:read`/`:write`/`:lines`/`:seek`)                                                       |
+| `24_bit_utf8.lsc`              | the `bit32` and `utf8` native modules                                                                                                 |
+| `25_os_full.lsc`               | the expanded `os` parity surface (`date`, `time`, `clock`, `execute`, `rename`, `tmpname`, `setlocale`)                               |
+| `26_patterns.lsc`              | full Lua-pattern surface (`find`/`match`/`gmatch`/`gsub` with `%a %d %w` classes, `()` captures, `%b()` balanced, `%f[set]` frontier) |
+| `27_debug_module.lsc`          | the `debug` native module — `traceback`, `getinfo`, hook stubs                                                                        |
+| `28_compression_module.lsc`    | the `compression` native module — gzip, zlib, deflate                                                                                 |
+| `29_enums.lsc`                 | `enum Name V1, V2 end` — int-auto-increment, frozen via `__newindex` proxy                                                            |
 
 ### Running the module examples
 
@@ -281,7 +281,7 @@ Key bindings: **Ctrl+C** cancels the current input, **Ctrl+D** exits, **Ctrl+R**
 Bare expressions print their value:
 
 ```
-.lsc » 1 + 2
+luascript » 1 + 2
 => 3
 .lsc » {1, 2, 3}
 => table: 0xc000...
@@ -290,8 +290,8 @@ Bare expressions print their value:
 Top-level `local` persists across REPL chunks (it's promoted to a global at compile time so subsequent inputs can read it):
 
 ```
-.lsc » local greeting = "hi"
-.lsc » print(greeting)
+luascript » local greeting = "hi"
+luascript » print(greeting)
 hi
 ```
 
@@ -300,17 +300,17 @@ Inside any nested scope (`do`/`if`/`for`/function body) `local` keeps standard L
 Incomplete input opens a continuation prompt:
 
 ```
-.lsc » function double(x)
+luascript » function double(x)
    ...      return x * 2
    ...    end
-.lsc » print(double(21))
+luascript » print(double(21))
 42
 ```
 
 Type errors land with a distinct prefix so they're easy to spot:
 
 ```
-.lsc » local x: number = "hi"
+luascript » local x: number = "hi"
 type-error: Type "string" could not be converted into "number" at line 1
 ```
 
