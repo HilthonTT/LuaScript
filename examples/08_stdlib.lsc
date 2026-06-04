@@ -1,15 +1,15 @@
 --!nocheck
 -- Native stdlib demo.
 --
--- The loader (vm/loader.go) reads `.lsc_LIB` exactly once at VM
+-- The loader (vm/loader.go) reads `LUASCRIPT_LIB` exactly once at VM
 -- startup and appends these rules to `package.path`:
 --
---     .lsc_LIB/?.lsc
---     .lsc_LIB/?.lua
---     .lsc_LIB/?/init.lsc
---     .lsc_LIB/?/init.lua
+--     $LUASCRIPT_LIB/?.lsc
+--     $LUASCRIPT_LIB/?.lua
+--     $LUASCRIPT_LIB/?/init.lsc
+--     $LUASCRIPT_LIB/?/init.lua
 --
--- So pointing.lsc_LIB at `examples/stdlib/` lets `require` find:
+-- So pointing LUASCRIPT_LIB at `examples/stdlib/` lets `require` find:
 --
 --     strings           -> examples/stdlib/strings.lsc
 --     collections       -> examples/stdlib/collections/init.lsc
@@ -17,15 +17,32 @@
 --
 -- This module set lives under examples/stdlib/ rather than next to this
 -- file, so the automatic script-directory entry can't reach it — that is
--- the point:.lsc_LIB is how you point `require` at a bundled library
+-- the point: LUASCRIPT_LIB is how you point `require` at a bundled library
 -- root. Run from the project root (the `main` package lives in ./cmd):
 --
---   bash: .lsc_LIB=./examples/stdlib go run ./cmd ./examples/08_stdlib.lsc
---   pwsh:  $env.lsc_LIB="./examples/stdlib"; go run ./cmd ./examples/08_stdlib.lsc
---   cmd:   set.lsc_LIB=./examples/stdlib && go run ./cmd ./examples/08_stdlib.lsc
+--   bash:  LUASCRIPT_LIB=./examples/stdlib go run ./cmd ./examples/08_stdlib.lsc
+--   pwsh:  $env:LUASCRIPT_LIB="./examples/stdlib"; go run ./cmd ./examples/08_stdlib.lsc
+--   cmd:   set LUASCRIPT_LIB=./examples/stdlib && go run ./cmd ./examples/08_stdlib.lsc
 --
--- With an installed .lsc` binary, drop the `go run ./cmd` and just run:
---  .lsc_LIB=./examples/stdlib.lsc ./examples/08_stdlib.lsc
+-- With an installed `luascript` binary, drop the `go run ./cmd` and just run:
+--   LUASCRIPT_LIB=./examples/stdlib ./luascript ./examples/08_stdlib.lsc
+--
+-- For convenience, the block below also makes this demo runnable WITHOUT
+-- LUASCRIPT_LIB by deriving the stdlib path from the script-directory
+-- entry that the loader already adds to package.path. Setting
+-- LUASCRIPT_LIB still works (and the entries it appends are visible in
+-- the final package.path printout); this just removes the env-var as a
+-- hard prerequisite so `go run ./cmd examples/08_stdlib.lsc` just works.
+
+for entry in package.path:gmatch("[^;]+") do
+    local dir = entry:match("^(.+)/%?%.lsc$")
+    if dir and not dir:match("^%.") then
+        package.path = dir .. "/stdlib/?.lsc;"
+                    .. dir .. "/stdlib/?/init.lsc;"
+                    .. package.path
+        break
+    end
+end
 
 -- 1. Flat module at the stdlib root.
 local strings = require("strings")

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/hilthontt/luascript/vm"
+	_ "github.com/lib/pq"
 )
 
 // RegisterDBPreload installs a single loader entry. The loader is a

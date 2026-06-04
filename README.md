@@ -37,18 +37,18 @@ go run ./cmd -v
 Build a binary:
 
 ```sh
-go build -o.lsc ./cmd
-..lsc examples/01_basics.lsc
+go build -o luascript ./cmd
+./luascript examples/01_basics.lsc
 ```
 
 ## Bundling a script into a standalone .exe
 
-.lsc build` produces a single executable that contains both the interpreter and your script — drop it on a machine that doesn't have.lsc installed and double-click it.
+`luascript build` produces a single executable that contains both the interpreter and your script — drop it on a machine that doesn't have `luascript` installed and double-click it.
 
 ```sh
-# Build.lsc first, then have it bundle your script:
-go build -o.lsc ./cmd
-..lsc build -o hello.exe examples/01_basics.lsc
+# Build luascript first, then have it bundle your script:
+go build -o luascript ./cmd
+./luascript build -o hello.exe examples/01_basics.lsc
 ./hello.exe                # runs the embedded script
 ```
 
@@ -56,7 +56,7 @@ go build -o.lsc ./cmd
 | --------- | ---------------------------------------------- |
 | `-o PATH` | Output path for the bundled binary (required). |
 
-Mechanics: the script is appended to a copy of the.lsc binary along with a 18-byte magic trailer. On startup the bundled .exe inspects its own tail, detects the trailer, and runs the embedded script in `parser.NormalMode` with the same VM and native modules the interpreter uses. Syntax is checked at bundle time, so you can't ship a broken .exe by accident.
+Mechanics: the script is appended to a copy of the `luascript` binary along with a magic trailer. On startup the bundled .exe inspects its own tail, detects the trailer, and runs the embedded script in `parser.NormalMode` with the same VM and native modules the interpreter uses. Syntax is checked at bundle time, so you can't ship a broken .exe by accident.
 
 Limitations (v1):
 
@@ -66,23 +66,23 @@ Limitations (v1):
 
 ## Bonsai mode
 
-For a break from the language work, .lsc` ships with a small ASCII-bonsai grower. It is unrelated to the Lua runtime — just a fun side mode.
+For a break from the language work, `luascript` ships with a small ASCII-bonsai grower. It is unrelated to the Lua runtime — just a fun side mode.
 
 ```sh
 # Grow a tree in the alt-screen (press q or Ctrl+C to leave)
-..lsc -bonsai
+./luascript -bonsai
 
 # Print a single tree to stdout instead
-..lsc -bonsai -bonsai-print
+./luascript -bonsai -bonsai-print
 
 # Animate growth step-by-step
-..lsc -bonsai -bonsai-live
+./luascript -bonsai -bonsai-live
 
 # Reproducible tree from a seed
-..lsc -bonsai -seed 42
+./luascript -bonsai -seed 42
 
 # Attach a message next to the tree
-..lsc -bonsai -bonsai-msg "hello, world"
+./luascript -bonsai -bonsai-msg "hello, world"
 ```
 
 | Flag            | Effect                                                         |
@@ -98,26 +98,37 @@ For a break from the language work, .lsc` ships with a small ASCII-bonsai grower
 A walk-through set lives in `examples/`. Most are runnable straight from the
 repo root with `go run ./cmd examples/<file>`:
 
-| File                           | What it shows                                                                                                                         |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `01_basics.lsc`                | variables, control flow, primitive values, logical operators                                                                          |
-| `02_functions.lsc`             | recursion, closures and upvalues, multi-return, higher-order functions                                                                |
-| `03_tables_and_metatables.lsc` | records, arrays, methods, operator overloading via `__add`, `__index`                                                                 |
-| `04_coroutines.lsc`            | `coroutine.create` / `resume` / `yield` / `wrap`                                                                                      |
-| `05_types.lsc`                 | the full Luau-style type surface — primitives, optionals, unions, function types, type aliases, type assertions                       |
-| `06_strict_mode.lsc`           | `--!strict` enforcement and what it rejects                                                                                           |
-| `07_modules.lsc`               | `require`, `package.path`, `package.loaded`, `searchpath` — imports `mathx.lsc` next to it                                            |
-| `08_stdlib.lsc`                | a bundled-library set loaded via `.lsc_LIB` — flat modules, dotted submodules, package `init` files                                   |
-| `09_native_module.lsc`         | importing a host-provided native module (`native/db`)                                                                                 |
-| `10_os_module.lsc`             | importing a host-provided native module (`native/os`)                                                                                 |
-| `11_compounds.lsc`             | compound assignment operators (`x op= e`)                                                                                             |
-| `12_math_module.lsc`           | the `math` native module                                                                                                              |
-| `13_json_module.lsc`           | the `json` native module                                                                                                              |
-| `14_window.lsc`                | the `window` GUI module (Fyne backend; `-tags.lsc_no_window` to opt out)                                                              |
-| `15_io.lsc`                    | the full Lua-5.4 `io` library (file handles, `:read`/`:write`/`:lines`/`:seek`)                                                       |
-| `16_bit_utf8.lsc`              | the `bit32` and `utf8` native modules                                                                                                 |
-| `17_os_full.lsc`               | the expanded `os` parity surface (`date`, `time`, `clock`, `execute`, `rename`, `tmpname`, `setlocale`)                               |
-| `18_patterns.lsc`              | full Lua-pattern surface (`find`/`match`/`gmatch`/`gsub` with `%a %d %w` classes, `()` captures, `%b()` balanced, `%f[set]` frontier) |
+| File                            | What it shows                                                                                                                         |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `01_basics.lsc`                 | variables, control flow, primitive values, logical operators                                                                          |
+| `02_functions.lsc`              | recursion, closures and upvalues, multi-return, higher-order functions                                                                |
+| `03_tables_and_metatables.lsc`  | records, arrays, methods, operator overloading via `__add`, `__index`                                                                 |
+| `04_coroutines.lsc`             | `coroutine.create` / `resume` / `yield` / `wrap`                                                                                      |
+| `05_types.lsc`                  | the full Luau-style type surface — primitives, optionals, unions, function types, type aliases, type assertions                       |
+| `06_strict_mode.lsc`            | `--!strict` enforcement and what it rejects                                                                                           |
+| `07_modules.lsc`                | `require`, `package.path`, `package.loaded`, `searchpath` — imports `mathx.lsc` next to it                                            |
+| `08_stdlib.lsc`                 | a bundled-library set loaded via `LUASCRIPT_LIB` — flat modules, dotted submodules, package `init` files                              |
+| `09_native_module.lsc`          | importing a host-provided native module (`native/db`)                                                                                 |
+| `10_os_module.lsc`              | importing a host-provided native module (`native/os`)                                                                                 |
+| `11_compounds.lsc`              | compound assignment operators (`x op= e`)                                                                                             |
+| `12_math_module.lsc`            | the `math` native module                                                                                                              |
+| `13_json_module.lsc`            | the `json` native module                                                                                                              |
+| `14_match.lsc`                  | `match` statement — parser-level desugar into `if/elseif`, `_` wildcard                                                               |
+| `15_http_module.lsc`            | the `http` client native module (shortcuts, `http.request{...}`, stateful clients)                                                    |
+| `16_httpserver_module.lsc`      | the `httpserver` native module — handlers, `:listen` / `:stop`                                                                        |
+| `17_crypto_module.lsc`          | the `crypto` native module — hashing, HMAC, random bytes                                                                              |
+| `18_time_module.lsc`            | the `time` native module — durations, timers, formatting                                                                              |
+| `19_regexp_module.lsc`          | the `regexp` native module (Go regex; `:capture`, not `:match`)                                                                       |
+| `20_uuid_module.lsc`            | the `uuid` native module                                                                                                              |
+| `21_sort_module.lsc`            | the `sort` native module — `sort.sort` / `stable` / `reverse` / `is_sorted`                                                           |
+| `22_string_interpolation.lsc`   | backtick string interpolation: `` `hello {name}` `` desugars to `..`-concat                                                           |
+| `23_io.lsc`                     | the full Lua-5.4 `io` library (file handles, `:read`/`:write`/`:lines`/`:seek`)                                                       |
+| `24_bit_utf8.lsc`               | the `bit32` and `utf8` native modules                                                                                                 |
+| `25_os_full.lsc`                | the expanded `os` parity surface (`date`, `time`, `clock`, `execute`, `rename`, `tmpname`, `setlocale`)                               |
+| `26_patterns.lsc`               | full Lua-pattern surface (`find`/`match`/`gmatch`/`gsub` with `%a %d %w` classes, `()` captures, `%b()` balanced, `%f[set]` frontier) |
+| `27_debug_module.lsc`           | the `debug` native module — `traceback`, `getinfo`, hook stubs                                                                        |
+| `28_compression_module.lsc`     | the `compression` native module — gzip, zlib, deflate                                                                                 |
+| `29_enums.lsc`                  | `enum Name V1, V2 end` — int-auto-increment, frozen via `__newindex` proxy                                                            |
 
 ### Running the module examples
 
@@ -132,31 +143,31 @@ that matter for these examples, searched in this order:
    go run ./cmd examples/07_modules.lsc     # mathx.lsc is found next to it
    ```
 
-2. **`.lsc_LIB`** — a bundled-library root, read once at startup. It is
-   _not_ on the path unless you set it. `08_stdlib.lsc` is the demo for
+2. **`LUASCRIPT_LIB`** — a bundled-library root, read once at startup. It
+   is _not_ on the path unless you set it. `08_stdlib.lsc` is the demo for
    exactly this: its modules live under `examples/stdlib/` (not next to the
-   script), so it needs .lsc_LIB` pointed there. Run it from the repo root:
+   script), so it needs `LUASCRIPT_LIB` pointed there. Run it from the repo
+   root:
 
    ```sh
    # bash
-   .lsc_LIB=./examples/stdlib go run ./cmd examples/08_stdlib.lsc
+   LUASCRIPT_LIB=./examples/stdlib go run ./cmd examples/08_stdlib.lsc
    # PowerShell
-   $env.lsc_LIB="./examples/stdlib"; go run ./cmd examples/08_stdlib.lsc
+   $env:LUASCRIPT_LIB="./examples/stdlib"; go run ./cmd examples/08_stdlib.lsc
    # cmd.exe
-   set.lsc_LIB=./examples/stdlib && go run ./cmd examples/08_stdlib.lsc
+   set LUASCRIPT_LIB=./examples/stdlib && go run ./cmd examples/08_stdlib.lsc
    ```
 
-   `.lsc_LIB` is resolved relative to your current working directory — if
-   you run from somewhere other than the repo root, adjust the path
+   `LUASCRIPT_LIB` is resolved relative to your current working directory —
+   if you run from somewhere other than the repo root, adjust the path
    accordingly (e.g. `../examples/stdlib` from inside `cmd/`).
 
 Between the two, the plain cwd-relative entries (`./?.lsc`, `./src/?.lsc`,
-…) are searched as well, so a module under your working directory is still
+...) are searched as well, so a module under your working directory is still
 found even when it sits nowhere near the script.
 
-The native-module examples (`09`, `10`, `12`, `13`) pull their modules from
-the host via `package.preload`, so they need neither a path entry nor
-`.lsc_LIB`.
+The native-module examples pull their modules from the host via
+`package.preload`, so they need neither a path entry nor `LUASCRIPT_LIB`.
 
 A taste, in case you don't want to open files:
 
@@ -286,8 +297,8 @@ Incomplete input opens a continuation prompt:
 
 ```
 .lsc » function double(x)
-   …      return x * 2
-   …    end
+   ...      return x * 2
+   ...    end
 .lsc » print(double(21))
 42
 ```
@@ -315,7 +326,7 @@ type-error: Type "string" could not be converted into "number" at line 1
 ├── repl/              interactive REPL (readline + engine wrapper)
 ├── examples/          runnable .lsc programs that double as tutorials
 ├── version/           version string
-└── cmd/               CLI entrypoint (main.go) + .lsc build` bundler
+└── cmd/               CLI entrypoint (main.go) + `luascript build` bundler
 ```
 
 The compiler is designed so each stage is independently testable and the AST is the only contract between parser, type checker, and bytecode generator. The VM never sees source text or types; the parser never sees instructions.
