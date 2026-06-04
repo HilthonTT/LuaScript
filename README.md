@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.png" alt="luascript logo" width="200">
+</p>
+
 # luascript
 
 A Lua-flavored language with a stack-based virtual machine and **Luau-style gradual types**, written in Go.
