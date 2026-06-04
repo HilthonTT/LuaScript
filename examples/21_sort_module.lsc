@@ -87,3 +87,48 @@ print("quicksort      :", show(sort.quicksort(copy(input))))
 print("bubble         :", show(sort.bubble(copy(input))))
 print("circle         :", show(sort.circle(copy(input))))
 print("simple         :", show(sort.simple(copy(input))))
+print()
+
+-- --- comparator-driven entries (added 2026-06-04) ---
+-- sort.sort(t [, cmp]) is the entry most user code reaches for. With no
+-- cmp it sorts ascending using the per-type dispatch; with a cmp it
+-- invokes the predicate for every comparison.
+print("--- sort.sort with comparator ---")
+local desc = sort.sort({ 5, 2, 8, 1, 9, 3 }, function(a, b) return a > b end)
+print("descending     :", show(desc))
+
+-- Sorting by a derived key — comparator computes whatever ordering you
+-- want. Here: by string length, then alphabetically as a tiebreaker.
+local words2 = { "fig", "apple", "kiwi", "blueberry", "pear" }
+sort.sort(words2, function(a, b)
+    if #a ~= #b then return #a < #b end
+    return a < b
+end)
+print("by length      :", show(words2))
+
+-- sort.stable preserves the original order of equal-by-comparator
+-- elements. With a custom cmp that only looks at the first field, the
+-- second field's original order is preserved.
+print("--- sort.stable ---")
+local pairs_t = { {"b", 2}, {"a", 1}, {"a", 2}, {"b", 1}, {"c", 3} }
+sort.stable(pairs_t, function(x, y) return x[1] < y[1] end)
+local rendered = ""
+for i = 1, #pairs_t do
+    if i > 1 then rendered = rendered .. ", " end
+    rendered = rendered .. "(" .. pairs_t[i][1] .. "," .. pairs_t[i][2] .. ")"
+end
+print("by first field :", rendered)
+
+-- sort.reverse flips the array in-place. Useful after a default sort to
+-- get a descending list without paying for a custom comparator.
+print("--- sort.reverse ---")
+local flip = { 1, 2, 3, 4, 5 }
+sort.reverse(flip)
+print("reversed       :", show(flip))
+
+-- sort.is_sorted is the read-only counterpart. Same comparator shape.
+print("--- sort.is_sorted ---")
+print("ascending sorted :", sort.is_sorted({ 1, 2, 3, 4 }))           -- true
+print("descending check :", sort.is_sorted({ 4, 3, 2, 1 }))           -- false (no cmp)
+print("descending+cmp   :", sort.is_sorted({ 4, 3, 2, 1 }, function(a, b) return a > b end)) -- true
+print("unsorted         :", sort.is_sorted({ 1, 3, 2, 4 }))           -- false

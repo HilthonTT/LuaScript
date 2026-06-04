@@ -65,6 +65,8 @@ func (g *Generator) compileStatement(is *InstructionSet, stmt ast.Statement) {
 		g.compileGoto(is, s)
 	case *ast.LabelStatement:
 		g.compileLabel(is, s)
+	case *ast.EnumStatement:
+		g.compileEnumStatement(is, s)
 	case *ast.ExpressionStatement:
 		// Lua only allows function/method calls in this slot. We emit the
 		// expression with no expected results and pop any value it leaves.
@@ -471,4 +473,68 @@ func (g *Generator) compileLabel(_ *InstructionSet, s *ast.LabelStatement) {
 		keep = append(keep, p)
 	}
 	g.current.pendingGotos = keep
+}
+
+// compileEnumStatement lowers `enum Name V1, V2, ... end` to the
+// equivalent of
+//
+//	local Name = __enum_freeze({V1=1, V2=2, ...}, "Name")
+//
+// where `__enum_freeze` is the runtime helper installed by
+// native/enumrt at VM startup. The helper attaches a __newindex
+// metamethod that raises on assignment and locks __metatable so the
+// shield can't be removed.
+//
+// At REPL top-level the binding is promoted to a global (same rule
+// `compileLocal` uses) so the name survives across REPL chunks.
+//
+// The emit sequence mirrors what compileTableConstructor does for a
+// record literal:
+//
+//	GetGlobal "__enum_freeze"        ; push helper
+//	NewTable 0 N                     ; push fresh table
+//	for each variant i (1..N):
+//	    Dup                          ; copy table reference
+//	    LoadInt i                    ; push value
+//	    SetField "VARIANT"           ; pops (value, table-copy)
+//	LoadString "Name"                ; push enum name for the helper's diagnostic
+//	Call 2 1                         ; helper(table, name) → frozen table
+//	SetLocal slot / SetGlobal name   ; bind result
+func (g *Generator) compileEnumStatement(is *InstructionSet, s *ast.EnumStatement) {
+	if s.Name == nil || len(s.Variants) == 0 {
+		// Parser already errors on these; defensive guard so codegen
+		// doesn't panic on a partial AST under recovery.
+		return
+	}
+
+	line := s.Line()
+
+	// Stack: [fn]
+	is.define(GetGlobal, line, "__enum_freeze")
+
+	// Stack: [fn, t]
+	is.define(NewTable, line, 0, len(s.Variants))
+
+	for i, v := range s.Variants {
+		// Stack: [fn, t, t]
+		is.define(Dup, line)
+		// Stack: [fn, t, t, value]
+		is.define(LoadInt, line, int64(i+1))
+		// SetField pops (value, table-copy); back to [fn, t].
+		is.define(SetField, line, v.Name)
+	}
+
+	// Stack: [fn, t, name]
+	is.define(LoadString, line, s.Name.Name)
+
+	// Stack: [frozen-t]
+	is.define(Call, line, 2, 1)
+
+	if g.isReplTopLevel() {
+		is.define(SetGlobal, line, s.Name.Name)
+		return
+	}
+
+	slot := g.current.locals.define(s.Name.Name)
+	is.define(SetLocal, line, slot)
 }

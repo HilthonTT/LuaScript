@@ -40,6 +40,60 @@ func newSort() *vm.Table {
 		return []vm.Value{sortDispatch(t, "sort.simple", Simple[int64], Simple[float64], Simple[string])}
 	}})
 
+	// sort.sort(t [, cmp]) — Lua's table.sort semantics. With no cmp,
+	// the array is sorted ascending using the existing per-type
+	// dispatch. With a cmp, every comparison hops into Lua via
+	// v.CallValue; cmp(a,b) must return a truthy value iff a should
+	// come before b. This is the entry the formatter and most user
+	// code reach for.
+	methods.Set("sort", &vm.GoFunc{Name: "sort:sort", Fn: func(v *vm.VM, args []vm.Value) []vm.Value {
+		t := vm.TableArg("sort.sort", 1, args)
+		if len(args) >= 2 && args[1] != nil {
+			cmpSortInPlace(v, t, args[1], "sort.sort", false)
+			return []vm.Value{t}
+		}
+		return []vm.Value{sortDispatch(t, "sort.sort", Quicksort[int64], Quicksort[float64], Quicksort[string])}
+	}})
+
+	// sort.stable(t [, cmp]) — same surface, but uses Go's stable sort
+	// when a cmp is supplied. Without a cmp the underlying quicksort
+	// branch is already stable for distinct keys; we still route through
+	// the stable path for the typed slices so duplicate keys preserve
+	// their original ordering.
+	methods.Set("stable", &vm.GoFunc{Name: "sort:stable", Fn: func(v *vm.VM, args []vm.Value) []vm.Value {
+		t := vm.TableArg("sort.stable", 1, args)
+		if len(args) >= 2 && args[1] != nil {
+			cmpSortInPlace(v, t, args[1], "sort.stable", true)
+			return []vm.Value{t}
+		}
+		stableDefault(t)
+		return []vm.Value{t}
+	}})
+
+	// sort.reverse(t) — in-place reverse of the 1..n array portion.
+	// Cheap enough we don't bother with a typed fast path.
+	methods.Set("reverse", &vm.GoFunc{Name: "sort:reverse", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
+		t := vm.TableArg("sort.reverse", 1, args)
+		n := t.Len()
+		for i, j := int64(1), n; i < j; i, j = i+1, j-1 {
+			a, b := t.Get(i), t.Get(j)
+			t.Set(i, b)
+			t.Set(j, a)
+		}
+		return []vm.Value{t}
+	}})
+
+	// sort.is_sorted(t [, cmp]) -> bool. With no cmp uses the same
+	// per-type dispatch as sort.sort; with a cmp does a Lua-side
+	// pairwise comparison.
+	methods.Set("is_sorted", &vm.GoFunc{Name: "sort:is_sorted", Fn: func(v *vm.VM, args []vm.Value) []vm.Value {
+		t := vm.TableArg("sort.is_sorted", 1, args)
+		if len(args) >= 2 && args[1] != nil {
+			return []vm.Value{cmpIsSorted(v, t, args[1], "sort.is_sorted")}
+		}
+		return []vm.Value{defaultIsSorted(t)}
+	}})
+
 	mt := vm.NewTable(0, 1)
 	mt.Set("__index", methods)
 	m.SetMetatable(mt)

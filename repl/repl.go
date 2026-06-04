@@ -171,7 +171,7 @@ func (r *REPL) printError(err error) {
 		}
 		return
 	}
-	fmt.Fprintf(os.Stderr, "%luascript:%s %v\n", colorErr, colorReset, err)
+	fmt.Fprintf(os.Stderr, "%sluascript:%s %v\n", colorErr, colorReset, err)
 }
 
 func (r *REPL) processInput(input string) {

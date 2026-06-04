@@ -183,6 +183,8 @@ func (e *emitter) statement(stmt ast.Statement, opts Options) Doc {
 		return e.expr(s.Expression, opts)
 	case *ast.TypeAliasStatement:
 		return e.typeAlias(s, opts)
+	case *ast.EnumStatement:
+		return e.enumStmt(s, opts)
 	}
 	// Unknown statement: fall back to its own String() rendering. The Doc
 	// renderer will print it verbatim. This is a safety net; every AST node
@@ -391,6 +393,37 @@ func (e *emitter) returnStmt(s *ast.ReturnStatement, opts Options) Doc {
 
 func (e *emitter) typeAlias(s *ast.TypeAliasStatement, opts Options) Doc {
 	return concat(text("type "), text(s.Name), text(" = "), e.typeNode(s.Target, opts))
+}
+
+// enumStmt renders
+//
+//	enum Name
+//	    V1,
+//	    V2,
+//	    ...
+//	end
+//
+// Variants are always laid out one-per-line with a trailing comma. The
+// hand-written single-line form `enum Color RED, GREEN, BLUE end` is
+// supported by the parser but we always normalize to the block form on
+// output — it scales better as enums grow and keeps diffs minimal when
+// variants are added or removed.
+func (e *emitter) enumStmt(s *ast.EnumStatement, opts Options) Doc {
+	if s.Name == nil {
+		return text(s.String())
+	}
+	if len(s.Variants) == 0 {
+		// Parser usually rejects this, but if we receive a partial AST
+		// (e.g. mid-edit through an IDE integration) we still emit
+		// something syntactically reasonable.
+		return concat(text("enum "), text(s.Name.Name), hardLine(), text("end"))
+	}
+	var lines []Doc
+	for _, v := range s.Variants {
+		lines = append(lines, concat(text(v.Name), text(",")))
+	}
+	body := nest(opts.indent(), concat(hardLine(), join(hardLine(), lines...)))
+	return concat(text("enum "), text(s.Name.Name), body, hardLine(), text("end"))
 }
 
 // --- expressions -------------------------------------------------------

@@ -90,6 +90,13 @@ func newCompression() *vm.Table {
 		return []vm.Value{decoded}
 	}})
 
+	// Standard byte-stream codecs (gzip / zlib / deflate). These cover
+	// the realistic "I have a payload and need it smaller for transport
+	// or storage" use case the Huffman API above can't serve. Each takes
+	// a string and returns a string of compressed/uncompressed bytes.
+	// Level is optional and uses compress/flate's default when omitted.
+	addStdCodecs(methods)
+
 	mt := vm.NewTable(0, 1)
 	mt.Set("__index", methods)
 	m.SetMetatable(mt)

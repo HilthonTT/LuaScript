@@ -92,11 +92,23 @@ func (c *checker) installGlobals() {
 // preResolveAliases scans top-level statements for `type Name = T` and
 // registers each in the alias table. Resolution happens in two passes so
 // forward references work.
+//
+// Enum declarations contribute to the same alias table: `enum Color
+// RED, GREEN end` registers `Color` as an alias for `number` (v1 — the
+// stricter literal-union shape that would pin Color to the exact set
+// {1, 2} is a follow-up). The number-alias is lossy in that any number
+// satisfies a `: Color` annotation, but it lets typed function
+// signatures (`function paint(c: Color)`) parse and compose correctly
+// today, and the runtime still guarantees `Color.RED == 1` and that the
+// table is frozen.
 func (c *checker) preResolveAliases(stmts []ast.Statement) {
 	// Pass 1: register placeholders so name → never (sentinel).
 	for _, s := range stmts {
 		if a, ok := s.(*ast.TypeAliasStatement); ok {
 			c.env.aliases[a.Name] = neverT
+		}
+		if e, ok := s.(*ast.EnumStatement); ok && e.Name != nil {
+			c.env.aliases[e.Name.Name] = neverT
 		}
 	}
 	// Pass 2: resolve each alias's RHS with the table populated. Self-
@@ -106,6 +118,9 @@ func (c *checker) preResolveAliases(stmts []ast.Statement) {
 	for _, s := range stmts {
 		if a, ok := s.(*ast.TypeAliasStatement); ok {
 			c.env.aliases[a.Name] = c.resolveAST(a.Target)
+		}
+		if e, ok := s.(*ast.EnumStatement); ok && e.Name != nil {
+			c.env.aliases[e.Name.Name] = numberT
 		}
 	}
 }
@@ -164,6 +179,18 @@ func (c *checker) walkStatement(s ast.Statement) {
 		*ast.GotoStatement:
 		// Type aliases were handled in the pre-pass; the others carry no
 		// type-relevant state.
+	case *ast.EnumStatement:
+		// Pre-pass already registered Name as an alias. Bind the value-
+		// side as `any` so member access (`Color.RED`) doesn't get
+		// flagged as accessing fields of a non-structural type — the
+		// runtime table is structurally `{[string]: number}`, but
+		// pinning that precisely would force every user of the alias to
+		// disambiguate value-vs-type at the use site. `any` is the
+		// existing escape hatch the checker already uses for runtime
+		// values it can't model statically.
+		if n.Name != nil {
+			c.env.define(n.Name.Name, anyT)
+		}
 	}
 }
 

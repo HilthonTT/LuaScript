@@ -5,10 +5,13 @@ import (
 	"github.com/hilthontt/luascript/native/compression"
 	"github.com/hilthontt/luascript/native/crypto"
 	"github.com/hilthontt/luascript/native/db"
+	"github.com/hilthontt/luascript/native/debugx"
+	"github.com/hilthontt/luascript/native/enumrt"
 	httpNative "github.com/hilthontt/luascript/native/http"
 	"github.com/hilthontt/luascript/native/httpserver"
 	"github.com/hilthontt/luascript/native/iox"
 	"github.com/hilthontt/luascript/native/json"
+	"github.com/hilthontt/luascript/native/logx"
 	"github.com/hilthontt/luascript/native/math"
 	osNative "github.com/hilthontt/luascript/native/os"
 	regexpNative "github.com/hilthontt/luascript/native/regexp"
@@ -43,6 +46,14 @@ var nativeRegistrars = []func(*vm.VM){
 	bit32.RegisterBit32Preload,
 	utf8x.RegisterUTF8Preload,
 	iox.RegisterIOPreload,
+	logx.RegisterLogPreload,
+	debugx.RegisterDebugPreload,
+	// enumrt installs an internal global (__enum_freeze) the bytecode
+	// generator calls when lowering `enum` declarations. Not a require()
+	// target — placed in nativeRegistrars purely so it lands on both the
+	// CLI VM (via repl.AddPostInit) and the bundled-binary VM (via
+	// registerAllNatives) without a separate plumbing pass.
+	enumrt.RegisterEnumRT,
 }
 
 // registerAllNatives applies each registrar to the given VM directly.

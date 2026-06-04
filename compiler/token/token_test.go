@@ -10,31 +10,6 @@ func TestLookupIdentFal(t *testing.T) {
 }
 
 func TestLookupIdentTrue(t *testing.T) {
-	var keywords = map[string]Type{
-		"and":      And,
-		"break":    Break,
-		"do":       Do,
-		"else":     Else,
-		"elseif":   ElseIf,
-		"end":      End,
-		"false":    False,
-		"for":      For,
-		"function": Function,
-		"goto":     Goto,
-		"if":       If,
-		"in":       In,
-		"local":    Local,
-		"nil":      Nil,
-		"not":      Not,
-		"or":       Or,
-		"repeat":   Repeat,
-		"return":   Return,
-		"then":     Then,
-		"true":     True,
-		"until":    Until,
-		"while":    While,
-	}
-
 	for name, token := range keywords {
 		test := LookupIdent(name)
 		if test != token {
@@ -44,21 +19,6 @@ func TestLookupIdentTrue(t *testing.T) {
 }
 
 func TestCreateOperatorIdentTrue(t *testing.T) {
-	var operators = map[string]Type{
-		"+": Plus,
-		"-": Minus,
-		"*": Asterisk,
-		"/": Slash,
-		"%": Percent,
-		"^": Caret,
-		"#": Hash,
-		"&": Ampersand,
-		"|": Pipe,
-		"<": LT,
-		">": GT,
-		"=": Assign,
-	}
-
 	line := 123
 	col := 1
 
@@ -74,18 +34,6 @@ func TestCreateOperatorIdentTrue(t *testing.T) {
 }
 
 func TestCreateSeparatorIdentTrue(t *testing.T) {
-	var separators = map[string]Type{
-		",": Comma,
-		";": Semicolon,
-		":": Colon,
-		"(": LParen,
-		")": RParen,
-		"{": LBrace,
-		"}": RBrace,
-		"[": LBracket,
-		"]": RBracket,
-	}
-
 	line := 123
 	col := 1
 

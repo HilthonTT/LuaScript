@@ -1,0 +1,96 @@
+--!nocheck
+-- The `debug` module: lightweight introspection. Provides what we can
+-- support given the VM's current frame representation — traceback,
+-- getinfo, and stub sethook/gethook for compat. Local/upvalue
+-- introspection is deliberately out of v1; it would need the bytecode
+-- generator to emit a stable local-name table per proto.
+local debug = require("debug")
+
+print("=== Debug Module ===")
+print("VERSION:", debug.VERSION)
+print()
+
+-- --- debug.traceback ---
+-- Walks the live call stack from inner to outer and renders a
+-- Lua-style traceback. The first argument is a header message; the
+-- second is how many frames to skip (1 = skip the caller of
+-- traceback itself, which is the conventional value).
+print("--- debug.traceback ---")
+local function inner()
+    print(debug.traceback("an error happened in inner()", 1))
+end
+local function middle()
+    inner()
+end
+local function outer()
+    middle()
+end
+outer()
+print()
+
+-- A non-string, non-nil first argument passes through unchanged —
+-- matches Lua 5.4's behaviour. Useful for `xpcall(f, debug.traceback)`
+-- when the error is already a structured value.
+print("--- traceback passthrough ---")
+print("got:", debug.traceback({ code = "E001", note = "structured" }))
+print()
+
+-- --- debug.getinfo ---
+-- Returns a table describing the function at a given stack level
+-- (1-based, counting from the caller) OR the function value itself.
+-- Out-of-range levels return nil rather than raising.
+print("--- debug.getinfo by level ---")
+local function describe()
+    -- Lua 5.4 convention: level 1 is the function that *called*
+    -- debug.getinfo — here, describe itself.
+    local info = debug.getinfo(1)
+    print("what     :", info.what)         -- "Lua"
+    print("nparams  :", info.nparams)      -- 0
+    print("isvararg :", info.isvararg)     -- false
+    print("name     :", info.name)         -- proto name (may be empty)
+end
+describe()
+print()
+
+-- getinfo on a function value gives you its static shape without
+-- needing to actually be inside the call.
+print("--- debug.getinfo on a function value ---")
+local function add(a, b, c) return a + b + c end
+local info = debug.getinfo(add)
+print("what     :", info.what)             -- "Lua"
+print("nparams  :", info.nparams)          -- 3
+print("isvararg :", info.isvararg)         -- false
+print()
+
+-- Out-of-range level returns nil.
+print("--- debug.getinfo out of range ---")
+local none = debug.getinfo(99999)
+print("nil at deep level:", none == nil)
+print()
+
+-- --- debug.sethook / gethook (stubs) ---
+-- The VM has no instruction-hook plumbing yet, so these are accepted
+-- for forward compatibility but don't actually attach a hook. gethook
+-- always reports "no hook installed".
+print("--- hook stubs ---")
+debug.sethook(function() end, "l")  -- accepted, does nothing
+local hook, mask, count = debug.gethook()
+print("hook  :", hook)               -- nil
+print("mask  :", string.format("%q", mask))  -- ""
+print("count :", count)              -- 0
+print()
+
+-- --- realistic pattern: pcall + traceback for error context ---
+-- Lua's xpcall isn't in v1, but you can build the same shape with
+-- pcall + a traceback captured eagerly inside the protected call.
+-- The traceback is appended to the error message so the caller of
+-- pcall sees both the failure and where it came from.
+print("--- pcall + traceback ---")
+local function risky_with_context()
+    local trace = debug.traceback("from risky_with_context", 2)
+    error("something went wrong\n" .. trace)
+end
+local ok, msg = pcall(risky_with_context)
+print("ok       :", ok)
+print("message  :")
+print(msg)

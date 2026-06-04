@@ -18,10 +18,10 @@ const (
 	EOF     Type = "EOF"
 
 	// Literals
-	Ident        Type = "IDENT"
-	Int          Type = "INT"
-	Float        Type = "FLOAT"
-	String       Type = "STRING"
+	Ident  Type = "IDENT"
+	Int    Type = "INT"
+	Float  Type = "FLOAT"
+	String Type = "STRING"
 	// InterpString is a backtick-quoted string subject to `{expr}`
 	// interpolation. Kept distinct from String so plain `"..."`/`'...'`
 	// strings containing `{` are not mis-parsed as interpolated.
@@ -124,6 +124,7 @@ const (
 	Break    Type = "BREAK"
 	Goto     Type = "GOTO"
 	Match    Type = "MATCH"
+	Enum     Type = "ENUM"
 )
 
 var keywords = map[string]Type{
@@ -150,6 +151,7 @@ var keywords = map[string]Type{
 	"until":    Until,
 	"while":    While,
 	"match":    Match,
+	"enum":     Enum,
 }
 
 // operators maps every operator literal — single- and multi-character — to

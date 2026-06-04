@@ -1,0 +1,92 @@
+--!nocheck
+-- The `compression` module: standard byte-stream codecs (gzip, zlib,
+-- raw deflate) plus a self-contained Huffman implementation. The
+-- standard codecs are the right tool when you need a smaller payload
+-- for transport or storage; the Huffman API is mostly there as a
+-- teaching aid / inspection tool — it returns the codebook alongside
+-- the bitstream so you can see what's happening.
+local compression = require("compression")
+
+print("=== Compression Module ===")
+print("VERSION:", compression.VERSION)
+print()
+
+-- A reasonably redundant string compresses noticeably; a fully random
+-- string typically *grows* slightly because all three formats add
+-- header bytes that aren't recouped without patterns to exploit.
+local payload = ("hello world "):rep(50)
+print("payload length :", #payload, "bytes")
+print()
+
+-- --- gzip ---
+-- The gzip envelope (RFC 1952) is what `gzip -c` produces and what
+-- HTTP Content-Encoding: gzip transports. Use this when the consumer
+-- is another tool that expects the gzip framing.
+print("--- gzip ---")
+local gz = compression.gzip_encode(payload)
+print("encoded length :", #gz, "bytes")
+print("ratio          :", string.format("%.1f%%", 100 * #gz / #payload))
+local gz_back = compression.gzip_decode(gz)
+print("roundtrip ok   :", gz_back == payload)
+print()
+
+-- --- zlib ---
+-- Smaller envelope than gzip (RFC 1950). Common embedded in other
+-- formats — PNG's IDAT chunk wraps zlib around deflate, for example.
+print("--- zlib ---")
+local zb = compression.zlib_encode(payload)
+print("encoded length :", #zb, "bytes")
+print("roundtrip ok   :", compression.zlib_decode(zb) == payload)
+print()
+
+-- --- raw deflate ---
+-- The bare flate bitstream with no envelope at all. Slightly smaller
+-- than zlib for short inputs since you don't pay for the header.
+print("--- deflate ---")
+local df = compression.deflate_encode(payload)
+print("encoded length :", #df, "bytes")
+print("roundtrip ok   :", compression.deflate_decode(df) == payload)
+print()
+
+-- --- compression level ---
+-- All three encoders take an optional second `level` argument:
+--   -2  huffman-only (fastest, weakest)
+--   -1  default
+--    0  store-only (no compression, headers only)
+--    1  fastest
+--    9  best
+-- Out-of-range levels raise.
+print("--- gzip levels ---")
+for _, lvl in ipairs({ 0, 1, 6, 9 }) do
+    local out = compression.gzip_encode(payload, lvl)
+    print(string.format("level %d : %d bytes", lvl, #out))
+end
+print()
+
+-- Out-of-range levels are rejected with a clear message — easier to
+-- spot a typo than to silently fall back to a default.
+print("--- level validation ---")
+local ok, err = pcall(function() compression.gzip_encode("x", 99) end)
+print("ok    :", ok)
+print("error :", err)
+print()
+
+-- --- Huffman (existing API) ---
+-- The Huffman entry point is more pedagogical: it returns the bit
+-- string plus the codebook, so you can inspect how each symbol was
+-- encoded. Round-trips losslessly the same way the byte-stream codecs do.
+print("--- Huffman ---")
+local msg = "abracadabra"
+local freqs = compression.symbol_count(msg)
+print("symbol counts:")
+for _, pair in ipairs(freqs) do
+    print(string.format("  %-3s : %d", pair[1], pair[2]))
+end
+local encoded = compression.encode(msg)
+print("bitstream    :", encoded.bits)
+print("codebook     :")
+for _, pair in ipairs(encoded.codes) do
+    print(string.format("  %-3s : %s", pair[1], pair[2]))
+end
+print("decoded      :", compression.decode(encoded))
+print("roundtrip ok :", compression.decode(encoded) == msg)

@@ -943,6 +943,14 @@ func (v *VM) SetGlobal(name string, val Value) {
 	v.Globals.Set(name, val)
 }
 
+// CallFrames returns the live call-frame stack, outermost first. The slice
+// shares backing storage with the VM — callers must not mutate or retain it
+// past the current callback. Exposed for the `debug` native module so it can
+// implement traceback / getinfo without living inside this package.
+func (v *VM) CallFrames() []*CallFrame {
+	return v.frames
+}
+
 // CallValue invokes `fn` with `args` from Go code. Useful for embedding and
 // for stdlib helpers that need to call back into Lua (e.g. ipairs internals).
 func (v *VM) CallValue(fn Value, args []Value, nresults int) []Value {

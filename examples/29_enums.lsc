@@ -1,0 +1,98 @@
+--!nocheck
+-- enum: a frozen, integer-auto-increment lookup table plus a type
+-- alias of the same name. Variants are 1-based and assigned in source
+-- order. The visible table is a proxy whose metatable refuses writes
+-- and refuses to be re-metatabled, so values can't be mutated after
+-- declaration even by `setmetatable(Color, {})`.
+
+enum Color
+    RED,
+    GREEN,
+    BLUE,
+end
+
+print("=== enum ===")
+print("Color.RED   :", Color.RED)    -- 1
+print("Color.GREEN :", Color.GREEN)  -- 2
+print("Color.BLUE  :", Color.BLUE)   -- 3
+print()
+
+-- --- immutability ---
+-- Writing to an existing variant is rejected. Lua's __newindex normally
+-- only fires on missing keys, so the implementation indirects through a
+-- proxy table to make every write trigger the metamethod.
+print("--- immutability ---")
+local ok, err = pcall(function() Color.RED = 99 end)
+print("write existing :", ok, "-", err)
+
+-- Adding a NEW key is also a mutation — same metamethod.
+local ok2, err2 = pcall(function() Color.NEW = 4 end)
+print("write new key  :", ok2, "-", err2)
+print()
+
+-- --- locked metatable ---
+-- getmetatable returns the locked sentinel string, and setmetatable
+-- refuses to replace it. The "swap out the guard" attack doesn't work.
+print("--- metatable lock ---")
+print("getmetatable   :", getmetatable(Color))   -- "enum"
+local ok3, err3 = pcall(function() setmetatable(Color, {}) end)
+print("setmetatable   :", ok3, "-", err3)
+print()
+
+-- --- typed parameters (Luau-style) ---
+-- The enum name is also registered as a type alias in the typecheck
+-- environment. Functions can annotate parameters with `: Color` and
+-- the checker will accept the annotation. v1 aliases the enum to
+-- `number` so any number satisfies the slot — precise literal-union
+-- typing is a follow-up.
+print("--- typed parameters ---")
+local function name_of(c: Color): string
+    if c == Color.RED then return "red"
+    elseif c == Color.GREEN then return "green"
+    elseif c == Color.BLUE then return "blue"
+    end
+    return "?"
+end
+print("name_of(Color.RED)   :", name_of(Color.RED))
+print("name_of(Color.GREEN) :", name_of(Color.GREEN))
+print()
+
+-- --- iterating variants ---
+-- The visible enum table is empty (variant data lives in the __index
+-- metatable), so `pairs(Color)` yields nothing. To iterate, look the
+-- variants up by name through the proxy — same as any other access.
+print("--- iteration ---")
+for _, name in ipairs({ "RED", "GREEN", "BLUE" }) do
+    print(string.format("  %-6s = %d", name, Color[name]))
+end
+print()
+
+-- --- multiple enums coexist ---
+-- Each enum's error messages name themselves so you can tell which
+-- one was violated when a write attempt sneaks through.
+print("--- multiple enums ---")
+enum Status
+    OK,
+    NOT_FOUND,
+    SERVER_ERROR,
+end
+
+print("Status.OK            :", Status.OK)            -- 1
+print("Status.NOT_FOUND     :", Status.NOT_FOUND)     -- 2
+print("Status.SERVER_ERROR  :", Status.SERVER_ERROR)  -- 3
+local ok4, err4 = pcall(function() Status.OK = 0 end)
+print("write to Status      :", ok4, "-", err4)
+
+-- --- enum as a dispatch table ---
+-- Common pattern: pair an enum with a table indexed by the same values
+-- to get a fast O(1) dispatch keyed on a named constant.
+print()
+print("--- dispatch ---")
+local handlers = {
+    [Status.OK]           = function() return "everything is fine" end,
+    [Status.NOT_FOUND]    = function() return "couldn't find it" end,
+    [Status.SERVER_ERROR] = function() return "the server is on fire" end,
+}
+for _, s in ipairs({ Status.OK, Status.NOT_FOUND, Status.SERVER_ERROR }) do
+    print(string.format("  status=%d -> %s", s, handlers[s]()))
+end

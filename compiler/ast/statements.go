@@ -359,3 +359,38 @@ func (es *ExpressionStatement) String() string {
 	}
 	return es.Expression.String()
 }
+
+// EnumStatement:
+// enum Color
+//
+//	RED,
+//	GREEN,
+//	BLUE
+//
+// END
+type EnumStatement struct {
+	*BaseNode
+	Name     *Identifier
+	Variants []*EnumVariantDef
+}
+
+type EnumVariantDef struct {
+	Name   string
+	Fields []string // Empty for simple variants
+}
+
+func (*EnumStatement) statementNode()          {}
+func (es *EnumStatement) TokenLiteral() string { return es.Token.Literal }
+func (es *EnumStatement) String() string {
+	var out bytes.Buffer
+	out.WriteString("enum ")
+	out.WriteString(es.Name.String())
+	for i, v := range es.Variants {
+		if i > 0 {
+			out.WriteString(", ")
+		}
+		out.WriteString(v.Name)
+	}
+	out.WriteString("end")
+	return out.String()
+}
