@@ -16,6 +16,7 @@ import (
 	osNative "github.com/hilthontt/luascript/native/os"
 	regexpNative "github.com/hilthontt/luascript/native/regexp"
 	"github.com/hilthontt/luascript/native/sort"
+	"github.com/hilthontt/luascript/native/std"
 	"github.com/hilthontt/luascript/native/timex"
 	"github.com/hilthontt/luascript/native/utf8x"
 	"github.com/hilthontt/luascript/native/uuid"
@@ -42,6 +43,7 @@ var nativeRegistrars = []func(*vm.VM){
 	regexpNative.RegisterRegexpPreload,
 	uuid.RegisterUUIDPreload,
 	sort.RegisterSortPreload,
+	std.RegisterStdPreload,
 	compression.RegisterCompressionPreload,
 	bit32.RegisterBit32Preload,
 	utf8x.RegisterUTF8Preload,

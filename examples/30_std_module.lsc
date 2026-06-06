@@ -1,0 +1,78 @@
+--!nocheck
+-- The `std` native module — generic data structures backed by the
+-- hand-rolled Go types in native/std/. Every constructor returns a
+-- fresh object whose state is private to the Go side; you interact
+-- with it via colon-call methods.
+
+local std = require("std")
+print("std.VERSION =", std.VERSION)
+
+-- 1. Stack -- LIFO.
+local s = std.new_stack()
+s:push(10)
+s:push(20)
+s:push(30)
+print("stack top    =", s:peek())  -- 30
+print("stack pop    =", s:pop())    -- 30
+print("stack size   =", s:size())   -- 2
+
+-- 2. Queue -- FIFO.
+local q = std.new_queue()
+q:push("a")
+q:push("b")
+q:push("c")
+print("queue peek   =", q:peek())   -- a
+print("queue pop    =", q:pop())    -- a
+print("queue size   =", q:size())   -- 2
+
+-- 3. Deque -- both ends are O(1).
+local d = std.new_deque()
+d:push_back(2)
+d:push_back(3)
+d:push_front(1)
+print("deque front  =", d:front())  -- 1
+print("deque back   =", d:back())   -- 3
+print("deque pop_b  =", d:pop_back())  -- 3
+print("deque pop_f  =", d:pop_front()) -- 1
+print("deque size   =", d:size())   -- 1
+
+-- 4. Set -- hashed membership.
+local set = std.new_set()
+set:add("apple")
+set:add("banana")
+set:add("apple")  -- duplicate
+print("set has apl  =", set:contains("apple"))  -- true
+print("set size     =", set:size())             -- 2
+set:remove("apple")
+print("set after rm =", set:size())             -- 1
+
+-- 5. LinkedList -- doubly-linked, walk with to_array().
+local list = std.new_list()
+list:push_back(1)
+list:push_back(2)
+list:push_front(0)
+local arr = list:to_array()
+for i = 1, #arr do
+    print("list[" .. i .. "]    =", arr[i])
+end
+
+-- 6. Heap -- min-heap when cmp = (a, b) -> a < b.
+local h = std.new_heap(function(a, b) return a < b end)
+h:push(5)
+h:push(2)
+h:push(7)
+h:push(1)
+print("heap top     =", h:top())  -- 1
+print("heap pop     =", h:pop())  -- 1
+print("heap pop     =", h:pop())  -- 2
+print("heap size    =", h:size()) -- 2
+
+-- 7. HashMap -- any-keyed map distinct from a Lua table (collision
+-- handling is on the Go side, hash is hash/fnv "%v"-stringified).
+local hm = std.new_hashmap()
+hm:put("name", "Ada")
+hm:put("born", 1815)
+print("hm name      =", hm:get("name"))
+print("hm born      =", hm:get("born"))
+print("hm has name  =", hm:contains("name"))
+print("hm has nope  =", hm:contains("nope"))
