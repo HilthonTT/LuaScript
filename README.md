@@ -18,6 +18,8 @@ The implementation is a clean-room rewrite focused on being readable end-to-end:
 - **Bytecode** — stack-based with closure upvalues, vararg passing, generic-`for` iteration, and a one-time scan that fills `NumLocals` at runtime where the generator left it blank. Types are erased before this stage — the VM never sees them.
 - **VM** — closures, metatables, coroutines (via goroutines + channels), `pcall`/`error` unwinding.
 - **Standard library** — `print`/`tostring`/`tonumber`, `ipairs`/`pairs`/`next`, `pcall`/`assert`/`error`, raw and metatable helpers, plus `math`, `string` (full Lua pattern surface: `find`/`match`/`gmatch`/`gsub`), `table`, `io.write`/`read`, `coroutine`, and `package`/`require`. `__tostring` is honoured by `tostring`, `print`, `io.write`, `error`, and the REPL.
+- **Native modules** — `require("…")` for `db`, `os`, `math`, `json`, `http` (client), `httpserver`, `crypto`, `time`, `regexp`, `uuid`, `sort`, `compression`, `bit32`, `utf8`, `io`, `log`, `debug`, and `std` (stack/queue/deque/set/list/heap/hashmap). All ship by default; `cmd/natives.go::nativeRegistrars` is the single source of truth.
+- **Enums** — `enum Name V1, V2 end` declares an int-auto-increment, frozen-via-`__newindex`-proxy table. Lowered at parse time; typecheck treats the alias as `number`.
 - **REPL** — readline-driven, history-backed, with continuation prompts for incomplete input. Top-level `local` declarations persist across REPL chunks (a deliberate convenience deviation from `lua`). Type-check errors are surfaced with a distinct `type-error:` prefix.
 
 ## Quick start
@@ -36,6 +38,13 @@ go run ./cmd -i examples/05_types.lsc
 
 # Print version
 go run ./cmd -v
+
+# Disassemble a script (bytecode dump)
+go run ./cmd -dis examples/01_basics.lsc
+
+# Time the run, or re-run on every save
+go run ./cmd -time  examples/02_functions.lsc
+go run ./cmd -watch examples/02_functions.lsc
 ```
 
 Build a binary:
@@ -44,6 +53,17 @@ Build a binary:
 go build -o luascript ./cmd
 ./luascript examples/01_basics.lsc
 ```
+
+### Subcommands
+
+The CLI dispatches a few subcommands before flag parsing:
+
+| Subcommand                                            | What it does                                                                |
+| ----------------------------------------------------- | --------------------------------------------------------------------------- |
+| `luascript fmt [-w] FILE.lsc`                         | Format a source file (trivia-preserving). `-w` writes in place.             |
+| `luascript build -o OUT.exe FILE.lsc`                 | Bundle script + interpreter into a single .exe (see next section).          |
+| `luascript analyze FILE.lsc`                          | AST-level static analyzer with pluggable passes (complexity, lint, …).      |
+| `luascript profile -cpu cpu.pgo -count 50 FILE.lsc`   | Collect a CPU profile suitable for PGO (`scripts/build-pgo.sh` consumes it).|
 
 ## Bundling a script into a standalone .exe
 
@@ -133,6 +153,7 @@ repo root with `go run ./cmd examples/<file>`:
 | `27_debug_module.lsc`          | the `debug` native module — `traceback`, `getinfo`, hook stubs                                                                        |
 | `28_compression_module.lsc`    | the `compression` native module — gzip, zlib, deflate                                                                                 |
 | `29_enums.lsc`                 | `enum Name V1, V2 end` — int-auto-increment, frozen via `__newindex` proxy                                                            |
+| `30_std_module.lsc`            | the `std` native module — stack, queue, deque, set, list, heap (requires `cmp`), hashmap                                              |
 
 ### Running the module examples
 
@@ -150,8 +171,9 @@ that matter for these examples, searched in this order:
 2. **`LUASCRIPT_LIB`** — a bundled-library root, read once at startup. It
    is _not_ on the path unless you set it. `08_stdlib.lsc` is the demo for
    exactly this: its modules live under `examples/stdlib/` (not next to the
-   script), so it needs `LUASCRIPT_LIB` pointed there. Run it from the repo
-   root:
+   script). For convenience the example self-bootstraps `package.path` so
+   `go run ./cmd examples/08_stdlib.lsc` works without setting the env
+   var, but the canonical invocation is still:
 
    ```sh
    # bash
@@ -324,11 +346,18 @@ type-error: Type "string" could not be converted into "number" at line 1
 │   ├── parser/        recursive-descent parser, Pratt-style for expressions
 │   ├── ast/           AST node definitions (statements, expressions, types)
 │   ├── typecheck/     gradual type system — Type representation, env, pass
+│   ├── optimize/      AST constant-folding pass (Lua-5.4-safe subset)
+│   ├── analyze/       pass-registry static analyzer (`luascript analyze`)
+│   ├── debug/         pprof Start/Stop wrappers used by `luascript profile`
 │   ├── bytecode/      AST → instruction-set generator
-│   └── compiler.go    top-level pipeline (lex → parse → typecheck → bytecode)
+│   └── compiler.go    top-level pipeline (lex → parse → typecheck → optimize → bytecode)
 ├── vm/                stack VM, closures, metatables, coroutines, stdlib
+├── native/            bundled native modules (db, os, http, std, log, …)
+├── formatter/         `luascript fmt` — trivia-preserving formatter
+├── bonsai/            ASCII bonsai tree side mode (cbonsai/gobonsai fork)
 ├── repl/              interactive REPL (readline + engine wrapper)
 ├── examples/          runnable .lsc programs that double as tutorials
+├── scripts/           helper scripts (`build-pgo.sh`)
 ├── version/           version string
 └── cmd/               CLI entrypoint (main.go) + `luascript build` bundler
 ```
@@ -337,12 +366,12 @@ The compiler is designed so each stage is independently testable and the AST is 
 
 ## Non-goals (for now)
 
-- The `debug` library.
 - Garbage-collection metamethods (`__gc`, `__close` enforcement).
+- Generics, intersections, refinements, string-singleton types, cross-module type checking, recursive aliases (type-system v1 deliberately omits these; see "Not in v1" above).
 
 These are deliberate omissions, not bugs — they're listed so contributors know what's out of scope rather than wondering whether to file an issue.
 
-Previously listed but now shipped: Lua patterns, `io.open` + full file-handle stdlib, expanded `os`.
+Previously listed but now shipped: Lua patterns, `io.open` + full file-handle stdlib, expanded `os`, the `debug` library.
 
 ## Contributing
 
