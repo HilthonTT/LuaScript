@@ -18,6 +18,7 @@ import (
 	"github.com/hilthontt/luascript/native/sort"
 	"github.com/hilthontt/luascript/native/std"
 	"github.com/hilthontt/luascript/native/timex"
+	"github.com/hilthontt/luascript/native/ui"
 	"github.com/hilthontt/luascript/native/utf8x"
 	"github.com/hilthontt/luascript/native/uuid"
 	"github.com/hilthontt/luascript/vm"
@@ -50,6 +51,7 @@ var nativeRegistrars = []func(*vm.VM){
 	iox.RegisterIOPreload,
 	logx.RegisterLogPreload,
 	debugx.RegisterDebugPreload,
+	ui.RegisterUIPreload,
 	// enumrt installs an internal global (__enum_freeze) the bytecode
 	// generator calls when lowering `enum` declarations. Not a require()
 	// target — placed in nativeRegistrars purely so it lands on both the

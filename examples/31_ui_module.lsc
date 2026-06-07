@@ -1,0 +1,40 @@
+-- 31_ui_module.lsc — minimal Fyne-backed GUI demo.
+--
+-- Run from the repo root (NOT from cmd/):
+--   go run ./cmd examples/31_ui_module.lsc
+--
+-- Builds a window with a label, a text entry, a button, and a quit
+-- button. Clicking the greet button reads the entry and updates the
+-- label. Closing the window or clicking Quit ends the script.
+--
+-- The Fyne event loop blocks on ui.run() until the last window closes,
+-- so any logic after that line only runs at shutdown.
+
+local ui = require("ui")
+
+local label = ui.new_label("Type your name and click Greet.")
+local entry = ui.new_entry("name")
+
+local greet = ui.new_button("Greet")
+greet:on_click(function()
+    local name = entry:get_text()
+    if name == "" then
+        label:set_text("(please type a name)")
+    else
+        label:set_text(`Hello, {name}!`)
+    end
+end)
+
+local quit = ui.new_button("Quit")
+quit:on_click(function()
+    ui.quit()
+end)
+
+local box = ui.new_vbox({ label, entry, greet, quit })
+
+local win = ui.new_window("luascript ui demo", 360, 200)
+win:set_content(box)
+win:show()
+
+ui.run()
+print("event loop exited")
