@@ -18,7 +18,7 @@ The implementation is a clean-room rewrite focused on being readable end-to-end:
 - **Bytecode** — stack-based with closure upvalues, vararg passing, generic-`for` iteration, and a one-time scan that fills `NumLocals` at runtime where the generator left it blank. Types are erased before this stage — the VM never sees them.
 - **VM** — closures, metatables, coroutines (via goroutines + channels), `pcall`/`error` unwinding.
 - **Standard library** — `print`/`tostring`/`tonumber`, `ipairs`/`pairs`/`next`, `pcall`/`assert`/`error`, raw and metatable helpers, plus `math`, `string` (full Lua pattern surface: `find`/`match`/`gmatch`/`gsub`), `table`, `io.write`/`read`, `coroutine`, and `package`/`require`. `__tostring` is honoured by `tostring`, `print`, `io.write`, `error`, and the REPL.
-- **Native modules** — `require("…")` for `db`, `os`, `math`, `json`, `http` (client), `httpserver`, `crypto`, `time`, `regexp`, `uuid`, `sort`, `compression`, `bit32`, `utf8`, `io`, `log`, `debug`, and `std` (stack/queue/deque/set/list/heap/hashmap). All ship by default; `cmd/natives.go::nativeRegistrars` is the single source of truth.
+- **Native modules** — `require("…")` for `db`, `os`, `math`, `json`, `http` (client), `httpserver`, `crypto`, `time`, `regexp`, `uuid`, `sort`, `compression`, `bit32`, `utf8`, `io`, `log`, `debug`, and `std` (stack/queue/deque/set/list/heap/hashmap). All ship by default; `cmd/natives.go::nativeRegistrars` is the single source of truth. The Fyne-backed `ui` GUI module is **opt-in** behind the `luascript_ui` build tag (it pulls in OpenGL/cgo) — see [Desktop UI module](#desktop-ui-module-opt-in).
 - **Enums** — `enum Name V1, V2 end` declares an int-auto-increment, frozen-via-`__newindex`-proxy table. Lowered at parse time; typecheck treats the alias as `number`.
 - **REPL** — readline-driven, history-backed, with continuation prompts for incomplete input. Top-level `local` declarations persist across REPL chunks (a deliberate convenience deviation from `lua`). Type-check errors are surfaced with a distinct `type-error:` prefix.
 
@@ -88,6 +88,29 @@ Limitations (v1):
 - Bundled scripts don't see `os.Args`.
 - Antivirus heuristics occasionally flag self-modifying-style .exes; code-signing fixes it. This is the same trade-off PyInstaller and Bun's `--compile` have.
 
+## Desktop UI module (opt-in)
+
+The `ui` native module is a thin Lua binding over [Fyne v2](https://fyne.io) for building desktop windows and widgets. Because Fyne drags in OpenGL via **cgo**, it is **not compiled by default** — a plain `go run ./cmd` stays pure-Go and needs no C toolchain. `require("ui")` still resolves in a default build; it only errors if a script actually constructs a widget, telling you to rebuild with the tag.
+
+To enable the real GUI, build or run with the `luascript_ui` build tag:
+
+```sh
+# Run a UI script with the Fyne backend compiled in
+go run -tags luascript_ui ./cmd examples/31_ui_module.lsc
+
+# Build a GUI-capable binary
+go build -tags luascript_ui -o luascript ./cmd
+./luascript examples/31_ui_module.lsc
+```
+
+**Prerequisites for the tagged build:** cgo enabled (`CGO_ENABLED=1`, the default when a C compiler is present) and a working C toolchain plus OpenGL development headers:
+
+- **Windows** — a MinGW-w64 GCC, e.g. via [MSYS2](https://www.msys2.org): `pacman -S mingw-w64-x86_64-gcc mingw-w64-x86_64-headers mingw-w64-x86_64-crt`, then ensure `…\mingw64\bin` is on `PATH`.
+- **macOS** — Xcode command-line tools (`xcode-select --install`).
+- **Linux** — a C compiler plus the GL/X11 dev packages (Debian/Ubuntu: `sudo apt install gcc libgl1-mesa-dev xorg-dev`).
+
+Without the tag the headless stub is used, so the rest of the language builds and runs regardless of whether a C toolchain is installed.
+
 ## Bonsai mode
 
 For a break from the language work, `luascript` ships with a small ASCII-bonsai grower. It is unrelated to the Lua runtime — just a fun side mode.
@@ -154,6 +177,7 @@ repo root with `go run ./cmd examples/<file>`:
 | `28_compression_module.lsc`    | the `compression` native module — gzip, zlib, deflate                                                                                 |
 | `29_enums.lsc`                 | `enum Name V1, V2 end` — int-auto-increment, frozen via `__newindex` proxy                                                            |
 | `30_std_module.lsc`            | the `std` native module — stack, queue, deque, set, list, heap (requires `cmp`), hashmap                                              |
+| `31_ui_module.lsc`             | the `ui` desktop module (Fyne) — windows, widgets, layouts. Run with `-tags luascript_ui` (see [Desktop UI module](#desktop-ui-module-opt-in)) |
 
 ### Running the module examples
 

@@ -1,9 +1,10 @@
 // Package ui exposes a thin Lua binding over Fyne v2 widgets and
-// windows. The real implementation lives in ui_fyne.go; ui_stub.go
-// substitutes a no-op loader when the `luascript_no_window` build tag
-// is set so the OpenGL/cgo dep weight can be dropped for headless
-// builds. This file is the tag-agnostic entry point both code paths
-// share.
+// windows. The Fyne-backed implementation (ui_fyne.go) is opt-in behind
+// the `luascript_ui` build tag, since it drags in OpenGL/cgo and needs a
+// C toolchain. By default ui_stub.go substitutes a no-op loader so a plain
+// `go build ./cmd` stays pure-Go and dependency-light; `require("ui")`
+// still resolves, only failing if a script actually constructs a widget.
+// This file is the tag-agnostic entry point both code paths share.
 package ui
 
 import "github.com/hilthontt/luascript/vm"

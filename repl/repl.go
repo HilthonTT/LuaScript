@@ -157,7 +157,7 @@ func (r *REPL) runREPL() {
 }
 
 func (r *REPL) bye() {
-	fmt.Fprintf(r.out, "\n%sGoodbye! 🌸%s\n", colorDim, colorReset)
+	fmt.Fprintf(r.out, "\n%sGoodbye!%s\n", colorDim, colorReset)
 }
 
 func (r *REPL) printError(err error) {

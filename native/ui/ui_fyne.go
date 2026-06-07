@@ -1,8 +1,8 @@
-//go:build !luascript_no_window
+//go:build luascript_ui
 
 // Fyne-backed implementation of the `ui` native module.
 //
-// Threading model
+// # Threading model
 //
 // The VM runs on the main goroutine (cmd/main.go never spawns it on a
 // separate one). Fyne's app.Run() blocks the calling goroutine and
@@ -15,7 +15,7 @@
 // runtime.LockOSThread is asserted inside ui.run() so the same physical
 // OS thread services the GUI loop on platforms (macOS) that require it.
 //
-// Widget identity
+// # Widget identity
 //
 // Each constructor returns a *vm.Table whose method closures capture
 // the underlying Fyne object. To re-extract the Fyne object when a
