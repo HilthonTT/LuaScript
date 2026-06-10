@@ -344,15 +344,17 @@ func newOSFile(handle *osStd.File) *vm.Table {
 		if n < 0 {
 			panic(vm.Errorf("file:read: negative length %d", n))
 		}
-		buf := make([]byte, n)
-		nRead, err := handle.Read(buf)
-		if err == io.EOF && nRead == 0 {
-			return []vm.Value{nil}
-		}
-		if err != nil && err != io.EOF {
+		// Read up to n bytes via a LimitReader so a huge n over a small
+		// file grows the buffer only to what's actually present rather
+		// than pre-allocating n bytes (a multi-GB n would otherwise OOM).
+		data, err := io.ReadAll(io.LimitReader(handle, n))
+		if err != nil {
 			panic(vm.Errorf("file:read: %s", err.Error()))
 		}
-		return []vm.Value{string(buf[:nRead])}
+		if len(data) == 0 {
+			return []vm.Value{nil} // clean EOF, no data
+		}
+		return []vm.Value{string(data)}
 	}})
 
 	// write(s) -> bytes_written.

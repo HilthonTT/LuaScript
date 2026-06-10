@@ -2,8 +2,32 @@ package vm
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
+
+// luaError carries an arbitrary Lua error value raised by error(v) through a Go
+// panic unwind, so pcall/xpcall and coroutine.resume can hand back the original
+// value (table, number, …) rather than a stringified version of it. VM-internal
+// runtime errors still panic with the string-typed LuaError.
+type luaError struct{ value Value }
+
+func (e luaError) Error() string { return ToString(e.value) }
+
+// recoverValue maps a recovered panic to the Lua error value a protected call
+// (pcall/coroutine.resume) should surface as its error result.
+func recoverValue(r any) Value {
+	switch e := r.(type) {
+	case luaError:
+		return e.value
+	case LuaError:
+		return string(e)
+	case error:
+		return e.Error()
+	default:
+		return fmt.Sprintf("%v", r)
+	}
+}
 
 // registerStdlib installs a minimal set of Lua built-in globals: print, type,
 // tostring, tonumber, ipairs, pairs, next, error, pcall, assert, select.
@@ -123,6 +147,22 @@ func builtinTonumber(_ *VM, args []Value) []Value {
 	if len(args) == 0 {
 		return []Value{nil}
 	}
+	// tonumber(s, base): interpret s as an integer literal in [2,36].
+	if len(args) >= 2 && args[1] != nil {
+		base, ok := ToInteger(args[1])
+		if !ok || base < 2 || base > 36 {
+			panic(Errorf("bad argument #2 to 'tonumber' (base out of range)"))
+		}
+		s, ok := args[0].(string)
+		if !ok {
+			panic(Errorf("bad argument #1 to 'tonumber' (string expected, got %s)", TypeName(args[0])))
+		}
+		n, err := strconv.ParseInt(strings.TrimSpace(s), int(base), 64)
+		if err != nil {
+			return []Value{nil}
+		}
+		return []Value{n}
+	}
 	i, f, isInt, ok := ToNumber(args[0])
 	if !ok {
 		return []Value{nil}
@@ -192,50 +232,55 @@ func builtinNext(_ *VM, args []Value) []Value {
 	return []Value{k, val}
 }
 
-func builtinError(v *VM, args []Value) []Value {
+func builtinError(_ *VM, args []Value) []Value {
 	var msg Value
 	if len(args) > 0 {
 		msg = args[0]
 	}
-	switch m := msg.(type) {
-	case string:
-		panic(LuaError(m))
-	case nil:
-		panic(LuaError("nil"))
-	default:
-		panic(LuaError(ToStringMM(v, m)))
-	}
+	// Lua's error(v) propagates the value v unchanged (strings, tables,
+	// numbers, …); pcall/xpcall return it verbatim. Carry it through the
+	// unwind rather than stringifying it here.
+	panic(luaError{value: msg})
 }
 
 func builtinPcall(v *VM, args []Value) []Value {
 	fn := AnyArg("pcall", 1, args)
 	callArgs := args[1:]
-	results, err := safeCall(v, fn, callArgs)
-	if err != nil {
-		return []Value{false, err.Error()}
+	results, errVal, failed := safeCall(v, fn, callArgs)
+	if failed {
+		return []Value{false, errVal}
 	}
 	return append([]Value{true}, results...)
 }
 
-func safeCall(v *VM, fn Value, args []Value) (rs []Value, err error) {
-	// Snapshot frame depth so we can unwind any frames the failing call
+// SafeCall invokes fn with args, recovering any Lua error or runtime panic and
+// fully unwinding the VM (frames, stack, and any open upvalues the failing call
+// created) so the VM stays usable afterwards. It returns the call results, the
+// Lua error value (valid only when failed is true), and whether the call
+// failed. Hosts that run user callbacks outside a pcall — e.g. the http
+// server's per-request handler dispatch — should route through this so one bad
+// callback can't corrupt the shared VM.
+func (v *VM) SafeCall(fn Value, args []Value) (rs []Value, errVal Value, failed bool) {
+	return safeCall(v, fn, args)
+}
+
+func safeCall(v *VM, fn Value, args []Value) (rs []Value, errVal Value, failed bool) {
+	// Snapshot frame/stack depth so we can unwind anything the failing call
 	// pushed before bubbling the error back to the pcall caller.
 	frameDepth := len(v.frames)
 	stackTop := len(v.Stack)
 
 	defer func() {
 		if r := recover(); r != nil {
-			// Discard frames/stack pushed during the failing call.
+			// Close any upvalues the failing call left open above the
+			// snapshot before truncating the stack out from under them —
+			// otherwise they dangle with an index into freed slots and
+			// crash the VM on a later read.
+			v.closeUpvaluesAbove(stackTop)
 			v.frames = v.frames[:frameDepth]
 			v.Stack = v.Stack[:stackTop]
-			switch e := r.(type) {
-			case LuaError:
-				err = e
-			case error:
-				err = e
-			default:
-				err = fmt.Errorf("%v", r)
-			}
+			failed = true
+			errVal = recoverValue(r)
 		}
 	}()
 	rs = v.CallValue(fn, args, -1)
@@ -244,11 +289,12 @@ func safeCall(v *VM, fn Value, args []Value) (rs []Value, err error) {
 
 func builtinAssert(_ *VM, args []Value) []Value {
 	if len(args) == 0 || !IsTruthy(args[0]) {
-		msg := "assertion failed!"
+		var msg Value = "assertion failed!"
 		if len(args) >= 2 {
-			msg = ToString(args[1])
+			// The message is the error object, propagated unchanged.
+			msg = args[1]
 		}
-		panic(LuaError(msg))
+		panic(luaError{value: msg})
 	}
 	return args
 }

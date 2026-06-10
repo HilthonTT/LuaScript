@@ -109,6 +109,10 @@ func (v *VM) RunMainChunkWithResults(main *bytecode.InstructionSet) (results []V
 func (v *VM) recoverToError(err *error) {
 	if r := recover(); r != nil {
 		switch e := r.(type) {
+		case luaError:
+			// A script error(value) that reached the top level uncaught:
+			// render it for display, honouring __tostring on table values.
+			*err = LuaError(ToStringMM(v, e.value))
 		case LuaError:
 			*err = e
 		case error:
@@ -811,10 +815,13 @@ func (v *VM) unwindFrame(f *CallFrame, rets []Value) {
 // Numeric for
 // ---------------------------------------------------------------------------
 
-// forPrep validates the start/limit/step, decrements the index by one step
-// (so the first ForLoop add lands on `start`), and jumps to the matching
-// ForLoop instruction.
-func (v *VM) forPrep(f *CallFrame, baseSlot, target int) {
+// forPrep validates the start/limit/step and stores the starting value in the
+// index slot. If the loop body should run at least once it falls through into
+// the body (the next instruction); otherwise it jumps past ForLoop to the exit
+// target. Storing the real start — rather than start-step "undone" by the first
+// ForLoop add — keeps the integer path free of the overflow that made loops
+// near math.maxinteger run forever.
+func (v *VM) forPrep(f *CallFrame, baseSlot, exitTarget int) {
 	startV := *v.localAt(f, baseSlot)
 	limitV := *v.localAt(f, baseSlot+1)
 	stepV := *v.localAt(f, baseSlot+2)
@@ -831,29 +838,39 @@ func (v *VM) forPrep(f *CallFrame, baseSlot, target int) {
 		if st == 0 {
 			panic(LuaError("'for' step is zero"))
 		}
-		*v.localAt(f, baseSlot) = s - st
+		// Positive (s<=l) test, so a NaN limit yields zero iterations.
+		if !((st > 0 && s <= l) || (st < 0 && s >= l)) {
+			f.IP = exitTarget
+			return
+		}
+		*v.localAt(f, baseSlot) = s
 		*v.localAt(f, baseSlot+1) = l
 		*v.localAt(f, baseSlot+2) = st
-	} else {
-		s, ok1 := ToInteger(startV)
-		l, ok2 := ToInteger(limitV)
-		st, ok3 := ToInteger(stepV)
-		if !ok1 || !ok2 || !ok3 {
-			panic(LuaError("'for' initial value, limit, and step must be numbers"))
-		}
-		if st == 0 {
-			panic(LuaError("'for' step is zero"))
-		}
-		*v.localAt(f, baseSlot) = internInt(s - st)
-		*v.localAt(f, baseSlot+1) = internInt(l)
-		*v.localAt(f, baseSlot+2) = internInt(st)
+		return
 	}
-	f.IP = target
+	s, ok1 := ToInteger(startV)
+	l, ok2 := ToInteger(limitV)
+	st, ok3 := ToInteger(stepV)
+	if !ok1 || !ok2 || !ok3 {
+		panic(LuaError("'for' initial value, limit, and step must be numbers"))
+	}
+	if st == 0 {
+		panic(LuaError("'for' step is zero"))
+	}
+	if !((st > 0 && s <= l) || (st < 0 && s >= l)) {
+		f.IP = exitTarget
+		return
+	}
+	*v.localAt(f, baseSlot) = internInt(s)
+	*v.localAt(f, baseSlot+1) = internInt(l)
+	*v.localAt(f, baseSlot+2) = internInt(st)
 }
 
-// forLoop adds step to the index; if the new value is still within [start,
-// limit] (interpreted by the sign of step) it stores the index and jumps to
-// the loop body, otherwise falls through.
+// forLoop adds step to the index; if the new value is still within range
+// (interpreted by the sign of step) it stores the index and jumps to the loop
+// body, otherwise falls through to exit. The integer path detects signed
+// overflow of the increment — a wrap means the loop has stepped past the
+// representable range and must terminate, never spuriously re-enter.
 func (v *VM) forLoop(f *CallFrame, baseSlot, target int) {
 	idx := *v.localAt(f, baseSlot)
 	limit := *v.localAt(f, baseSlot+1)
@@ -873,10 +890,19 @@ func (v *VM) forLoop(f *CallFrame, baseSlot, target int) {
 	i, _ := ToInteger(idx)
 	l, _ := ToInteger(limit)
 	s, _ := ToInteger(step)
-	i += s
-	if (s > 0 && i <= l) || (s < 0 && i >= l) {
-		*v.localAt(f, baseSlot) = internInt(i)
-		f.IP = target
+	ni := i + s
+	if s > 0 {
+		// ni >= i ⟺ the add didn't overflow past math.maxinteger.
+		if ni >= i && ni <= l {
+			*v.localAt(f, baseSlot) = internInt(ni)
+			f.IP = target
+		}
+	} else {
+		// ni <= i ⟺ the add didn't underflow past math.mininteger.
+		if ni <= i && ni >= l {
+			*v.localAt(f, baseSlot) = internInt(ni)
+			f.IP = target
+		}
 	}
 }
 

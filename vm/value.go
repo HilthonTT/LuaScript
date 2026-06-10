@@ -112,17 +112,18 @@ func ToStringMM(v *VM, val Value) string {
 	return ToString(val)
 }
 
-// ToNumber attempts to coerce v to a Lua number, preferring an integer when
-// the value is exactly integral. Returns the value, an "is integer" flag,
-// and an "ok" flag (false if v cannot be a number).
+// ToNumber attempts to coerce v to a Lua number. It reports the value's
+// concrete Lua subtype: an int64 is an integer, a float64 is a float — even
+// when the float is mathematically integral (e.g. 2.0 stays a float, so
+// `2.0 + 3` is the float 5.0, per Lua 5.4's int/float subtype rules).
+// Returns the value, an "is integer" flag, and an "ok" flag (false if v
+// cannot be a number). Strings follow tonumber's rules: "2" parses to an
+// integer, "2.0" to a float.
 func ToNumber(v Value) (intVal int64, floatVal float64, isInt bool, ok bool) {
 	switch x := v.(type) {
 	case int64:
 		return x, 0, true, true
 	case float64:
-		if i, ok := floatToInt(x); ok && x == math.Trunc(x) {
-			return i, 0, true, true
-		}
 		return 0, x, false, true
 	case string:
 		return parseNumber(strings.TrimSpace(x))

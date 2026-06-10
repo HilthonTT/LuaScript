@@ -401,18 +401,26 @@ func readFormats(h *fileHandle, args []vm.Value, argStart int) []vm.Value {
 			if !ok {
 				panic(vm.Errorf("io.read: invalid format"))
 			}
+			if n < 0 {
+				panic(vm.Errorf("io.read: invalid format (negative count)"))
+			}
 			if n == 0 {
 				// Lua semantics: returns "" if at EOF or not, depending on err.
 				out = append(out, "")
 				continue
 			}
-			buf := make([]byte, n)
-			read, err := io.ReadFull(h.br, buf)
-			if read == 0 && err != nil {
-				out = append(out, nil)
+			// Read up to n bytes via a LimitReader so a huge n over a short
+			// stream grows the buffer only to what's actually available
+			// (no upfront make([]byte, n) OOM, no negative-length crash).
+			data, err := io.ReadAll(io.LimitReader(h.br, n))
+			if err != nil {
+				panic(vm.Errorf("io.read: %s", err.Error()))
+			}
+			if len(data) == 0 {
+				out = append(out, nil) // at EOF
 				return out
 			}
-			out = append(out, string(buf[:read]))
+			out = append(out, string(data))
 		}
 	}
 	return out

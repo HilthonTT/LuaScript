@@ -40,8 +40,9 @@ type Coroutine struct {
 
 type yieldMsg struct {
 	values []Value
-	done   bool   // true → final return, goroutine has exited
-	err    string // non-empty → terminated by error()
+	done   bool  // true → final return, goroutine has exited
+	failed bool  // true → terminated by an error/panic (errVal holds it)
+	errVal Value // the propagated error value when failed
 }
 
 // newCoroutine allocates a coroutine wrapping fn. The goroutine isn't
@@ -61,16 +62,11 @@ func newCoroutine(fn *Closure) *Coroutine {
 func (co *Coroutine) goroutineBody(v *VM) {
 	defer func() {
 		if r := recover(); r != nil {
-			msg := ""
-			switch e := r.(type) {
-			case LuaError:
-				msg = string(e)
-			case error:
-				msg = e.Error()
-			default:
-				msg = ""
-			}
-			co.yieldCh <- yieldMsg{done: true, err: msg}
+			// Any panic — a Lua error() or a Go runtime panic (nil deref,
+			// etc.) — terminates the coroutine with a failure. Carry the
+			// value through so resume reports false + the real error
+			// instead of silently looking like a normal completion.
+			co.yieldCh <- yieldMsg{done: true, failed: true, errVal: recoverValue(r)}
 		}
 	}()
 	args := <-co.resumeCh
@@ -150,8 +146,8 @@ func builtinCoroutineResume(v *VM, args []Value) []Value {
 		co.status = "suspended"
 	}
 
-	if msg.err != "" {
-		return []Value{false, msg.err}
+	if msg.failed {
+		return []Value{false, msg.errVal}
 	}
 	return append([]Value{true}, msg.values...)
 }
@@ -186,11 +182,12 @@ func builtinCoroutineWrap(v *VM, args []Value) []Value {
 			}
 			ok, _ := results[0].(bool)
 			if !ok {
-				msg := "error in coroutine"
+				// Re-raise the original error value unchanged.
+				var ev Value = "error in coroutine"
 				if len(results) > 1 {
-					msg = ToString(results[1])
+					ev = results[1]
 				}
-				panic(LuaError(msg))
+				panic(luaError{value: ev})
 			}
 			return results[1:]
 		},

@@ -250,9 +250,12 @@ func doRequest(client *http.Client, method, rawURL, body string, opts *vm.Table)
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
 	if err != nil {
 		panic(vm.Errorf("%s: reading response body: %s", site, err.Error()))
+	}
+	if int64(len(respBody)) > maxResponseBytes {
+		panic(vm.Errorf("%s: response body exceeds %d bytes", site, int64(maxResponseBytes)))
 	}
 
 	r := vm.NewTable(0, 5)
@@ -342,18 +345,27 @@ func encodeQuery(t *vm.Table) string {
 	return values.Encode()
 }
 
-// clientFromTimeout returns http.DefaultClient when no timeout is set, or
-// a new *http.Client with the timeout applied. Both reuse the default
-// Transport (and thus its connection pool) since Client.Transport is nil.
+const (
+	// defaultTimeout bounds a request when the caller sets none. Without it a
+	// request to a slow or black-hole server hangs the VM goroutine forever.
+	// A caller can raise it by passing a larger opts.timeout.
+	defaultTimeout = 30 * time.Second
+
+	// maxResponseBytes caps how much of a response body is read into memory,
+	// so a hostile or oversized response can't OOM the process. Exceeding it
+	// raises rather than truncating silently.
+	maxResponseBytes = 64 << 20 // 64 MiB
+)
+
+// clientFromTimeout returns an *http.Client carrying a timeout: the caller's
+// opts.timeout when positive, otherwise defaultTimeout. The Transport is left
+// nil so the default connection pool is reused.
 func clientFromTimeout(opts *vm.Table) *http.Client {
-	if opts == nil {
-		return http.DefaultClient
+	hc := &http.Client{Timeout: defaultTimeout}
+	if opts != nil {
+		applyTimeout(opts, hc)
 	}
-	hc := &http.Client{}
-	if applyTimeout(opts, hc) {
-		return hc
-	}
-	return http.DefaultClient
+	return hc
 }
 
 // applyTimeout reads opts.timeout (seconds, int or float) onto hc.

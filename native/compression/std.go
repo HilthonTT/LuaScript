@@ -25,6 +25,24 @@ import (
 	"github.com/hilthontt/luascript/vm"
 )
 
+// maxDecodeBytes bounds the inflated output of a single *_decode call. A
+// crafted ~kilobyte gzip/zlib/deflate stream can otherwise expand to many
+// gigabytes (a "decompression bomb") and OOM the process. Reaching the cap
+// raises rather than returning a silently-truncated result.
+const maxDecodeBytes = 256 << 20 // 256 MiB
+
+// inflate reads the decompressed stream with a hard output cap.
+func inflate(site string, r io.Reader) (string, error) {
+	out, err := io.ReadAll(io.LimitReader(r, maxDecodeBytes+1))
+	if err != nil {
+		return "", err
+	}
+	if int64(len(out)) > maxDecodeBytes {
+		return "", vm.Errorf("%s: decompressed output exceeds %d bytes", site, int64(maxDecodeBytes))
+	}
+	return string(out), nil
+}
+
 // addStdCodecs installs gzip/zlib/deflate encode+decode pairs on the
 // shared methods table. Kept separate from newCompression() so adding
 // or removing standard codecs doesn't tangle with the Huffman wiring.
@@ -52,12 +70,12 @@ func addStdCodecs(methods *vm.Table) {
 		if err != nil {
 			panic(vm.Errorf("compression.gzip_decode: %s", err.Error()))
 		}
-		out, err := io.ReadAll(r)
+		out, err := inflate("compression.gzip_decode", r)
 		_ = r.Close()
 		if err != nil {
 			panic(vm.Errorf("compression.gzip_decode: %s", err.Error()))
 		}
-		return []vm.Value{string(out)}
+		return []vm.Value{out}
 	}})
 
 	methods.Set("zlib_encode", &vm.GoFunc{Name: "compression:zlib_encode", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
@@ -83,12 +101,12 @@ func addStdCodecs(methods *vm.Table) {
 		if err != nil {
 			panic(vm.Errorf("compression.zlib_decode: %s", err.Error()))
 		}
-		out, err := io.ReadAll(r)
+		out, err := inflate("compression.zlib_decode", r)
 		_ = r.Close()
 		if err != nil {
 			panic(vm.Errorf("compression.zlib_decode: %s", err.Error()))
 		}
-		return []vm.Value{string(out)}
+		return []vm.Value{out}
 	}})
 
 	// deflate is the raw flate stream — no gzip headers, no zlib
@@ -115,12 +133,12 @@ func addStdCodecs(methods *vm.Table) {
 	methods.Set("deflate_decode", &vm.GoFunc{Name: "compression:deflate_decode", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 		data := vm.StringArg("compression.deflate_decode", 1, args)
 		r := flate.NewReader(bytes.NewReader([]byte(data)))
-		out, err := io.ReadAll(r)
+		out, err := inflate("compression.deflate_decode", r)
 		_ = r.Close()
 		if err != nil {
 			panic(vm.Errorf("compression.deflate_decode: %s", err.Error()))
 		}
-		return []vm.Value{string(out)}
+		return []vm.Value{out}
 	}})
 }
 

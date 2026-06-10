@@ -265,16 +265,38 @@ func TestTostringFallsBackWithoutMetamethod(t *testing.T) {
 	}
 }
 
-func TestErrorRoutesThroughTostringMetamethod(t *testing.T) {
-	// error(value) where value has __tostring should surface that string
-	// (not Go's default %v) when caught with pcall.
+func TestErrorPropagatesValueToPcall(t *testing.T) {
+	// error(value) propagates the value unchanged (Lua 5.4): pcall returns
+	// the original table, and tostring on it honours __tostring.
 	v := run(t, `
 		obj = setmetatable({}, {__tostring = function() return "boom" end})
 		ok, err = pcall(function() error(obj) end)
+		same = err == obj
+		rendered = tostring(err)
 	`)
 	assertGlobalEqual(t, v, "ok", false)
-	if g, ok := v.Globals.Get("err").(string); !ok || g != "boom" {
-		t.Errorf("error metamessage = %q, want %q", g, "boom")
+	assertGlobalEqual(t, v, "same", true)
+	assertGlobalEqual(t, v, "rendered", "boom")
+}
+
+func TestErrorPropagatesNonStringValueToPcall(t *testing.T) {
+	// A table error object keeps its fields when caught — not stringified.
+	v := run(t, `
+		ok, err = pcall(function() error({code = 42}) end)
+		code = err.code
+	`)
+	assertGlobalEqual(t, v, "ok", false)
+	assertGlobalEqual(t, v, "code", int64(42))
+}
+
+func TestUncaughtErrorRoutesThroughTostringMetamethod(t *testing.T) {
+	// An uncaught error(value) reaching the top level renders via __tostring.
+	msg := runErr(t, `
+		obj = setmetatable({}, {__tostring = function() return "boom" end})
+		error(obj)
+	`)
+	if !strings.Contains(msg, "boom") {
+		t.Errorf("uncaught error = %q, want it to contain %q", msg, "boom")
 	}
 }
 

@@ -177,7 +177,19 @@ func newServer() *vm.Table {
 			io.WriteString(w, res.body)
 		}
 
-		srv = &http.Server{Addr: addr, Handler: http.HandlerFunc(handler)}
+		srv = &http.Server{
+			Addr:    addr,
+			Handler: http.HandlerFunc(handler),
+			// Timeouts bound how long a single (possibly malicious) client
+			// can hold a connection. Without them a handful of slow-loris
+			// clients dribbling headers one byte at a time would pin
+			// connections open and, because handlers serialize on the VM
+			// goroutine, starve all legitimate traffic.
+			ReadHeaderTimeout: 10 * time.Second,
+			ReadTimeout:       30 * time.Second,
+			WriteTimeout:      30 * time.Second,
+			IdleTimeout:       120 * time.Second,
+		}
 		go func() {
 			errCh <- srv.ListenAndServe()
 		}()
@@ -235,18 +247,17 @@ func dispatch(machine *vm.VM, handler, notFound vm.Value, req *vm.Table) (out re
 		handler = notFound
 	}
 
-	defer func() {
-		if r := recover(); r != nil {
-			msg := "internal server error"
-			if e, ok := r.(error); ok {
-				msg = e.Error()
-			}
-			out = resp{status: http.StatusInternalServerError, body: msg + "\n",
-				headers: map[string]string{"Content-Type": "text/plain; charset=utf-8"}}
-		}
-	}()
-
-	results := machine.CallValue(handler, []vm.Value{req}, 1)
+	// Route through SafeCall, not CallValue: a handler panic (a Lua error(),
+	// a bad-arg panic, a nil index, …) must not leave the shared VM's
+	// stack/frames/upvalues dirty for the next request. SafeCall recovers and
+	// fully unwinds the VM, so one bad request can neither crash the server
+	// nor corrupt subsequent handlers.
+	results, errVal, failed := machine.SafeCall(handler, []vm.Value{req})
+	if failed {
+		msg := vm.ToString(errVal)
+		return resp{status: http.StatusInternalServerError, body: msg + "\n",
+			headers: map[string]string{"Content-Type": "text/plain; charset=utf-8"}}
+	}
 	var result vm.Value
 	if len(results) > 0 {
 		result = results[0]

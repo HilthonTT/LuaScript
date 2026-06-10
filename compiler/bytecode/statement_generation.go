@@ -354,9 +354,10 @@ func (g *Generator) compileNumericFor(is *InstructionSet, s *ast.NumericForState
 	is.define(SetLocal, s.Line(), indexSlot+1) // limit
 	is.define(SetLocal, s.Line(), indexSlot)   // start
 
-	forLoopAnchor := &anchor{}
 	exitAnchor := &anchor{}
-	fp := is.define(ForPrep, s.Line(), indexSlot, forLoopAnchor)
+	// ForPrep stores the starting value and either falls through into the
+	// body (loop runs) or jumps past ForLoop to exitAnchor (empty loop).
+	fp := is.define(ForPrep, s.Line(), indexSlot, exitAnchor)
 	g.current.recordPending(fp)
 
 	bodyTop := &anchor{line: is.count}
@@ -364,7 +365,6 @@ func (g *Generator) compileNumericFor(is *InstructionSet, s *ast.NumericForState
 	g.compileBlock(is, s.Body)
 	g.current.loops = g.current.loops[:len(g.current.loops)-1]
 
-	forLoopAnchor.line = is.count
 	fl := is.define(ForLoop, s.Line(), indexSlot, bodyTop)
 	g.current.recordPending(fl)
 	exitAnchor.line = is.count

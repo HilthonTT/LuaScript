@@ -65,11 +65,49 @@ func newStdModule() *vm.Table {
 		h, _ := NewAny(less)
 		return []vm.Value{wrapHeap(h)}
 	}})
+	// std.new_trie() — a string-keyed prefix tree. insert/find/remove accept
+	// one or more words; remove is lazy (marks non-leaf) so call compact() to
+	// reclaim dead nodes. size() counts words, capacity() counts nodes.
+	methods.Set("new_trie", &vm.GoFunc{Name: "std:new_trie", Fn: func(_ *vm.VM, _ []vm.Value) []vm.Value {
+		return []vm.Value{wrapTrie(NewNode())}
+	}})
 
 	mt := vm.NewTable(0, 1)
 	mt.Set("__index", methods)
 	m.SetMetatable(mt)
 	return m
+}
+
+// wrapTrie exposes a *Node prefix tree as a Lua object. insert/find/remove
+// take string words; non-string arguments raise the usual bad-argument error.
+func wrapTrie(n *Node) *vm.Table {
+	methods := vm.NewTable(0, 6)
+	methods.Set("insert", &vm.GoFunc{Name: "trie:insert", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
+		for i := 2; i <= len(args); i++ {
+			n.insert(vm.StringArg("trie:insert", i, args))
+		}
+		return nil
+	}})
+	methods.Set("find", &vm.GoFunc{Name: "trie:find", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
+		return []vm.Value{n.Find(vm.StringArg("trie:find", 2, args))}
+	}})
+	methods.Set("remove", &vm.GoFunc{Name: "trie:remove", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
+		for i := 2; i <= len(args); i++ {
+			n.remove(vm.StringArg("trie:remove", i, args))
+		}
+		return nil
+	}})
+	methods.Set("compact", &vm.GoFunc{Name: "trie:compact", Fn: func(_ *vm.VM, _ []vm.Value) []vm.Value {
+		n.Compact()
+		return nil
+	}})
+	methods.Set("size", &vm.GoFunc{Name: "trie:size", Fn: func(_ *vm.VM, _ []vm.Value) []vm.Value {
+		return []vm.Value{int64(n.Size())}
+	}})
+	methods.Set("capacity", &vm.GoFunc{Name: "trie:capacity", Fn: func(_ *vm.VM, _ []vm.Value) []vm.Value {
+		return []vm.Value{int64(n.Capacity())}
+	}})
+	return withMethods(methods)
 }
 
 // withMethods builds a method-dispatch table over methods, attaches it
