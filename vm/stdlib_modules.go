@@ -477,7 +477,12 @@ func buildTableLibrary() *Table {
 			if i > lo {
 				b.WriteString(sep)
 			}
-			b.WriteString(ToString(tbl.Get(i)))
+			el := tbl.Get(i)
+			if s, ok := el.(string); ok {
+				b.WriteString(s)
+			} else {
+				b.WriteString(ToString(el))
+			}
 		}
 		return []Value{b.String()}
 	})
@@ -488,7 +493,13 @@ func buildTableLibrary() *Table {
 		tbl := TableArg("unpack", 1, args)
 		lo := OptInt("table.unpack", 2, args, 1)
 		hi := OptInt("table.unpack", 3, args, tbl.Len())
-		var out []Value
+		if hi < lo {
+			return nil
+		}
+		if hi-lo+1 > 1<<24 {
+			panic(LuaError("too many results to unpack"))
+		}
+		out := make([]Value, 0, hi-lo+1)
 		for i := lo; i <= hi; i++ {
 			out = append(out, tbl.Get(i))
 		}

@@ -12,6 +12,8 @@ type Table struct {
 	array     []Value
 	hash      map[Value]Value
 	keys      []Value // hash keys in insertion order; nil entries are tombstones
+	keyPos    map[Value]int // key -> index in keys; deleted keys keep their entry until compaction so Next can resume from them
+	dead      int           // tombstone count in keys
 	metatable *Table
 
 	// gen is a monotonically-increasing generation counter bumped on
@@ -46,6 +48,7 @@ func NewTable(arrHint, hashHint int) *Table {
 	if hashHint > 0 {
 		t.hash = make(map[Value]Value, hashHint)
 		t.keys = make([]Value, 0, hashHint)
+		t.keyPos = make(map[Value]int, hashHint)
 	}
 	return t
 }
@@ -121,6 +124,17 @@ func (t *Table) Set(key, value Value) {
 		t.hash = make(map[Value]Value)
 	}
 	if _, exists := t.hash[nk]; !exists {
+		if t.keyPos == nil {
+			t.keyPos = make(map[Value]int)
+		}
+		// Compact only when inserting a new key, never on delete: Lua
+		// allows removing the current field during pairs(), so positions
+		// of deleted keys must survive until the next insertion (which is
+		// undefined during traversal anyway, like Lua's rehash-on-insert).
+		if t.dead > 8 && t.dead*2 >= len(t.keys) {
+			t.compactKeys()
+		}
+		t.keyPos[nk] = len(t.keys)
 		t.keys = append(t.keys, nk)
 	}
 	t.hash[nk] = value
@@ -128,12 +142,33 @@ func (t *Table) Set(key, value Value) {
 
 func (t *Table) removeHashKey(k Value) {
 	delete(t.hash, k)
-	for i, kk := range t.keys {
-		if Equal(kk, k) {
-			t.keys = append(t.keys[:i], t.keys[i+1:]...)
-			return
+	idx, ok := t.keyPos[k]
+	if !ok {
+		return
+	}
+	// Tombstone instead of splicing so removal is O(1) and an in-flight
+	// Next() on the removed key can still resume from its old position.
+	t.keys[idx] = nil
+	t.dead++
+}
+
+// compactKeys rebuilds keys/keyPos without tombstones. Dropping the stale
+// keyPos entries here is what lets removeHashKey keep them around cheaply.
+func (t *Table) compactKeys() {
+	live := t.keys[:0]
+	pos := make(map[Value]int, len(t.hash))
+	for _, k := range t.keys {
+		if k != nil {
+			pos[k] = len(live)
+			live = append(live, k)
 		}
 	}
+	for i := len(live); i < len(t.keys); i++ {
+		t.keys[i] = nil // unpin dropped slots in the backing array
+	}
+	t.keys = live
+	t.keyPos = pos
+	t.dead = 0
 }
 
 // Len returns the table's array-part length. This is Lua's "border" length
@@ -195,24 +230,25 @@ func (t *Table) Next(key Value) (Value, Value) {
 		return t.firstHash()
 	}
 
-	// Continue inside the hash part: find `key`, return the entry after it.
+	// Continue inside the hash part: jump to `key`'s recorded position and
+	// return the next live entry. Deleted keys keep their keyPos entry until
+	// compaction, so removing the current key mid-pairs() stays safe.
 	nk := normalizeKey(key)
-	found := false
-	for _, k := range t.keys {
-		if found {
-			return k, t.hash[k]
-		}
-		if Equal(k, nk) {
-			found = true
+	if idx, ok := t.keyPos[nk]; ok {
+		for i := idx + 1; i < len(t.keys); i++ {
+			if k := t.keys[i]; k != nil {
+				return k, t.hash[k]
+			}
 		}
 	}
 	return nil, nil
 }
 
 func (t *Table) firstHash() (Value, Value) {
-	if len(t.keys) == 0 {
-		return nil, nil
+	for _, k := range t.keys {
+		if k != nil {
+			return k, t.hash[k]
+		}
 	}
-	k := t.keys[0]
-	return k, t.hash[k]
+	return nil, nil
 }

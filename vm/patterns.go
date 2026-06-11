@@ -56,13 +56,19 @@ func PatternHasSpecials(pat string) bool {
 // string.find return shape.
 func PatternFind(s, pat string, init int) (int, int, []Value, bool) {
 	ms := matchState{src: s, pat: pat, captures: make([]patternCapture, 0, 4)}
-	start := luaInit(s, init)
-	anchored := strings.HasPrefix(pat, "^")
+	return ms.find(init)
+}
+
+// find runs the search loop, reusing ms's capture buffer across attempts
+// (and across calls, for callers that keep the matchState alive).
+func (ms *matchState) find(init int) (int, int, []Value, bool) {
+	start := luaInit(ms.src, init)
+	anchored := strings.HasPrefix(ms.pat, "^")
 	pStart := 0
 	if anchored {
 		pStart = 1
 	}
-	for sStart := start; sStart <= len(s); sStart++ {
+	for sStart := start; sStart <= len(ms.src); sStart++ {
 		ms.captures = ms.captures[:0]
 		end := ms.match(sStart, pStart)
 		if end >= 0 {
@@ -93,23 +99,28 @@ func PatternMatch(s, pat string, init int) []Value {
 // (string, pattern, position) iterator state stored as a Lua table; the
 // caller advances `pos` between calls.
 type GMatchIter struct {
-	s, pat string
-	pos    int // 1-based byte position to start the next search from
+	ms  matchState
+	pos int // 1-based byte position to start the next search from
 }
 
 // NewGMatchIter sets up a string.gmatch iterator state.
 func NewGMatchIter(s, pat string) *GMatchIter {
-	return &GMatchIter{s: s, pat: pat, pos: 1}
+	return &GMatchIter{
+		ms:  matchState{src: s, pat: pat, captures: make([]patternCapture, 0, 4)},
+		pos: 1,
+	}
 }
 
 // Next produces the next match's captures (or whole-match), or nil when
 // exhausted. The iterator advances past zero-length matches to avoid
-// infinite loops on patterns like "a*".
+// infinite loops on patterns like "a*". The matchState (and its capture
+// buffer) is reused across calls, so a gmatch loop allocates per match
+// only for the returned values.
 func (g *GMatchIter) Next() []Value {
-	if g.pos > len(g.s)+1 {
+	if g.pos > len(g.ms.src)+1 {
 		return nil
 	}
-	startByte, endByte, caps, ok := PatternFind(g.s, g.pat, g.pos)
+	startByte, endByte, caps, ok := g.ms.find(g.pos)
 	if !ok {
 		return nil
 	}
@@ -123,7 +134,7 @@ func (g *GMatchIter) Next() []Value {
 	if len(caps) > 0 {
 		return caps
 	}
-	return []Value{g.s[startByte-1 : endByte]}
+	return []Value{g.ms.src[startByte-1 : endByte]}
 }
 
 // PatternGSub implements string.gsub. repl is the substitution source
@@ -146,8 +157,9 @@ func PatternGSub(
 	}
 	count := 0
 	srcPos := 0
+	ms := matchState{src: s, pat: pat, captures: make([]patternCapture, 0, 4)}
 	for srcPos <= len(s) && count < maxN {
-		ms := matchState{src: s, pat: pat, captures: make([]patternCapture, 0, 4)}
+		ms.captures = ms.captures[:0]
 		end := ms.match(srcPos, pStart)
 		if end < 0 {
 			if anchored {

@@ -2,6 +2,7 @@ package vm
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/hilthontt/luascript/compiler/bytecode"
 	"github.com/hilthontt/luascript/compiler/parser"
@@ -531,9 +532,35 @@ func (v *VM) dispatch(f *CallFrame, ins *bytecode.Instruction) {
 	// ----- string / length -----
 	case bytecode.Concat:
 		count := int(ins.A)
+		start := len(v.Stack) - count
+		// Fast path: all operands are strings/numbers, so no __concat
+		// metamethod can fire — build the result in one pass instead of
+		// the quadratic pairwise reduction.
+		allPlain := true
+		size := 0
+		for i := start; i < len(v.Stack); i++ {
+			if s, ok := v.Stack[i].(string); ok {
+				size += len(s)
+				continue
+			}
+			if !isStringOrNumber(v.Stack[i]) {
+				allPlain = false
+				break
+			}
+			size += 16 // rough number-rendering estimate
+		}
+		if allPlain {
+			var b strings.Builder
+			b.Grow(size)
+			for i := start; i < len(v.Stack); i++ {
+				b.WriteString(concatOne(v.Stack[i]))
+			}
+			v.popN(count)
+			v.push(b.String())
+			return
+		}
 		// Right-associative: reduce pairwise from the right so __concat
 		// metamethods see the same operand pairing as a chained `..`.
-		start := len(v.Stack) - count
 		acc := v.Stack[len(v.Stack)-1]
 		for i := count - 2; i >= 0; i-- {
 			acc = v.concatMM(v.Stack[start+i], acc)
@@ -547,10 +574,46 @@ func (v *VM) dispatch(f *CallFrame, ins *bytecode.Instruction) {
 	case bytecode.Eq:
 		b := v.pop()
 		a := v.pop()
+		if ai, ok := a.(int64); ok {
+			if bi, ok := b.(int64); ok {
+				v.push(ai == bi)
+				return
+			}
+		}
+		if af, ok := a.(float64); ok {
+			if bf, ok := b.(float64); ok {
+				v.push(af == bf)
+				return
+			}
+		}
+		if as, ok := a.(string); ok {
+			if bs, ok := b.(string); ok {
+				v.push(as == bs)
+				return
+			}
+		}
 		v.push(v.equalMM(a, b))
 	case bytecode.NotEq:
 		b := v.pop()
 		a := v.pop()
+		if ai, ok := a.(int64); ok {
+			if bi, ok := b.(int64); ok {
+				v.push(ai != bi)
+				return
+			}
+		}
+		if af, ok := a.(float64); ok {
+			if bf, ok := b.(float64); ok {
+				v.push(af != bf)
+				return
+			}
+		}
+		if as, ok := a.(string); ok {
+			if bs, ok := b.(string); ok {
+				v.push(as != bs)
+				return
+			}
+		}
 		v.push(!v.equalMM(a, b))
 	case bytecode.Lt:
 		b := v.pop()
@@ -587,10 +650,34 @@ func (v *VM) dispatch(f *CallFrame, ins *bytecode.Instruction) {
 	case bytecode.Gt:
 		b := v.pop()
 		a := v.pop()
+		if ai, ok := a.(int64); ok {
+			if bi, ok := b.(int64); ok {
+				v.push(ai > bi)
+				return
+			}
+		}
+		if af, ok := a.(float64); ok {
+			if bf, ok := b.(float64); ok {
+				v.push(af > bf)
+				return
+			}
+		}
 		v.push(v.lessMM(b, a))
 	case bytecode.Ge:
 		b := v.pop()
 		a := v.pop()
+		if ai, ok := a.(int64); ok {
+			if bi, ok := b.(int64); ok {
+				v.push(ai >= bi)
+				return
+			}
+		}
+		if af, ok := a.(float64); ok {
+			if bf, ok := b.(float64); ok {
+				v.push(af >= bf)
+				return
+			}
+		}
 		v.push(v.lessOrEqualMM(b, a))
 
 	// ----- logical -----

@@ -7,6 +7,7 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 
@@ -60,6 +61,33 @@ func newCrypto() *vm.Table {
 		mac := hmac.New(sha256.New, []byte(key))
 		mac.Write([]byte(msg))
 		return []vm.Value{hex.EncodeToString(mac.Sum(nil))}
+	}})
+
+	// crypto.hmac_verify(key, msg, expected_hex) -> bool. Constant-time:
+	// comparing an HMAC with == leaks how many leading characters match,
+	// which lets an attacker forge MACs byte by byte.
+	methods.Set("hmac_verify", &vm.GoFunc{Name: "crypto:hmac_verify", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
+		key := vm.StringArg("crypto.hmac_verify", 1, args)
+		msg := vm.StringArg("crypto.hmac_verify", 2, args)
+		expectedHex := vm.StringArg("crypto.hmac_verify", 3, args)
+		expected, err := hex.DecodeString(expectedHex)
+		if err != nil {
+			return []vm.Value{false}
+		}
+		mac := hmac.New(sha256.New, []byte(key))
+		mac.Write([]byte(msg))
+		return []vm.Value{hmac.Equal(mac.Sum(nil), expected)}
+	}})
+
+	// crypto.constant_time_equal(a, b) -> bool. For comparing any two
+	// secret-derived strings (tokens, digests) without a timing side channel.
+	methods.Set("constant_time_equal", &vm.GoFunc{Name: "crypto:constant_time_equal", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
+		a := vm.StringArg("crypto.constant_time_equal", 1, args)
+		b := vm.StringArg("crypto.constant_time_equal", 2, args)
+		if len(a) != len(b) {
+			return []vm.Value{false}
+		}
+		return []vm.Value{subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1}
 	}})
 
 	// codecFn wires an encode/decode pair (e.g. base64, hex). Decode is

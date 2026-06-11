@@ -2,6 +2,7 @@ package vm
 
 import (
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 )
@@ -124,11 +125,15 @@ func builtinRawlen(_ *VM, args []Value) []Value {
 }
 
 func builtinPrint(v *VM, args []Value) []Value {
-	parts := make([]string, len(args))
+	var b strings.Builder
 	for i, a := range args {
-		parts[i] = ToStringMM(v, a)
+		if i > 0 {
+			b.WriteByte('\t')
+		}
+		b.WriteString(ToStringMM(v, a))
 	}
-	fmt.Println(strings.Join(parts, "\t"))
+	b.WriteByte('\n')
+	os.Stdout.WriteString(b.String())
 	return nil
 }
 
