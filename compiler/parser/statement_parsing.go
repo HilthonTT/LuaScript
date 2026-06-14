@@ -43,6 +43,8 @@ func (p *Parser) parseStatement() ast.Statement {
 		return p.parseMatchStatement()
 	case token.Enum:
 		return p.parseEnumStatement()
+	case token.Defer:
+		return p.parseDeferStatement()
 	case token.End, token.Else, token.ElseIf, token.Until:
 		// These should be caught by parseBlock's loop; if we got here,
 		// the surrounding block was malformed.
@@ -665,6 +667,28 @@ func (p *Parser) parseEnumStatement() *ast.EnumStatement {
 
 	p.nextToken() // consume 'end'
 	return stmt
+}
+
+// parseDeferStatement reads `defer <call>`. Like Go's defer it accepts only a
+// function or method call. The cursor is on `defer` at entry; whatever follows
+// the call (including a trailing `;`) is left for the block loop to consume.
+func (p *Parser) parseDeferStatement() *ast.DeferStatement {
+	deferTok := p.curToken
+	p.nextToken() // consume 'defer'
+
+	call := p.parseExpression()
+	if call == nil {
+		return nil
+	}
+	switch call.(type) {
+	case *ast.CallExpression, *ast.MethodCallExpression:
+	default:
+		p.errorAt(deferTok, errors.SyntaxError, "defer",
+			"defer expects a function or method call",
+			"syntax: defer cleanup(args)  or  defer obj:method(args)")
+		return nil
+	}
+	return &ast.DeferStatement{BaseNode: baseAt(deferTok), Call: call}
 }
 
 // isAssignTarget reports whether an expression is a valid LHS target. Lua

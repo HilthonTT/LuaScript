@@ -112,6 +112,12 @@ const (
 	// length isn't known until runtime.
 	MarkArgs
 
+	// Defer pops a closure off the stack and registers it on the current
+	// frame's deferred list. The VM runs a frame's deferred closures in
+	// last-in-first-out order when the frame unwinds (normal return,
+	// fall-off-end, or an error caught by pcall). No params.
+	Defer
+
 	InstructionCount
 )
 
@@ -176,6 +182,7 @@ var InstructionNameTable = []string{
 	Dup:             "dup",
 	Leave:           "leave",
 	MarkArgs:        "markargs",
+	Defer:           "defer",
 }
 
 // Instruction is one emitted opcode plus its parameters and source line.

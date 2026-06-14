@@ -30,4 +30,9 @@ type CallFrame struct {
 	Top      int // Stack index just past this frame's last allocated local
 	NResults int // -1 means "all"
 	Varargs  []Value
+	// Deferred holds the closures registered by `defer` in this activation.
+	// They run in last-in-first-out order when the frame unwinds (see
+	// VM.runDeferred). nil for the overwhelmingly common frame that defers
+	// nothing, so the slice costs nothing until a `defer` actually fires.
+	Deferred []*Closure
 }

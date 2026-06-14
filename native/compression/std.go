@@ -140,6 +140,25 @@ func addStdCodecs(methods *vm.Table) {
 		}
 		return []vm.Value{out}
 	}})
+
+	// rle is a byte-oriented run-length codec. Unlike the flate family it
+	// takes no level — the encoding is fully determined by the input. It uses
+	// the PackBits scheme so incompressible data grows by at most ~1/128
+	// rather than the 2x blowup a naive [count][byte] RLE would pay, while
+	// still collapsing long runs. Binary-safe: every byte value round-trips.
+	methods.Set("rle_encode", &vm.GoFunc{Name: "compression:rle_encode", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
+		data := vm.StringArg("compression.rle_encode", 1, args)
+		return []vm.Value{string(rleEncode([]byte(data)))}
+	}})
+
+	methods.Set("rle_decode", &vm.GoFunc{Name: "compression:rle_decode", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
+		data := vm.StringArg("compression.rle_decode", 1, args)
+		out, err := rleDecode("compression.rle_decode", []byte(data))
+		if err != nil {
+			panic(err)
+		}
+		return []vm.Value{string(out)}
+	}})
 }
 
 // optLevel reads an optional compression-level argument. Absent or nil

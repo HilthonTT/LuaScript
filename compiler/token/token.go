@@ -125,6 +125,7 @@ const (
 	Goto     Type = "GOTO"
 	Match    Type = "MATCH"
 	Enum     Type = "ENUM"
+	Defer    Type = "DEFER"
 )
 
 var keywords = map[string]Type{
@@ -152,6 +153,7 @@ var keywords = map[string]Type{
 	"while":    While,
 	"match":    Match,
 	"enum":     Enum,
+	"defer":    Defer,
 }
 
 // operators maps every operator literal — single- and multi-character — to

@@ -1,0 +1,109 @@
+--!nocheck
+-- defer: schedule a function/method call to run when the enclosing
+-- function exits. Deferred calls run in last-in-first-out order on a
+-- normal return, when the function falls off its end, AND when an error
+-- unwinds the frame — which makes defer ideal for cleanup that must
+-- happen no matter how the function leaves.
+--
+-- Note (differs from Go): the deferred call is wrapped in a closure, so
+-- it observes the *current* value of any variable it references at exit
+-- time, not the value at the point the `defer` ran. Go snapshots
+-- arguments eagerly; here capture is by reference, like any Lua closure.
+
+print("=== defer ===")
+
+-- --- LIFO order, runs after the body ---
+-- The two defers run in reverse of the order they were registered, and
+-- both run after the function's last "real" statement.
+print("--- order ---")
+local function ordered()
+    defer print("  defer 1 (registered first, runs last)")
+    defer print("  defer 2 (registered second, runs first)")
+    print("  body")
+end
+ordered()
+print()
+
+-- --- the return value is unaffected ---
+-- A defer can't change what the function returns (there are no named
+-- returns); it runs after the return value has been captured.
+print("--- return value ---")
+local function answer()
+    defer print("  (defer still runs)")
+    return 42
+end
+print("  answer() =", answer())
+print()
+
+-- --- capture is by reference (NOT Go semantics) ---
+-- `n` is read when the deferred closure finally runs, so it prints 2.
+print("--- capture timing ---")
+local function capture()
+    local n = 1
+    defer print("  n at exit =", n)   -- prints 2, not 1
+    n = 2
+end
+capture()
+print()
+
+-- --- cleanup on error ---
+-- The classic use: acquire a resource, defer its release, then do work
+-- that might fail. The defer runs while the error unwinds, so the
+-- resource is released before the error reaches the pcall.
+print("--- cleanup on error ---")
+local function with_resource()
+    print("  open resource")
+    defer print("  close resource (always runs)")
+    error("something went wrong")   -- defer still fires
+end
+local ok, err = pcall(with_resource)
+print("  pcall ok =", ok, " err =", err)
+print()
+
+-- --- defers unwind across nested frames ---
+-- When an error propagates through several functions, each frame's
+-- defers fire as it unwinds, innermost first.
+print("--- nested unwind ---")
+local function inner()
+    defer print("  inner cleanup")
+    error("fail")
+end
+local function outer()
+    defer print("  outer cleanup")
+    inner()
+end
+pcall(outer)
+print()
+
+-- --- defer a method call ---
+-- `defer obj:method(args)` works too; `self` and the arguments resolve
+-- when the deferred call runs.
+print("--- method call ---")
+local logger = { name = "db" }
+function logger:shutdown() print("  shutting down: " .. self.name) end
+local function use_logger()
+    defer logger:shutdown()
+    print("  using logger")
+end
+use_logger()
+print()
+
+-- --- a practical pattern: paired acquire/release ---
+-- Indentation tracking that always restores its previous depth, even if
+-- the work between the defer and the function end errors out.
+print("--- paired acquire/release ---")
+local depth = 0
+local function section(label, body)
+    depth = depth + 1
+    defer function_dedent()
+    print(string.rep("  ", depth) .. label)
+    if body then body() end
+end
+function function_dedent() depth = depth - 1 end
+
+section("outer", function()
+    section("inner", function()
+        print(string.rep("  ", depth + 1) .. "(work)")
+    end)
+end)
+print("  final depth =", depth)   -- back to 0

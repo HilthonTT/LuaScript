@@ -394,3 +394,19 @@ func (es *EnumStatement) String() string {
 	out.WriteString("end")
 	return out.String()
 }
+
+// DeferStatement is `defer <call>` — the call runs when the enclosing function
+// unwinds (normal return, fall-off-end, or an error caught by pcall), in
+// last-in-first-out order. Call is the bare function/method call expression;
+// the bytecode generator wraps it in a zero-arg closure so it executes lazily
+// at frame teardown.
+type DeferStatement struct {
+	*BaseNode
+	Call Expression
+}
+
+func (*DeferStatement) statementNode()          {}
+func (ds *DeferStatement) TokenLiteral() string { return ds.Token.Literal }
+func (ds *DeferStatement) String() string {
+	return "defer " + ds.Call.String()
+}

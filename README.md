@@ -20,6 +20,7 @@ The implementation is a clean-room rewrite focused on being readable end-to-end:
 - **Standard library** — `print`/`tostring`/`tonumber`, `ipairs`/`pairs`/`next`, `pcall`/`assert`/`error`, raw and metatable helpers, plus `math`, `string` (full Lua pattern surface: `find`/`match`/`gmatch`/`gsub`), `table`, `io.write`/`read`, `coroutine`, and `package`/`require`. `__tostring` is honoured by `tostring`, `print`, `io.write`, `error`, and the REPL.
 - **Native modules** — `require("…")` for `db`, `os`, `math`, `json`, `http` (client), `httpserver`, `crypto`, `time`, `regexp`, `uuid`, `sort`, `compression`, `bit32`, `utf8`, `io`, `log`, `debug`, and `std` (stack/queue/deque/set/list/heap/hashmap). All ship by default; `cmd/natives.go::nativeRegistrars` is the single source of truth. The Fyne-backed `ui` GUI module is **opt-in** behind the `luascript_ui` build tag (it pulls in OpenGL/cgo) — see [Desktop UI module](#desktop-ui-module-opt-in).
 - **Enums** — `enum Name V1, V2 end` declares an int-auto-increment, frozen-via-`__newindex`-proxy table. Lowered at parse time; typecheck treats the alias as `number`.
+- **Defer** — `defer cleanup()` schedules a call to run when the enclosing function exits, in last-in-first-out order, on normal return **and** when an error unwinds the frame (caught by `pcall`). Lowered to a frame-local closure list; ideal for paired acquire/release. Capture is by upvalue, so a deferred call sees a variable's value at exit time (unlike Go, which snapshots arguments eagerly).
 - **REPL** — readline-driven, history-backed, with continuation prompts for incomplete input. Top-level `local` declarations persist across REPL chunks (a deliberate convenience deviation from `lua`). Type-check errors are surfaced with a distinct `type-error:` prefix.
 
 ## Quick start
@@ -174,10 +175,11 @@ repo root with `go run ./cmd examples/<file>`:
 | `25_os_full.lsc`               | the expanded `os` parity surface (`date`, `time`, `clock`, `execute`, `rename`, `tmpname`, `setlocale`)                               |
 | `26_patterns.lsc`              | full Lua-pattern surface (`find`/`match`/`gmatch`/`gsub` with `%a %d %w` classes, `()` captures, `%b()` balanced, `%f[set]` frontier) |
 | `27_debug_module.lsc`          | the `debug` native module — `traceback`, `getinfo`, hook stubs                                                                        |
-| `28_compression_module.lsc`    | the `compression` native module — gzip, zlib, deflate                                                                                 |
+| `28_compression_module.lsc`    | the `compression` native module — gzip, zlib, deflate, run-length (`rle_encode`/`rle_decode`)                                          |
 | `29_enums.lsc`                 | `enum Name V1, V2 end` — int-auto-increment, frozen via `__newindex` proxy                                                            |
 | `30_std_module.lsc`            | the `std` native module — stack, queue, deque, set, list, heap (requires `cmp`), hashmap                                              |
 | `31_ui_module.lsc`             | the `ui` desktop module (Fyne) — windows, widgets, layouts. Run with `-tags luascript_ui` (see [Desktop UI module](#desktop-ui-module-opt-in)) |
+| `32_defer.lsc`                 | `defer call()` — LIFO cleanup that runs on normal return, fall-off-end, and error unwinding                                            |
 
 ### Running the module examples
 

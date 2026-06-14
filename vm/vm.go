@@ -258,6 +258,7 @@ func (v *VM) acquireFrame(cl *Closure, base, top, nresults int, varargs []Value)
 	f.Top = top
 	f.NResults = nresults
 	f.Varargs = varargs
+	f.Deferred = nil
 	return f
 }
 
@@ -271,6 +272,7 @@ func (v *VM) releaseFrame(f *CallFrame) {
 	}
 	f.Closure = nil
 	f.Varargs = nil
+	f.Deferred = nil
 	v.framePool = append(v.framePool, f)
 }
 
@@ -742,6 +744,15 @@ func (v *VM) dispatch(f *CallFrame, ins *bytecode.Instruction) {
 	case bytecode.Leave:
 		// Implicit return-with-no-values for chunks that fall off the end.
 		v.doReturn(f, 0)
+	case bytecode.Defer:
+		// Top of stack is the zero-arg closure the generator built for this
+		// `defer`. Register it on the frame; it runs when the frame unwinds.
+		d := v.pop()
+		cl, ok := d.(*Closure)
+		if !ok {
+			panic(Errorf("defer: expected a function, got %s", TypeName(d)))
+		}
+		f.Deferred = append(f.Deferred, cl)
 
 	default:
 		panic(fmt.Sprintf("vm: unknown opcode %d (%s)", ins.Opcode, bytecode.InstructionNameTable[ins.Opcode]))
@@ -891,6 +902,15 @@ func (v *VM) doReturn(f *CallFrame, count int) {
 // CallValue sets NResults=-1 so all returned values land on the stack
 // where the caller can read them via Stack[base:].
 func (v *VM) unwindFrame(f *CallFrame, rets []Value) {
+	if len(f.Deferred) > 0 {
+		// Deferred calls return through doReturn, which reuses v.retScratch —
+		// the same buffer `rets` usually aliases. Copy the return values into a
+		// private slice so a deferred call can't clobber them, then run the
+		// defers while f's locals and open upvalues are still live on the
+		// stack (so the deferred call observes the function's final state).
+		rets = append([]Value(nil), rets...)
+		v.runDeferred(f)
+	}
 	v.closeUpvaluesAbove(f.Base)
 	v.Stack = v.Stack[:f.Base]
 	v.frames = v.frames[:len(v.frames)-1]
@@ -898,9 +918,43 @@ func (v *VM) unwindFrame(f *CallFrame, rets []Value) {
 	v.releaseFrame(f)
 }
 
-// ---------------------------------------------------------------------------
-// Numeric for
-// ---------------------------------------------------------------------------
+// runDeferred runs f's deferred closures in last-in-first-out order, matching
+// Go. It clears f.Deferred up front so a panic from one deferred call cannot
+// cause the same defers to run twice (once here, once again from safeCall's
+// error-unwind path). A panic from a deferred call propagates — an
+// uncaught cleanup failure should surface, and any enclosing pcall will run
+// the remaining frames' defers via runDeferredSafely.
+func (v *VM) runDeferred(f *CallFrame) {
+	deferred := f.Deferred
+	f.Deferred = nil
+	for i := len(deferred) - 1; i >= 0; i-- {
+		v.callClosure(deferred[i], nil, 0)
+	}
+}
+
+// runDeferredSafely is the error-unwind counterpart of runDeferred: it runs
+// f's defers but contains a panic from any single one, restoring the
+// frame/stack/upvalue state to the pre-call snapshot so the next defer — and
+// the surrounding pcall unwind — still proceed cleanly. Used only while
+// already recovering from an error, so a faulty cleanup can't replace the
+// original error or leave the VM half-unwound.
+func (v *VM) runDeferredSafely(f *CallFrame) {
+	deferred := f.Deferred
+	f.Deferred = nil
+	for i := len(deferred) - 1; i >= 0; i-- {
+		fd, st := len(v.frames), len(v.Stack)
+		func() {
+			defer func() {
+				if recover() != nil {
+					v.closeUpvaluesAbove(st)
+					v.frames = v.frames[:fd]
+					v.Stack = v.Stack[:st]
+				}
+			}()
+			v.callClosure(deferred[i], nil, 0)
+		}()
+	}
+}
 
 // forPrep validates the start/limit/step and stores the starting value in the
 // index slot. If the loop body should run at least once it falls through into
@@ -994,10 +1048,6 @@ func (v *VM) forLoop(f *CallFrame, baseSlot, target int) {
 }
 
 func isFloat(v Value) bool { _, ok := v.(float64); return ok }
-
-// ---------------------------------------------------------------------------
-// Generic for
-// ---------------------------------------------------------------------------
 
 // tForCall calls iter(state, control), placing nresults values into the
 // visible-variable slots starting at baseSlot+3.

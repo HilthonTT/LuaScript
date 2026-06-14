@@ -277,6 +277,17 @@ func safeCall(v *VM, fn Value, args []Value) (rs []Value, errVal Value, failed b
 
 	defer func() {
 		if r := recover(); r != nil {
+			// Run deferred calls for every frame abandoned by this unwind,
+			// innermost first, so `defer` cleanup still happens when an error
+			// propagates and not only on a normal return. runDeferredSafely
+			// contains a panic from any single cleanup so it can't replace the
+			// original error. Done before the truncation below, while the
+			// failing frames' locals and open upvalues are still live.
+			for i := len(v.frames) - 1; i >= frameDepth; i-- {
+				if len(v.frames[i].Deferred) > 0 {
+					v.runDeferredSafely(v.frames[i])
+				}
+			}
 			// Close any upvalues the failing call left open above the
 			// snapshot before truncating the stack out from under them —
 			// otherwise they dangle with an index into freed slots and

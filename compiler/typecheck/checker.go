@@ -173,6 +173,10 @@ func (c *checker) walkStatement(s ast.Statement) {
 		c.env.pop()
 	case *ast.ExpressionStatement:
 		c.walkExpressionDiscard(n.Expression)
+	case *ast.DeferStatement:
+		// The deferred call is checked like any other call statement; it
+		// produces no value the surrounding scope can observe.
+		c.walkExpressionDiscard(n.Call)
 	case *ast.ReturnStatement:
 		c.walkReturn(n)
 	case *ast.TypeAliasStatement, *ast.LabelStatement, *ast.BreakStatement,

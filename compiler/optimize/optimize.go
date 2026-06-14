@@ -71,6 +71,10 @@ func foldStmt(s ast.Statement) {
 		if n.Expression != nil {
 			n.Expression = foldExpr(n.Expression)
 		}
+	case *ast.DeferStatement:
+		if n.Call != nil {
+			n.Call = foldExpr(n.Call)
+		}
 	case *ast.Block:
 		foldBlock(n)
 	}

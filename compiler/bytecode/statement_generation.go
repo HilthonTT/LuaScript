@@ -67,6 +67,8 @@ func (g *Generator) compileStatement(is *InstructionSet, stmt ast.Statement) {
 		g.compileLabel(is, s)
 	case *ast.EnumStatement:
 		g.compileEnumStatement(is, s)
+	case *ast.DeferStatement:
+		g.compileDefer(is, s)
 	case *ast.ExpressionStatement:
 		// Lua only allows function/method calls in this slot. We emit the
 		// expression with no expected results and pop any value it leaves.
@@ -457,6 +459,28 @@ func (g *Generator) compileGoto(is *InstructionSet, s *ast.GotoStatement) {
 	j := is.define(Jump, s.Line(), a)
 	g.current.recordPending(j)
 	g.current.pendingGotos = append(g.current.pendingGotos, pendingGoto{label: s.Label, anchor: a})
+}
+
+// compileDefer lowers `defer <call>` by wrapping the call in a zero-arg
+// function literal, then emitting Defer to register that closure on the
+// current frame. Wrapping reuses the closure machinery, so the deferred call
+// captures the enclosing locals it references as upvalues; the VM runs the
+// registered closures in LIFO order when the frame unwinds.
+//
+// Because capture is by upvalue, a deferred call observes each captured
+// variable's value at frame-exit time, not at the point the `defer` statement
+// ran. This differs from Go, which snapshots the call's arguments eagerly.
+func (g *Generator) compileDefer(is *InstructionSet, s *ast.DeferStatement) {
+	at := s.BaseNode
+	wrapper := &ast.FunctionExpression{
+		BaseNode: at,
+		Body: &ast.Block{
+			BaseNode:   at,
+			Statements: []ast.Statement{&ast.ExpressionStatement{BaseNode: at, Expression: s.Call}},
+		},
+	}
+	g.compileFunctionExpression(is, wrapper)
+	is.define(Defer, s.Line())
 }
 
 func (g *Generator) compileLabel(_ *InstructionSet, s *ast.LabelStatement) {
