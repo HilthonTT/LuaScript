@@ -18,6 +18,9 @@ func mathLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
 	mod.Set("maxinteger", int64(math.MaxInt64))
 	mod.Set("mininteger", int64(math.MinInt64))
 	mod.Set("pi", float64(math.Pi))
+	mod.Set("e", float64(math.E))
+	mod.Set("nan", math.NaN())
+	mod.Set("phi", float64(math.Phi))
 
 	return []vm.Value{mod}
 }
@@ -38,9 +41,21 @@ func newMath() *vm.Table {
 		return []vm.Value{cosValue}
 	}})
 
+	methods.Set("cosh", &vm.GoFunc{Name: "math:cosh", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
+		value := vm.FloatArg("value", 1, args)
+		cosValue := math.Cosh(value)
+		return []vm.Value{cosValue}
+	}})
+
 	methods.Set("sin", &vm.GoFunc{Name: "math:sin", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 		value := vm.FloatArg("value", 1, args)
 		sinValue := math.Sin(value)
+		return []vm.Value{sinValue}
+	}})
+
+	methods.Set("sinh", &vm.GoFunc{Name: "math:sinh", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
+		value := vm.FloatArg("value", 1, args)
+		sinValue := math.Sinh(value)
 		return []vm.Value{sinValue}
 	}})
 
@@ -50,9 +65,21 @@ func newMath() *vm.Table {
 		return []vm.Value{tanValue}
 	}})
 
+	methods.Set("tanh", &vm.GoFunc{Name: "math:tanh", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
+		value := vm.FloatArg("value", 1, args)
+		tanValue := math.Tanh(value)
+		return []vm.Value{tanValue}
+	}})
+
 	methods.Set("acos", &vm.GoFunc{Name: "math:acos", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 		value := vm.FloatArg("value", 1, args)
 		acosValue := math.Acos(value)
+		return []vm.Value{acosValue}
+	}})
+
+	methods.Set("acosh", &vm.GoFunc{Name: "math:acosh", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
+		value := vm.FloatArg("value", 1, args)
+		acosValue := math.Acosh(value)
 		return []vm.Value{acosValue}
 	}})
 
@@ -62,9 +89,21 @@ func newMath() *vm.Table {
 		return []vm.Value{asinValue}
 	}})
 
+	methods.Set("asinh", &vm.GoFunc{Name: "math:asinh", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
+		value := vm.FloatArg("value", 1, args)
+		asinValue := math.Asinh(value)
+		return []vm.Value{asinValue}
+	}})
+
 	methods.Set("atan", &vm.GoFunc{Name: "math:atan", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 		value := vm.FloatArg("value", 1, args)
 		atanvalue := math.Atan(value)
+		return []vm.Value{atanvalue}
+	}})
+
+	methods.Set("atanh", &vm.GoFunc{Name: "math:atanh", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
+		value := vm.FloatArg("value", 1, args)
+		atanvalue := math.Atanh(value)
 		return []vm.Value{atanvalue}
 	}})
 
@@ -157,6 +196,13 @@ func newMath() *vm.Table {
 		value := vm.FloatArg("value", 1, args)
 		sqrtValue := math.Sqrt(value)
 		return []vm.Value{sqrtValue}
+	}})
+
+	methods.Set("pow", &vm.GoFunc{Name: "math:pow", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
+		x := vm.FloatArg("x", 1, args)
+		y := vm.FloatArg("y", 2, args)
+		powValue := math.Pow(x, y)
+		return []vm.Value{powValue}
 	}})
 
 	mt := vm.NewTable(0, 1)
