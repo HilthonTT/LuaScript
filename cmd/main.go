@@ -9,6 +9,7 @@ import (
 
 	"github.com/hilthontt/luascript/bonsai"
 	"github.com/hilthontt/luascript/formatter"
+	"github.com/hilthontt/luascript/gctune"
 	"github.com/hilthontt/luascript/repl"
 	"github.com/hilthontt/luascript/version"
 	"github.com/hilthontt/luascript/vm"
@@ -57,6 +58,8 @@ func run(argv []string) int {
 	watch := fs.Bool("watch", false, "re-run file on every save")
 	timed := fs.Bool("time", false, "print execution time after the program finishes")
 	dis := fs.Bool("dis", false, "Disassemble a .lsc file")
+	gcPercent := fs.Int("gc-percent", 0, "set GOGC for the run (0 = leave default; negative disables GC)")
+	memLimit := fs.Int64("mem-limit", 0, "soft heap memory limit in bytes (0 = unlimited)")
 
 	if err := fs.Parse(argv); err != nil {
 		if err == flag.ErrHelp {
@@ -93,6 +96,10 @@ func run(argv []string) int {
 		fmt.Fprintln(os.Stderr, "luascript: --time and --watch require a script file")
 		return 2
 	}
+
+	// Apply host-side GC knobs before the VM runs. Same knobs the Lua
+	// collectgarbage builtin uses, surfaced as CLI flags for deployment tuning.
+	gctune.Apply(gctune.Options{Percent: *gcPercent, MemoryLimit: *memLimit})
 
 	v := vm.New()
 	r := repl.NewREPL(v, os.Stdin, os.Stdout)

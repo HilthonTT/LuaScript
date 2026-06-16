@@ -5,6 +5,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/hilthontt/luascript/gctune"
 )
 
 // luaError carries an arbitrary Lua error value raised by error(v) through a Go
@@ -48,6 +50,7 @@ func registerStdlib(v *VM) {
 	g("pcall", builtinPcall)
 	g("assert", builtinAssert)
 	g("select", builtinSelect)
+	g("collectgarbage", builtinCollectgarbage)
 
 	// Metatable controls.
 	g("setmetatable", builtinSetmetatable)
@@ -57,10 +60,6 @@ func registerStdlib(v *VM) {
 	g("rawequal", builtinRawequal)
 	g("rawlen", builtinRawlen)
 }
-
-// ---------------------------------------------------------------------------
-// Metatable / raw access globals
-// ---------------------------------------------------------------------------
 
 func builtinSetmetatable(_ *VM, args []Value) []Value {
 	t := TableArg("setmetatable", 1, args)
@@ -337,4 +336,53 @@ func builtinSelect(_ *VM, args []Value) []Value {
 		return nil
 	}
 	return append([]Value(nil), rest[idx-1:]...)
+}
+
+// builtinCollectgarbage implements Lua 5.4's collectgarbage(opt [, arg]) on top
+// of the host's gctune knobs. Because the VM's values are ordinary Go heap
+// objects, "collection" is really Go's GC — the options map onto runtime/debug
+// rather than a bespoke collector:
+//
+//	collect / step     -> runtime.GC()        (returns 0 / true)
+//	stop               -> disable GC          (returns 0)
+//	restart            -> re-enable GC         (returns 0)
+//	count              -> live heap in KBytes  (returns Kbytes, bytes%1024)
+//	setpause [, n]     -> set GOGC             (returns previous percent)
+//	setstepmul         -> no Go equivalent     (accepted; returns 0)
+//	isrunning          -> GC enabled?          (returns bool)
+//	incremental/gen…   -> mode is not selectable on Go's GC (returns "incremental")
+func builtinCollectgarbage(_ *VM, args []Value) []Value {
+	opt := OptString("collectgarbage", 1, args, "collect")
+	switch opt {
+	case "collect":
+		gctune.Collect()
+		return []Value{int64(0)}
+	case "step":
+		// Go's GC has no incremental "step"; run a full cycle and report a
+		// completed collection, matching Lua's true-means-finished contract.
+		gctune.Collect()
+		return []Value{true}
+	case "stop":
+		gctune.Stop()
+		return []Value{int64(0)}
+	case "restart":
+		gctune.Restart()
+		return []Value{int64(0)}
+	case "count":
+		b := gctune.HeapBytes()
+		return []Value{float64(b) / 1024, int64(b % 1024)}
+	case "setpause":
+		prev := gctune.SetPercent(int(OptInt("collectgarbage", 2, args, gctune.DefaultPercent)))
+		return []Value{int64(prev)}
+	case "setstepmul":
+		// Accepted for source compatibility; Go's GC exposes no step multiplier.
+		return []Value{int64(0)}
+	case "isrunning":
+		return []Value{gctune.IsRunning()}
+	case "incremental", "generational":
+		// Go's collector mode isn't selectable; report the prior mode like Lua.
+		return []Value{"incremental"}
+	default:
+		panic(Errorf("bad argument #1 to 'collectgarbage' (invalid option '%s')", opt))
+	}
 }
