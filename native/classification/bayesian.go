@@ -3,8 +3,12 @@ package classification
 // CREDIT TO REPOSITORY: https://github.com/jbrukh/bayesian/blob/master/bayesian.go
 
 import (
+	"encoding/gob"
 	"errors"
+	"io"
+	"os"
 	"sync"
+	"sync/atomic"
 )
 
 // defaultProb is the tiny non-zero probability that a word
@@ -73,4 +77,203 @@ func (d *classData) getWordProb(word string) float64 {
 
 	value := d.Freqs[word] // 0 if not found
 	return (value + 1) / (float64(d.Total) + float64(vocab))
+}
+
+func newClassifier(tfIdf bool, classes []Class) *Classifier {
+	n := len(classes)
+	if n < 2 {
+		panic("provide at least two classes")
+	}
+
+	check := make(map[Class]struct{}, n)
+	for _, class := range classes {
+		check[class] = struct{}{}
+	}
+
+	if len(check) != n {
+		panic("classes must be unique")
+	}
+
+	c := &Classifier{
+		Classes: classes,
+		datas:   make(map[Class]*classData, n),
+		tfIdf:   tfIdf,
+	}
+
+	for _, class := range classes {
+		c.datas[class] = newClassData()
+	}
+
+	return c
+}
+
+// NewClassifierTfIdf returns a new TF-IDF classifier. The classes provided
+// should be at least 2 in number and unique, or this method will panic.
+func NewClassifierTfIdf(classes ...Class) *Classifier {
+	return newClassifier(true, classes)
+}
+
+// NewClassifier returns a new classifier. The classes provided
+// should be at least 2 in number and unique, or this method will panic.
+func NewClassifier(classes ...Class) *Classifier {
+	return newClassifier(false, classes)
+}
+
+// NewClassifierFromFile loads an existing classifier from
+// file. The classifier was previously saved with a call
+// to c.WriteToFile(string).
+func NewClassifierFromFile(name string) (*Classifier, error) {
+	file, err := os.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	return NewClassifierFromReader(file)
+}
+
+// NewClassifierFromReader: This actually does the deserializing of a Gob encoded classifier
+func NewClassifierFromReader(r io.Reader) (*Classifier, error) {
+	dec := gob.NewDecoder(r)
+	w := new(serializableClassifier)
+	err := dec.Decode(w)
+
+	return &Classifier{
+		Classes:         w.Classes,
+		learned:         w.Learned,
+		seen:            int32(w.Seen),
+		datas:           w.Datas,
+		tfIdf:           w.TfIdf,
+		DidConvertTfIdf: w.DidConvertTfidf,
+	}, err
+}
+
+// AddClass adds a new class to the classifier dynamically.
+// Returns ErrClassExists if the class already exists, or
+// ErrAlreadyConverted if the classifier has been converted to TF-IDF.
+// This method is safe for concurrent use.
+func (c *Classifier) AddClass(class Class) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Check if the TF-IDF conversion already happened
+	if c.DidConvertTfIdf {
+		return ErrAlreadyConverted
+	}
+
+	if _, exists := c.datas[class]; exists {
+		return ErrClassExists
+	}
+
+	c.Classes = append(c.Classes, class)
+	c.datas[class] = newClassData()
+	return nil
+}
+
+// getPriors returns the prior probabilities for the
+// classes provided -- P(C_j).
+// Uses Laplace smoothing to ensure no prior is zero:
+// P(C_j) = (count_j + 1) / (total + num_classes)
+func (c *Classifier) getPriors() []float64 {
+	n := len(c.Classes)
+	priors := make([]float64, n)
+	sum := 0
+
+	for i, class := range c.Classes {
+		total := c.datas[class].Total
+		priors[i] = float64(total)
+		sum += total
+	}
+
+	// Apply Laplace smoothing to priors to avoid log(0)
+	floatN := float64(n)
+	floatSum := float64(sum)
+
+	for i := range n {
+		priors[i] = (priors[i] + 1) / (floatSum + floatN)
+	}
+
+	return priors
+}
+
+// Learned returns the number of documents ever learned
+// in the lifetime of this classifier.
+func (c *Classifier) Learned() int {
+	return c.learned
+}
+
+// Seen returns the number of documents ever classified
+// in the lifetime of this classifier.
+func (c *Classifier) Seen() int {
+	return int(atomic.LoadInt32(&c.seen))
+}
+
+// IsTfIdf returns true if we are a classifier of type TfIdf
+func (c *Classifier) IsTfIdf() bool {
+	return c.tfIdf
+}
+
+// WordCount returns the number of words counted for
+// each class in the lifetime of the classifier.
+// This method is safe for concurrent use.
+func (c *Classifier) WordCount() []int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	result := make([]int, len(c.Classes))
+	for i, class := range c.Classes {
+		data := c.datas[class]
+		result[i] = data.Total
+	}
+
+	return result
+}
+
+// Observe should be used when word-frequencies have been already been learned
+// externally (e.g., hadoop).
+// This method is safe for concurrent use.
+func (c *Classifier) Observe(word string, count int, which Class) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	data := c.datas[which]
+	data.Freqs[word] += float64(count)
+	data.Total += count
+}
+
+// Learn will accept new training documents for
+// supervised learning.
+// This method is safe for concurrent use.
+func (c *Classifier) Learn(document []string, which Class) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// If we are a tfidf classifier we first need to get terms as
+	// terms frequency and store that to work out the idf part later
+	// in ConvertToIDF().
+	if c.tfIdf {
+		if c.DidConvertTfIdf {
+			panic("Cannot call ConvertTermsFreqToTfIdf more than once. Reset and relearn to reconvert.")
+		}
+
+		// Term Frequency: word count in document / document length
+		docTf := make(map[string]float64)
+		for _, word := range document {
+			docTf[word]++
+		}
+
+		docLen := float64(len(document))
+
+		for wIndex, wCount := range docTf {
+			docTf[wIndex] = wCount / docLen
+			// add the TF sample, after training we can get IDF values.
+			c.datas[which].FreqTfs[wIndex] = append(c.datas[which].FreqTfs[wIndex], docTf[wIndex])
+		}
+	}
+
+	data := c.datas[which]
+	for _, word := range document {
+		data.Freqs[word]++
+		data.Total++
+	}
+	c.learned++
 }
