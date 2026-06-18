@@ -8,6 +8,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 )
@@ -38,7 +39,6 @@ type Classifier struct {
 // serializableClassifier represents a container for
 // Classifier objects whose fields are modifiable by
 // reflection and are therefore writeable by gob.
-
 type serializableClassifier struct {
 	Classes         []Class
 	Learned         int
@@ -137,7 +137,9 @@ func NewClassifierFromFile(name string) (*Classifier, error) {
 func NewClassifierFromReader(r io.Reader) (*Classifier, error) {
 	dec := gob.NewDecoder(r)
 	w := new(serializableClassifier)
-	err := dec.Decode(w)
+	if err := dec.Decode(w); err != nil {
+		return nil, err
+	}
 
 	return &Classifier{
 		Classes:         w.Classes,
@@ -146,7 +148,7 @@ func NewClassifierFromReader(r io.Reader) (*Classifier, error) {
 		datas:           w.Datas,
 		tfIdf:           w.TfIdf,
 		DidConvertTfIdf: w.DidConvertTfidf,
-	}, err
+	}, nil
 }
 
 // AddClass adds a new class to the classifier dynamically.
@@ -199,7 +201,10 @@ func (c *Classifier) getPriors() []float64 {
 
 // Learned returns the number of documents ever learned
 // in the lifetime of this classifier.
+// This method is safe for concurrent use.
 func (c *Classifier) Learned() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.learned
 }
 
@@ -291,18 +296,27 @@ func (c *Classifier) ConvertTermsFreqToTfIdf() {
 		panicIfAlreadyConverted()
 	}
 
-	for className := range c.datas {
-		for wIndex := range c.datas[className].FreqTfs {
+	// The IDF component is constant across every term/sample, so hoist it
+	// out of the inner loops instead of recomputing it on each iteration.
+	logLearned := math.Log1p(float64(c.learned))
+
+	for _, data := range c.datas {
+		if data.Total == 0 {
+			continue // no words learned for this class; nothing to convert
+		}
+		invTotal := 1.0 / float64(data.Total)
+
+		for wIndex, samples := range data.FreqTfs {
 			tfIdfAdder := float64(0)
 
-			for tfSampleIndex := range c.datas[className].FreqTfs[wIndex] {
+			for i, tf := range samples {
 				// we always want a positive TF-IDF score.
-				tf := c.datas[className].FreqTfs[wIndex][tfSampleIndex]
-				c.datas[className].FreqTfs[wIndex][tfSampleIndex] = math.Log1p(tf) * math.Log1p(float64(c.learned)) / float64(c.datas[className].Total)
-				tfIdfAdder += c.datas[className].FreqTfs[wIndex][tfSampleIndex]
+				tfIdf := math.Log1p(tf) * logLearned * invTotal
+				samples[i] = tfIdf
+				tfIdfAdder += tfIdf
 			}
 			// convert the 'counts' to TF-IDF's
-			c.datas[className].Freqs[wIndex] = tfIdfAdder
+			data.Freqs[wIndex] = tfIdfAdder
 		}
 	}
 
@@ -361,9 +375,321 @@ func (c *Classifier) LogScores(document []string) ([]float64, int, bool) {
 // This is a convenience wrapper around LogScores that returns the
 // Class directly instead of an index.
 func (c *Classifier) Classify(document []string) (Class, []float64, bool) {
-	scores, ixn, strict := c.LogScores(document)
-	class := c.Classes[ixn]
+	scores, inx, strict := c.LogScores(document)
+	class := c.Classes[inx]
 	return class, scores, strict
+}
+
+// ProbScores works the same as LogScores, but delivers
+// actual probabilities as discussed above. Note that float64
+// underflow is possible if the word list contains too
+// many words that have probabilities very close to 0.
+//
+// Notes on underflow: underflow is going to occur when you're
+// trying to assess large numbers of words that you have
+// never seen before. Depending on the application, this
+// may or may not be a concern. Consider using SafeProbScores()
+// instead.
+//
+// If all scores underflow to zero, returns equal probabilities
+// for all classes (1/n each).
+// This method is safe for concurrent use.
+func (c *Classifier) ProbScores(doc []string) ([]float64, int, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if c.tfIdf && !c.DidConvertTfIdf {
+		panic("Using a TF-IDF classifier. Please call ConvertTermsFreqToTfIdf before calling ProbScores.")
+	}
+
+	n := len(c.Classes)
+	scores := make([]float64, n)
+	priors := c.getPriors()
+	sum := float64(0)
+	strict := false
+	inx := 0
+
+	for i, class := range c.Classes {
+		data := c.datas[class]
+		score := priors[i]
+		for _, word := range doc {
+			score *= data.getWordProb(word)
+		}
+		scores[i] = score
+		sum += score
+	}
+	// Handle underflow: if sum is 0, all scores underflowed
+	// Return equal probabilities to avoid NaN
+	if sum == 0 {
+		equal := 1.0 / float64(n)
+		for i := range n {
+			scores[i] = equal
+		}
+		strict = false
+	} else {
+		for i := range n {
+			scores[i] /= sum
+		}
+		inx, strict = findMax(scores)
+	}
+	atomic.AddInt32(&c.seen, 1)
+	return scores, inx, strict
+}
+
+// ClassifyProb returns the most likely class for the given document
+// along with the probability scores and whether the classification is strict.
+// This is a convenience wrapper around ProbScores that returns the
+// Class directly instead of an index.
+func (c *Classifier) ClassifyProb(document []string) (Class, []float64, bool) {
+	scores, inx, strict := c.ProbScores(document)
+	class := c.Classes[inx]
+	return class, scores, strict
+}
+
+// SafeProbScores works the same as ProbScores, but is
+// able to detect underflow in those cases where underflow
+// results in the reverse classification. If an underflow is detected,
+// this method returns an ErrUnderflow, allowing the user to deal with it as
+// necessary. Note that underflow, under certain rare circumstances,
+// may still result in incorrect probabilities being returned,
+// but this method guarantees that all error-less invocations
+// are properly classified.
+//
+// Underflow detection is more costly because it also
+// has to make additional log score calculations.
+//
+// When underflow is detected, the returned scores are computed from
+// log-domain scores using the log-sum-exp trick for numerical stability.
+// This method is safe for concurrent use.
+func (c *Classifier) SafeProbScores(doc []string) ([]float64, int, bool, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if c.tfIdf && !c.DidConvertTfIdf {
+		panic("Using a TF-IDF classifier. Please call ConvertTermsFreqToTfIdf before calling SafeProbScores.")
+	}
+
+	n := len(c.Classes)
+	scores := make([]float64, n)
+	logScores := make([]float64, n)
+	priors := c.getPriors()
+	sum := float64(0)
+
+	// calculate the score for each class
+	for index, class := range c.Classes {
+		data := c.datas[class]
+		score := priors[index]
+		logScore := math.Log(priors[index])
+		for _, word := range doc {
+			p := data.getWordProb(word)
+			score *= p
+			logScore += math.Log(p)
+		}
+		scores[index] = score
+		logScores[index] = logScore
+		sum += score
+	}
+
+	// Get the winner from log-domain (always reliable)
+	logInx, logStrict := findMax(logScores)
+
+	var err error
+	inx := 0
+	strict := false
+
+	// Check for underflow: if sum is 0 or prob-domain disagrees with log-domain
+	if sum == 0 {
+		// Complete underflow - use log-sum-exp to recover probabilities
+		err = ErrUnderflow
+		scores = logScoresToProbs(logScores)
+		inx, strict = logInx, logStrict
+	} else {
+		for i := range n {
+			scores[i] /= sum
+		}
+		inx, strict = findMax(scores)
+
+		// Detect partial underflow - when prob and log domains disagree
+		if inx != logInx || strict != logStrict {
+			err = ErrUnderflow
+			// Use log-domain results as they're more reliable
+			scores = logScoresToProbs(logScores)
+			inx, strict = logInx, logStrict
+		}
+	}
+
+	atomic.AddInt32(&c.seen, 1)
+	return scores, inx, strict, err
+}
+
+// logScoresToProbs converts log-domain scores to probabilities
+// using the log-sum-exp trick for numerical stability.
+func logScoresToProbs(logScores []float64) []float64 {
+	n := len(logScores)
+	probs := make([]float64, n)
+
+	// Find max for numerical stability
+	maxLog := logScores[0]
+	for i := 1; i < n; i++ {
+		if logScores[i] > maxLog {
+			maxLog = logScores[i]
+		}
+	}
+
+	// Compute exp(log - max) and sum
+	sum := 0.0
+	for i := range n {
+		probs[i] = math.Exp(logScores[i] - maxLog)
+		sum += probs[i]
+	}
+
+	// Normalize
+	for i := range n {
+		probs[i] /= sum
+	}
+
+	return probs
+}
+
+// ClassifySafe returns the most likely class for the given document
+// along with the probability scores, whether the classification is strict,
+// and an error if underflow is detected.
+// This is a convenience wrapper around SafeProbScores that returns the
+// Class directly instead of an index.
+func (c *Classifier) ClassifySafe(document []string) (Class, []float64, bool, error) {
+	scores, inx, strict, err := c.SafeProbScores(document)
+	class := c.Classes[inx]
+	return class, scores, strict, err
+}
+
+// WordFrequencies returns a matrix of word frequencies that currently
+// exist in the classifier for each class state for the given input
+// words. In other words, if you obtain the frequencies
+//
+//	freqs := c.WordFrequencies(/* [j]string */)
+//
+// then the expression freq[i][j] represents the frequency of the j-th
+// word within the i-th class.
+// This method is safe for concurrent use.
+func (c *Classifier) WordFrequencies(words []string) [][]float64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	n, l := len(c.Classes), len(words)
+	freqMatrix := make([][]float64, n)
+
+	for i := range freqMatrix {
+		arr := make([]float64, l)
+		data := c.datas[c.Classes[i]]
+		for j := range arr {
+			arr[j] = data.getWordProb(words[j])
+		}
+		freqMatrix[i] = arr
+	}
+
+	return freqMatrix
+}
+
+// WriteToFile serializes this classifier to a file.
+// This method is safe for concurrent use.
+func (c *Classifier) WriteToFile(name string) error {
+	file, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	return c.writeGobLocked(file)
+}
+
+// WriteClassesToFile writes all classes to files.
+// This method is safe for concurrent use.
+func (c *Classifier) WriteClassesToFile(rootPath string) error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	for name := range c.datas {
+		if err := c.writeClassToFileLocked(name, rootPath); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// WriteClassToFile writes a single class to file.
+// This method is safe for concurrent use.
+func (c *Classifier) WriteClassToFile(name Class, rootPath string) error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.writeClassToFileLocked(name, rootPath)
+}
+
+// writeClassToFileLocked writes a single class to file (caller must hold lock).
+func (c *Classifier) writeClassToFileLocked(name Class, rootPath string) error {
+	data := c.datas[name]
+	fileName := filepath.Join(rootPath, string(name))
+	file, err := os.OpenFile(fileName, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	return gob.NewEncoder(file).Encode(data)
+}
+
+// WriteGob serializes this classifier to GOB and writes to Writer.
+// This method is safe for concurrent use.
+func (c *Classifier) WriteGob(w io.Writer) (err error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.writeGobLocked(w)
+}
+
+// writeGobLocked serializes this classifier to GOB (caller must hold lock).
+func (c *Classifier) writeGobLocked(w io.Writer) (err error) {
+	enc := gob.NewEncoder(w)
+	err = enc.Encode(&serializableClassifier{c.Classes, c.learned, int(atomic.LoadInt32(&c.seen)), c.datas, c.tfIdf, c.DidConvertTfIdf})
+	return
+}
+
+// ReadClassFromFile loads existing class data from a
+// file.
+// This method is safe for concurrent use.
+func (c *Classifier) ReadClassFromFile(class Class, location string) (err error) {
+	fileName := filepath.Join(location, string(class))
+	file, err := os.Open(fileName)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	dec := gob.NewDecoder(file)
+	w := new(classData)
+	err = dec.Decode(w)
+	if err != nil {
+		return err
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.learned++
+	c.datas[class] = w
+	return
+}
+
+// WordsByClass returns a map of words and their probability of
+// appearing in the given class.
+// This method is safe for concurrent use.
+func (c *Classifier) WordsByClass(class Class) (freqMap map[string]float64) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	freqMap = make(map[string]float64)
+	data := c.datas[class]
+	if data == nil || data.Total == 0 {
+		return freqMap
+	}
+	total := float64(data.Total)
+	for word, cnt := range data.Freqs {
+		freqMap[word] = cnt / total
+	}
+	return freqMap
 }
 
 func panicIfAlreadyConverted() {
@@ -375,17 +701,17 @@ func panicIfAlreadyConverted() {
 // maximum from the set -- then strict has return value
 // true. Otherwise it is false.
 func findMax(scores []float64) (int, bool) {
-	ixn := 0
+	inx := 0
 	strict := true
 
 	for i := 1; i < len(scores); i++ {
-		if scores[ixn] < scores[i] {
-			ixn = i
+		if scores[inx] < scores[i] {
+			inx = i
 			strict = true
-		} else if scores[ixn] == scores[i] {
+		} else if scores[inx] == scores[i] {
 			strict = false
 		}
 	}
 
-	return ixn, strict
+	return inx, strict
 }
