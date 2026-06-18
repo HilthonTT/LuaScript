@@ -6,6 +6,7 @@ import (
 	"encoding/gob"
 	"errors"
 	"io"
+	"math"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -252,7 +253,7 @@ func (c *Classifier) Learn(document []string, which Class) {
 	// in ConvertToIDF().
 	if c.tfIdf {
 		if c.DidConvertTfIdf {
-			panic("Cannot call ConvertTermsFreqToTfIdf more than once. Reset and relearn to reconvert.")
+			panicIfAlreadyConverted()
 		}
 
 		// Term Frequency: word count in document / document length
@@ -276,4 +277,115 @@ func (c *Classifier) Learn(document []string, which Class) {
 		data.Total++
 	}
 	c.learned++
+}
+
+// ConvertTermsFreqToTfIdf uses all the TF samples for the class and converts
+// them to TF-IDF https://en.wikipedia.org/wiki/Tf%E2%80%93idf
+// once we have finished learning all the classes and have the totals.
+// This method is safe for concurrent use.
+func (c *Classifier) ConvertTermsFreqToTfIdf() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.DidConvertTfIdf {
+		panicIfAlreadyConverted()
+	}
+
+	for className := range c.datas {
+		for wIndex := range c.datas[className].FreqTfs {
+			tfIdfAdder := float64(0)
+
+			for tfSampleIndex := range c.datas[className].FreqTfs[wIndex] {
+				// we always want a positive TF-IDF score.
+				tf := c.datas[className].FreqTfs[wIndex][tfSampleIndex]
+				c.datas[className].FreqTfs[wIndex][tfSampleIndex] = math.Log1p(tf) * math.Log1p(float64(c.learned)) / float64(c.datas[className].Total)
+				tfIdfAdder += c.datas[className].FreqTfs[wIndex][tfSampleIndex]
+			}
+			// convert the 'counts' to TF-IDF's
+			c.datas[className].Freqs[wIndex] = tfIdfAdder
+		}
+	}
+
+	c.DidConvertTfIdf = true
+}
+
+// LogScores produces "log-likelihood"-like scores that can
+// be used to classify documents into classes.
+//
+// The value of the score is proportional to the likelihood,
+// as determined by the classifier, that the given document
+// belongs to the given class. This is true even when scores
+// returned are negative, which they will be (since we are
+// taking logs of probabilities).
+//
+// The index j of the score corresponds to the class given
+// by c.Classes[j].
+//
+// Additionally returned are "inx" and "strict" values. The
+// inx corresponds to the maximum score in the array. If more
+// than one of the scores holds the maximum values, then
+// strict is false.
+//
+// Unlike c.Probabilities(), this function is not prone to
+// floating point underflow and is relatively safe to use.
+// This method is safe for concurrent use.
+func (c *Classifier) LogScores(document []string) ([]float64, int, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if c.tfIdf && !c.DidConvertTfIdf {
+		panic("Using a TF-IDF classifier. Please call ConvertTermsFreqToTfIdf before calling LogScores.")
+	}
+
+	n := len(c.Classes)
+	scores := make([]float64, n)
+	priors := c.getPriors()
+
+	// Calculate the score for each class
+	for i, class := range c.Classes {
+		data := c.datas[class]
+		score := math.Log(priors[i])
+		for _, word := range document {
+			score += math.Log(data.getWordProb(word))
+		}
+		scores[i] = score
+	}
+
+	inx, strict := findMax(scores)
+	atomic.AddInt32(&c.seen, 1)
+	return scores, inx, strict
+}
+
+// Classify returns the most likely class for the given document
+// along with the log scores and whether the classification is strict.
+// This is a convenience wrapper around LogScores that returns the
+// Class directly instead of an index.
+func (c *Classifier) Classify(document []string) (Class, []float64, bool) {
+	scores, ixn, strict := c.LogScores(document)
+	class := c.Classes[ixn]
+	return class, scores, strict
+}
+
+func panicIfAlreadyConverted() {
+	panic("Cannot call ConvertTermsFreqToTfIdf more than once. Reset and relearn to reconvert.")
+}
+
+// findMax finds the maximum of a set of scores; if the
+// maximum is strict -- that is, it is the single unique
+// maximum from the set -- then strict has return value
+// true. Otherwise it is false.
+func findMax(scores []float64) (int, bool) {
+	ixn := 0
+	strict := true
+
+	for i := 1; i < len(scores); i++ {
+		if scores[ixn] < scores[i] {
+			ixn = i
+			strict = true
+		} else if scores[ixn] == scores[i] {
+			strict = false
+		}
+	}
+
+	return ixn, strict
 }
