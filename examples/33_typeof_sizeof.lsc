@@ -1,0 +1,46 @@
+--!nocheck
+-- typeof / sizeof: finer-grained reflection over runtime values.
+--
+-- `type` collapses integers and floats into "number"; `typeof` keeps them
+-- apart and also honours a `__type` field on a table's metatable so custom
+-- classes can name themselves. `sizeof` reports a C-like byte size for scalars
+-- and the entry count for tables.
+
+print("=== typeof ===")
+print("typeof(nil)      =", typeof(nil))        -- nil
+print("typeof(true)     =", typeof(true))       -- boolean
+print("typeof(10)       =", typeof(10))         -- integer
+print("typeof(2.5)      =", typeof(2.5))        -- float
+print("typeof('hi')     =", typeof("hi"))       -- string
+print("typeof({})       =", typeof({}))         -- table
+print("typeof(print)    =", typeof(print))      -- function
+print()
+
+print("=== type vs typeof ===")
+print("type(10)         =", type(10), "/ typeof(10)  =", typeof(10))
+print("type(2.5)        =", type(2.5), "/ typeof(2.5) =", typeof(2.5))
+print()
+
+print("=== __type metatable hook ===")
+local Vector3 = {}
+Vector3.__index = Vector3
+Vector3.__type = "Vector3"
+
+local function newVector3(x, y, z)
+    return setmetatable({ x = x, y = y, z = z }, Vector3)
+end
+
+local v = newVector3(1, 2, 3)
+print("typeof(v)        =", typeof(v))          -- Vector3 (via metatable)
+print("type(v)          =", type(v))            -- table
+print()
+
+print("=== sizeof ===")
+print("sizeof(nil)      =", sizeof(nil))        -- 0
+print("sizeof(true)     =", sizeof(true))       -- 1
+print("sizeof(10)       =", sizeof(10))         -- 8 (int64)
+print("sizeof(3.14)     =", sizeof(3.14))       -- 8 (float64)
+print("sizeof('hello')  =", sizeof("hello"))    -- 5 (byte length)
+print("sizeof({1,2,3})  =", sizeof({ 1, 2, 3 })) -- 3 entries
+print("sizeof(mixed)    =", sizeof({ 1, 2, a = 3, b = 4 })) -- 4 entries
+print("sizeof(print)    =", sizeof(print))      -- 8 (reference)

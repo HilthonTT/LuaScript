@@ -51,6 +51,8 @@ func registerStdlib(v *VM) {
 	g("assert", builtinAssert)
 	g("select", builtinSelect)
 	g("collectgarbage", builtinCollectgarbage)
+	g("typeof", builtinTypeof)
+	g("sizeof", builtinSizeof)
 
 	// Metatable controls.
 	g("setmetatable", builtinSetmetatable)
@@ -175,6 +177,78 @@ func builtinTonumber(_ *VM, args []Value) []Value {
 		return []Value{i}
 	}
 	return []Value{f}
+}
+
+// builtinTypeof is a finer-grained companion to `type`. Where `type` collapses
+// both integer and float subtypes into "number", typeof reports them
+// separately ("integer"/"float"), and for tables it honours a `__type` string
+// field on the metatable (Luau-style) so user-defined classes can name
+// themselves. Everything else matches `type`'s tags.
+func builtinTypeof(v *VM, args []Value) []Value {
+	if len(args) == 0 {
+		return []Value{"nil"}
+	}
+
+	switch x := args[0].(type) {
+	case nil:
+		return []Value{"nil"}
+	case bool:
+		return []Value{"boolean"}
+	case int64:
+		return []Value{"integer"}
+	case float64:
+		return []Value{"float"}
+	case string:
+		return []Value{"string"}
+	case *Table:
+		if mt := x.Metatable(); mt != nil {
+			if name, ok := mt.Get("__type").(string); ok {
+				return []Value{name}
+			}
+		}
+		return []Value{"table"}
+	case *Closure, *GoFunc:
+		return []Value{"function"}
+	case *Coroutine:
+		return []Value{"thread"}
+	default:
+		return []Value{TypeName(x)}
+	}
+}
+
+// builtinSizeof reports the in-memory size of a value in bytes, with C-like
+// semantics for the fixed-width scalar types:
+//
+//	nil       → 0
+//	boolean   → 1
+//	integer   → 8   (int64)
+//	float     → 8   (float64)
+//	string    → byte length of the contents
+//	table     → number of key/value entries it holds
+//
+// Functions and threads are reference types; sizeof reports the size of the
+// reference (8 bytes on a 64-bit host).
+func builtinSizeof(_ *VM, args []Value) []Value {
+	if len(args) == 0 {
+		return []Value{int64(0)}
+	}
+
+	switch x := args[0].(type) {
+	case nil:
+		return []Value{int64(0)}
+	case bool:
+		return []Value{int64(1)}
+	case int64:
+		return []Value{int64(8)}
+	case float64:
+		return []Value{int64(8)}
+	case string:
+		return []Value{int64(len(x))}
+	case *Table:
+		return []Value{x.EntryCount()}
+	default:
+		return []Value{int64(8)}
+	}
 }
 
 // ipairs iterator: (state, ctrl) -> next-int-key, value or nil to stop.

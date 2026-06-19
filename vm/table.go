@@ -177,6 +177,20 @@ func (t *Table) Len() int64 {
 	return int64(len(t.array))
 }
 
+// EntryCount returns the total number of key/value pairs stored in the table:
+// the non-nil entries in the array part plus every live entry in the hash part.
+// Unlike Len it counts past array holes and includes non-integer keys, so it
+// reflects the table's actual occupancy rather than its Lua border length.
+func (t *Table) EntryCount() int64 {
+	n := int64(len(t.hash))
+	for _, v := range t.array {
+		if v != nil {
+			n++
+		}
+	}
+	return n
+}
+
 // Append pushes v onto the end of the array part. Used by SetList to bulk-fill.
 func (t *Table) Append(v Value) {
 	t.array = append(t.array, v)
