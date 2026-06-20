@@ -2,6 +2,8 @@ package main
 
 import (
 	"github.com/hilthontt/luascript/native/bit32"
+	"github.com/hilthontt/luascript/native/classification"
+	"github.com/hilthontt/luascript/native/clustering"
 	"github.com/hilthontt/luascript/native/compression"
 	"github.com/hilthontt/luascript/native/crypto"
 	"github.com/hilthontt/luascript/native/db"
@@ -52,6 +54,8 @@ var nativeRegistrars = []func(*vm.VM){
 	logx.RegisterLogPreload,
 	debugx.RegisterDebugPreload,
 	ui.RegisterUIPreload,
+	clustering.RegisterClusteringPreload,
+	classification.RegisterClassificationPreload,
 	// enumrt installs an internal global (__enum_freeze) the bytecode
 	// generator calls when lowering `enum` declarations. Not a require()
 	// target — placed in nativeRegistrars purely so it lands on both the

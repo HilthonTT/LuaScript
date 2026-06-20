@@ -1,0 +1,89 @@
+--!nocheck
+-- Classification native module: supervised learning. Includes a Naive
+-- Bayes text classifier plus numeric classifiers (KNN, perceptron,
+-- logistic regression).
+local classification = require("classification")
+
+print("=== Classification Module ===")
+print("VERSION:", classification.VERSION)
+print()
+
+-- 1) Naive Bayes text classifier -------------------------------------------
+-- Construct with two or more class names, then learn tokenized documents.
+print("--- Naive Bayes (spam vs ham) ---")
+local nb = classification.naivebayes("spam", "ham")
+nb:learn({ "buy", "cheap", "pills", "now" }, "spam")
+nb:learn({ "cheap", "loan", "offer", "buy" }, "spam")
+nb:learn({ "lunch", "meeting", "tomorrow" }, "ham")
+nb:learn({ "see", "you", "at", "lunch" }, "ham")
+
+local class, scores, strict = nb:classify({ "cheap", "buy", "now" })
+print("classify {cheap, buy, now} ->", class, "(strict:", strict, ")")
+local probClass, probs = nb:classifyProb({ "lunch", "meeting" })
+print("classifyProb {lunch, meeting} ->", probClass)
+print(string.format("  P(spam)=%.4f  P(ham)=%.4f", probs[1], probs[2]))
+print("documents learned:", nb:learned())
+print()
+
+-- A small labelled numeric dataset: two classes "A" (low) and "B" (high).
+local features = {
+  { 1.0, 1.0 },
+  { 1.5, 2.0 },
+  { 2.0, 1.5 },
+  { 8.0, 8.0 },
+  { 9.0, 8.5 },
+  { 8.5, 9.0 },
+}
+local labels = { "A", "A", "A", "B", "B", "B" }
+
+-- 2) K-nearest neighbours ---------------------------------------------------
+print("--- K-Nearest Neighbours (k = 3) ---")
+local knn = classification.knn(3)
+knn:fit(features, labels)
+print("predict (1.2, 1.3) ->", knn:predict({ 1.2, 1.3 }))
+print("predict (8.7, 8.2) ->", knn:predict({ 8.7, 8.2 }))
+print()
+
+-- 3) Perceptron -------------------------------------------------------------
+print("--- Perceptron ---")
+local p = classification.perceptron({ lr = 0.1, epochs = 50 })
+p:fit(features, labels)
+print("predict (2.0, 2.0) ->", p:predict({ 2.0, 2.0 }))
+print("predict (9.0, 9.0) ->", p:predict({ 9.0, 9.0 }))
+print()
+
+-- 4) Logistic regression (also exposes calibrated probabilities) ------------
+print("--- Logistic Regression ---")
+local lr = classification.logistic({ lr = 0.5, epochs = 500 })
+lr:fit(features, labels)
+local x = { 7.5, 8.0 }
+print(string.format("predict (%.1f, %.1f) -> %s  P(positive)=%.4f",
+  x[1], x[2], lr:predict(x), lr:predict_proba(x)))
+local y = { 1.0, 1.5 }
+print(string.format("predict (%.1f, %.1f) -> %s  P(positive)=%.4f",
+  y[1], y[2], lr:predict(y), lr:predict_proba(y)))
+print()
+
+-- 5) Support Vector Machine -------------------------------------------------
+-- A linear kernel handles the separable blobs above.
+print("--- SVM (linear kernel) ---")
+local svm = classification.svm({ kernel = "linear", C = 1.0, maxIter = 200 })
+svm:fit(features, labels)
+print("support vectors:", svm:support_vectors())
+print(string.format("predict (2, 2) -> %s  (margin %.3f)",
+  svm:predict({ 2, 2 }), svm:decision_function({ 2, 2 })))
+print(string.format("predict (9, 9) -> %s  (margin %.3f)",
+  svm:predict({ 9, 9 }), svm:decision_function({ 9, 9 })))
+print()
+
+-- An RBF kernel separates data no straight line can (XOR-like layout).
+print("--- SVM (RBF kernel, non-linear) ---")
+local xorFeatures = {
+  { 0, 0 }, { 0.1, 0.1 }, { 1, 1 }, { 0.9, 1.1 },
+  { 0, 1 }, { 0.1, 0.9 }, { 1, 0 }, { 1.1, 0.1 },
+}
+local xorLabels = { "in", "in", "in", "in", "out", "out", "out", "out" }
+local rbf = classification.svm({ kernel = "rbf", gamma = 2.0, C = 10.0, maxIter = 300 })
+rbf:fit(xorFeatures, xorLabels)
+print("predict (0.05, 0.05) ->", rbf:predict({ 0.05, 0.05 }))
+print("predict (0.95, 0.05) ->", rbf:predict({ 0.95, 0.05 }))
