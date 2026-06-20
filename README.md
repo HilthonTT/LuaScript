@@ -10,6 +10,22 @@ The surface syntax tracks **Lua 5.4** as closely as possible — the same chunks
 
 The implementation is a clean-room rewrite focused on being readable end-to-end: lex → parse → typecheck → bytecode → stack VM. No LLVM, no JIT, no surprises.
 
+## Contents
+
+- [Status](#status)
+- [Quick start](#quick-start)
+- [Bundling a script into a standalone .exe](#bundling-a-script-into-a-standalone-exe)
+- [Desktop UI module (opt-in)](#desktop-ui-module-opt-in)
+- [Bonsai mode](#bonsai-mode)
+- [Examples](#examples)
+- [Type system](#type-system)
+- [REPL](#repl)
+- [Project layout](#project-layout)
+- [Non-goals (for now)](#non-goals-for-now)
+- [Contributing](#contributing)
+- [Inspirations](#inspirations)
+- [License](#license)
+
 ## Status
 
 - **Lexer** — Lua 5.4 tokens, long-bracket strings/comments, hex/exponent numbers, `--!strict` / `--!nonstrict` / `--!nocheck` mode directives.
@@ -17,8 +33,8 @@ The implementation is a clean-room rewrite focused on being readable end-to-end:
 - **Type checker** — gradual: untyped code is implicitly `any`; annotations opt in. Primitives, function types, optionals, unions, type aliases (including structural table shapes), type assertions. Stdlib has hand-written signatures so `math.sqrt(true)` is a compile error.
 - **Bytecode** — stack-based with closure upvalues, vararg passing, generic-`for` iteration, and a one-time scan that fills `NumLocals` at runtime where the generator left it blank. Types are erased before this stage — the VM never sees them.
 - **VM** — closures, metatables, coroutines (via goroutines + channels), `pcall`/`error` unwinding.
-- **Standard library** — `print`/`tostring`/`tonumber`, `ipairs`/`pairs`/`next`, `pcall`/`assert`/`error`, raw and metatable helpers, plus `math`, `string` (full Lua pattern surface: `find`/`match`/`gmatch`/`gsub`), `table`, `io.write`/`read`, `coroutine`, and `package`/`require`. `__tostring` is honoured by `tostring`, `print`, `io.write`, `error`, and the REPL.
-- **Native modules** — `require("…")` for `db`, `os`, `math`, `json`, `http` (client), `httpserver`, `crypto`, `time`, `regexp`, `uuid`, `sort`, `compression`, `bit32`, `utf8`, `io`, `log`, `debug`, and `std` (stack/queue/deque/set/list/heap/hashmap). All ship by default; `cmd/natives.go::nativeRegistrars` is the single source of truth. The Fyne-backed `ui` GUI module is **opt-in** behind the `luascript_ui` build tag (it pulls in OpenGL/cgo) — see [Desktop UI module](#desktop-ui-module-opt-in).
+- **Standard library** — `print`/`tostring`/`tonumber`, `ipairs`/`pairs`/`next`, `pcall`/`assert`/`error`, `type` plus the `typeof`/`sizeof` reflection builtins, raw and metatable helpers, plus `math`, `string` (full Lua pattern surface: `find`/`match`/`gmatch`/`gsub`), `table`, `io.write`/`read`, `coroutine`, and `package`/`require`. `__tostring` is honoured by `tostring`, `print`, `io.write`, `error`, and the REPL.
+- **Native modules** — `require("…")` for `db`, `os`, `math`, `json`, `http` (client), `httpserver`, `crypto`, `time`, `regexp`, `uuid`, `sort`, `compression`, `bit32`, `utf8`, `io`, `log`, `debug`, `std` (stack/queue/deque/set/list/heap/hashmap), `clustering` (k-means/DBSCAN/hierarchical/mean-shift), and `classification` (Naive Bayes/KNN/perceptron/logistic/SVM). All ship by default; `cmd/natives.go::nativeRegistrars` is the single source of truth. The Fyne-backed `ui` GUI module is **opt-in** behind the `luascript_ui` build tag (it pulls in OpenGL/cgo) — see [Desktop UI module](#desktop-ui-module-opt-in).
 - **Enums** — `enum Name V1, V2 end` declares an int-auto-increment, frozen-via-`__newindex`-proxy table. Lowered at parse time; typecheck treats the alias as `number`.
 - **Defer** — `defer cleanup()` schedules a call to run when the enclosing function exits, in last-in-first-out order, on normal return **and** when an error unwinds the frame (caught by `pcall`). Lowered to a frame-local closure list; ideal for paired acquire/release. Capture is by upvalue, so a deferred call sees a variable's value at exit time (unlike Go, which snapshots arguments eagerly).
 - **REPL** — readline-driven, history-backed, with continuation prompts for incomplete input. Top-level `local` declarations persist across REPL chunks (a deliberate convenience deviation from `lua`). Type-check errors are surfaced with a distinct `type-error:` prefix.
@@ -180,6 +196,10 @@ repo root with `go run ./cmd examples/<file>`:
 | `30_std_module.lsc`            | the `std` native module — stack, queue, deque, set, list, heap (requires `cmp`), hashmap                                              |
 | `31_ui_module.lsc`             | the `ui` desktop module (Fyne) — windows, widgets, layouts. Run with `-tags luascript_ui` (see [Desktop UI module](#desktop-ui-module-opt-in)) |
 | `32_defer.lsc`                 | `defer call()` — LIFO cleanup that runs on normal return, fall-off-end, and error unwinding                                            |
+| `33_typeof_sizeof.lsc`         | the `typeof` / `sizeof` reflection builtins — int/float distinction, `__type` metatable hook, byte/entry sizes                        |
+| `34_clustering_module.lsc`     | the `clustering` native module — k-means (k-means++ seeding), DBSCAN, hierarchical/agglomerative, mean-shift                          |
+| `35_classification_module.lsc` | the `classification` native module — Naive Bayes (text), KNN, perceptron, logistic regression, SVM (linear + RBF kernels)            |
+| `36_math.lsc`                  | the `math` native module in depth — Lua 5.4 scalar surface plus statistics helpers (`mean`/`variance`/`standard_deviation`/`softmax`) |
 
 ### Running the module examples
 

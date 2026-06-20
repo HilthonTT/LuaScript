@@ -8,6 +8,7 @@ package sort
 import (
 	stdsort "sort"
 
+	"github.com/hilthontt/luascript/native"
 	"github.com/hilthontt/luascript/vm"
 )
 
@@ -77,20 +78,26 @@ func cmpIsSorted(v *vm.VM, t *vm.Table, cmp vm.Value, site string) bool {
 // that path is hard-wired to non-stable algorithms; the duplication is
 // small and easier to follow than threading a stable-flag through.
 func stableDefault(t *vm.Table) {
-	arr, err := extractArray(t)
+	arr, err := native.ExtractArray(t)
 	if err != nil {
 		panic(vm.Errorf("sort.stable: %s", err.Error()))
 	}
 	switch a := arr.(type) {
 	case []int64:
-		stdsort.SliceStable(a, func(i, j int) bool { return a[i] < a[j] })
-		writeBack(t, a)
+		stdsort.SliceStable(a, func(i, j int) bool {
+			return a[i] < a[j]
+		})
+		native.WriteBack(t, a)
 	case []float64:
-		stdsort.SliceStable(a, func(i, j int) bool { return a[i] < a[j] })
-		writeBack(t, a)
+		stdsort.SliceStable(a, func(i, j int) bool {
+			return a[i] < a[j]
+		})
+		native.WriteBack(t, a)
 	case []string:
-		stdsort.SliceStable(a, func(i, j int) bool { return a[i] < a[j] })
-		writeBack(t, a)
+		stdsort.SliceStable(a, func(i, j int) bool {
+			return a[i] < a[j]
+		})
+		native.WriteBack(t, a)
 	}
 }
 

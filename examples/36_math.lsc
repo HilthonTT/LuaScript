@@ -1,0 +1,60 @@
+--!nocheck
+-- The `math` native module: the Lua 5.4 math surface plus a few statistics
+-- helpers (mean, variance, standard deviation, softmax) that operate on arrays.
+local math = require("math")
+
+print("math module v" .. math.VERSION)
+
+-- Constants ------------------------------------------------------------------
+print("pi   =", math.pi)
+print("e    =", math.e)
+print("phi  =", math.phi)
+print("huge =", math.huge)
+print("maxinteger =", math.maxinteger)
+print("mininteger =", math.mininteger)
+
+-- Scalar functions -----------------------------------------------------------
+print("abs(-3)    =", math.abs(-3))      -- 3  (stays an integer)
+print("abs(-3.5)  =", math.abs(-3.5))    -- 3.5
+print("floor(3.7) =", math.floor(3.7))   -- 3  (integer, not 3.0)
+print("ceil(3.2)  =", math.ceil(3.2))    -- 4
+print("sqrt(16)   =", math.sqrt(16))
+print("pow(2, 10) =", math.pow(2, 10))
+
+-- log defaults to natural log; an optional base is supported.
+print("log(e)      =", math.log(math.e)) -- 1
+print("log(8, 2)   =", math.log(8, 2))   -- 3
+print("log(1000,10)=", math.log(1000, 10))
+
+-- tointeger returns nil when there is no exact integer representation.
+print("tointeger(5.0) =", math.tointeger(5.0)) -- 5
+print("tointeger(5.5) =", math.tointeger(5.5)) -- nil
+
+-- ult compares two integers as *unsigned* values.
+print("ult(1, 2)  =", math.ult(1, 2))    -- true
+print("ult(-1, 1) =", math.ult(-1, 1))   -- false (-1 is huge unsigned)
+
+-- max/min accept a variadic list of numbers or a single array table.
+print("max(3, 9, 1) =", math.max(3, 9, 1))
+print("min(3, 9, 1) =", math.min(3, 9, 1))
+
+-- Array statistics -----------------------------------------------------------
+local array = { 1, 5, 9, 10, 3, 3, 8, 202 }
+
+print("max(array)      =", math.max(array))
+print("min(array)      =", math.min(array))
+print("mean(array)     =", math.mean(array))
+print("variance(array) =", math.variance(array))
+print("std_dev(array)  =", math.standard_deviation(array))
+
+-- softmax turns scores into a probability distribution (sums to 1).
+local probs = math.softmax({ 1, 2, 3 })
+print("softmax({1,2,3}):")
+for i, p in ipairs(probs) do
+    print("  [" .. i .. "] = " .. p)
+end
+
+-- random: random() in [0,1), random(m) in [1,m], random(m,n) in [m,n].
+print("random()     in [0,1) ->", math.random())
+print("random(6)    in [1,6] ->", math.random(6))
+print("random(10,20) in [10,20] ->", math.random(10, 20))
