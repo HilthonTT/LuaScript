@@ -6,6 +6,8 @@ import (
 	"github.com/hilthontt/luascript/native/clustering"
 	"github.com/hilthontt/luascript/native/compression"
 	"github.com/hilthontt/luascript/native/crypto"
+	"github.com/hilthontt/luascript/native/csv"
+	"github.com/hilthontt/luascript/native/dataframe"
 	"github.com/hilthontt/luascript/native/db"
 	"github.com/hilthontt/luascript/native/debugx"
 	"github.com/hilthontt/luascript/native/enumrt"
@@ -13,11 +15,13 @@ import (
 	"github.com/hilthontt/luascript/native/httpserver"
 	"github.com/hilthontt/luascript/native/iox"
 	"github.com/hilthontt/luascript/native/json"
+	"github.com/hilthontt/luascript/native/linalg"
 	"github.com/hilthontt/luascript/native/logx"
 	"github.com/hilthontt/luascript/native/math"
 	osNative "github.com/hilthontt/luascript/native/os"
 	regexpNative "github.com/hilthontt/luascript/native/regexp"
 	"github.com/hilthontt/luascript/native/sort"
+	"github.com/hilthontt/luascript/native/stats"
 	"github.com/hilthontt/luascript/native/std"
 	"github.com/hilthontt/luascript/native/timex"
 	"github.com/hilthontt/luascript/native/ui"
@@ -56,6 +60,10 @@ var nativeRegistrars = []func(*vm.VM){
 	ui.RegisterUIPreload,
 	clustering.RegisterClusteringPreload,
 	classification.RegisterClassificationPreload,
+	stats.RegisterStatsPreload,
+	linalg.RegisterLinalgPreload,
+	csv.RegisterCSVPreload,
+	dataframe.RegisterDataFramePreload,
 	// enumrt installs an internal global (__enum_freeze) the bytecode
 	// generator calls when lowering `enum` declarations. Not a require()
 	// target — placed in nativeRegistrars purely so it lands on both the

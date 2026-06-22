@@ -1,0 +1,42 @@
+--!nocheck
+-- CSV native module: parse/serialize CSV text and read/write CSV files.
+-- Quoting, embedded commas and custom delimiters are handled for you.
+local csv = require("csv")
+local os = require("os")
+
+print("=== CSV Module ===")
+print("VERSION:", csv.VERSION)
+print()
+
+local text = "name,age,city\nAda,36,London\nGrace,40,\"New York, NY\"\n"
+
+-- 1) Parse without a header -> array of string arrays ------------------------
+print("--- parse (no header) ---")
+local rows = csv.parse(text)
+for i = 1, #rows do
+  print(i, table.concat(rows[i], " | "))
+end
+print()
+
+-- 2) Parse with a header + numeric coercion -> array of records --------------
+print("--- parse (header + numbers) ---")
+local records = csv.parse(text, { header = true, numbers = true })
+for i = 1, #records do
+  local r = records[i]
+  print(string.format("%s is %d, lives in %s", r.name, r.age, r.city))
+end
+print()
+
+-- 3) Stringify records back to CSV (column order is explicit) ----------------
+print("--- stringify ---")
+local out = csv.stringify(records, { header = true, columns = { "name", "age", "city" } })
+io.write(out)
+print()
+
+-- 4) Round-trip through a file ----------------------------------------------
+print("--- read / write a file ---")
+local path = os.tmpname()
+csv.write(path, records, { header = true, columns = { "name", "age", "city" } })
+local back = csv.read(path, { header = true, numbers = true })
+print("read back", #back, "records; first city =", back[1].city)
+os.remove(path)

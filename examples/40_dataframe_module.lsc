@@ -1,0 +1,53 @@
+--!nocheck
+-- DataFrame native module: a column-oriented, pandas-style table. Every
+-- transforming method returns a NEW DataFrame, so chains never mutate the
+-- original. print(df) renders an aligned preview via __tostring.
+local dataframe = require("dataframe")
+
+print("=== DataFrame Module ===")
+print("VERSION:", dataframe.VERSION)
+print()
+
+-- 1) Build from columns -----------------------------------------------------
+local df = dataframe.new({
+  name   = { "Ada", "Grace", "Linus", "Margaret", "Dennis" },
+  dept   = { "eng", "eng", "eng", "sci", "sci" },
+  salary = { 120, 140, 95, 110, 130 },
+  age    = { 36, 40, 28, 45, 33 },
+})
+
+print("--- full frame ---")
+print(df)
+local r, c = df:shape()
+print(string.format("shape: %d rows x %d cols", r, c))
+print()
+
+-- 2) Inspect ----------------------------------------------------------------
+print("--- head(3) ---")
+print(df:head(3))
+print()
+
+-- 3) Select / derive / filter / sort (chained, non-mutating) ----------------
+print("--- engineers earning > 100, with a bonus column, sorted desc ---")
+local top = df
+  :filter(function(row) return row.dept == "eng" and row.salary > 100 end)
+  :with_column("bonus", function(row) return row.salary * 0.1 end)
+  :select({ "name", "salary", "bonus" })
+  :sort("salary", true)
+print(top)
+print()
+
+-- 4) Group-by aggregation ---------------------------------------------------
+print("--- mean salary and head-count per department ---")
+local grouped = df:group_by("dept", { salary = "mean", age = "max", name = "count" })
+print(grouped)
+print()
+
+-- 5) Summary statistics -----------------------------------------------------
+print("--- describe (numeric columns only) ---")
+print(df:describe())
+print()
+
+-- 6) Interop: to CSV text ---------------------------------------------------
+print("--- to_csv ---")
+io.write(df:select({ "name", "salary" }):to_csv())

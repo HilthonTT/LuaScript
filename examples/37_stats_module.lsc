@@ -1,0 +1,63 @@
+--!nocheck
+-- Stats native module: descriptive and inferential statistics over numeric
+-- arrays. Everything takes a plain array of numbers; the relationship
+-- functions take two equal-length arrays.
+local stats = require("stats")
+
+print("=== Stats Module ===")
+print("VERSION:", stats.VERSION)
+print()
+
+local sample = { 2, 4, 4, 4, 5, 5, 7, 9 }
+
+-- 1) Central tendency -------------------------------------------------------
+print("--- central tendency ---")
+print("mean:   ", stats.mean(sample))
+print("median: ", stats.median(sample))
+print("mode:   ", stats.mode(sample))
+print()
+
+-- 2) Spread -----------------------------------------------------------------
+print("--- spread ---")
+print(string.format("variance (sample): %.4f", stats.variance(sample)))
+print(string.format("stddev   (sample): %.4f", stats.stddev(sample)))
+print(string.format("stddev   (pop):    %.4f", stats.pstddev(sample)))
+print("range:  ", stats.range(sample))
+print("iqr:    ", stats.iqr(sample))
+print()
+
+-- 3) Quantiles / summary ----------------------------------------------------
+print("--- quantiles ---")
+print("p25:    ", stats.percentile(sample, 25))
+print("p50:    ", stats.percentile(sample, 50))
+print("p90:    ", stats.percentile(sample, 90))
+
+local d = stats.describe(sample)
+print(string.format("describe: count=%d mean=%.2f std=%.2f min=%g q1=%g median=%g q3=%g max=%g",
+  d.count, d.mean, d.std, d.min, d.q1, d.median, d.q3, d.max))
+print()
+
+-- 4) Shape ------------------------------------------------------------------
+print("--- shape ---")
+print(string.format("skewness: %.4f", stats.skewness(sample)))
+print(string.format("kurtosis: %.4f", stats.kurtosis(sample)))
+print()
+
+-- 5) Relationships ----------------------------------------------------------
+print("--- relationships ---")
+local x = { 1, 2, 3, 4, 5 }
+local y = { 2.1, 3.9, 6.2, 7.8, 10.1 } -- roughly y = 2x
+print(string.format("covariance:  %.4f", stats.covariance(x, y)))
+print(string.format("correlation: %.4f", stats.correlation(x, y)))
+print()
+
+-- 6) Feature transforms (return new arrays) ---------------------------------
+print("--- transforms ---")
+local function show(label, arr)
+  local parts = {}
+  for i = 1, #arr do parts[i] = string.format("%.3f", arr[i]) end
+  print(label, "[" .. table.concat(parts, ", ") .. "]")
+end
+show("zscore:   ", stats.zscore(x))
+show("normalize:", stats.normalize(x))
+show("cumsum:   ", stats.cumsum(x))
