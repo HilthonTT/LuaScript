@@ -167,27 +167,27 @@ func newMath() *vm.Table {
 	// max / min accept either a single array table or a variadic list of
 	// numbers: math.max({1, 5, 3}) and math.max(1, 5, 3) both return 5.
 	methods.Set("max", &vm.GoFunc{Name: "math:max", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
-		return []vm.Value{maxOf(numbersArg("math.max", args))}
+		return []vm.Value{native.MaxOf(numbersArg("math.max", args))}
 	}})
 
 	methods.Set("min", &vm.GoFunc{Name: "math:min", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
-		return []vm.Value{minOf(numbersArg("math.min", args))}
+		return []vm.Value{native.MinOf(numbersArg("math.min", args))}
 	}})
 
 	methods.Set("mean", &vm.GoFunc{Name: "math:mean", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
-		return []vm.Value{mean(numbersArg("math.mean", args))}
+		return []vm.Value{native.Meanf(numbersArg("math.mean", args))}
 	}})
 
 	methods.Set("variance", &vm.GoFunc{Name: "math:variance", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
-		return []vm.Value{variance(numericTableArg("math.variance", args))}
+		return []vm.Value{native.Variancef(numericTableArg("math.variance", args))}
 	}})
 
 	methods.Set("standard_deviation", &vm.GoFunc{Name: "math:standard_deviation", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
-		return []vm.Value{standardDeviation(numericTableArg("math.standard_deviation", args))}
+		return []vm.Value{native.Stddevf(numericTableArg("math.standard_deviation", args))}
 	}})
 
 	methods.Set("softmax", &vm.GoFunc{Name: "math:softmax", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
-		return []vm.Value{floatSliceToTable(softmax(numericTableArg("math.softmax", args)))}
+		return []vm.Value{floatSliceToTable(native.Softmax(numericTableArg("math.softmax", args)))}
 	}})
 
 	mt := vm.NewTable(0, 1)

@@ -24,6 +24,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/hilthontt/luascript/native"
 	"github.com/hilthontt/luascript/vm"
 )
 
@@ -536,8 +537,8 @@ func (d *DataFrame) describe() *DataFrame {
 		out.order = append(out.order, name)
 		out.cols[name] = []vm.Value{
 			int64(len(xs)),
-			meanf(xs),
-			stddevf(xs),
+			native.Meanf(xs),
+			native.Stddevf(xs),
 			s[0],
 			quantile(s, 0.25),
 			quantile(s, 0.5),
@@ -617,10 +618,6 @@ func (d *DataFrame) render(maxRows int) string {
 	return strings.TrimRight(sb.String(), "\n")
 }
 
-// ---------------------------------------------------------------------------
-// Aggregation / numeric helpers
-// ---------------------------------------------------------------------------
-
 // reduce applies a named aggregation to the rows of col selected by idx.
 func reduce(col []vm.Value, idx []int, agg string) vm.Value {
 	switch agg {
@@ -648,19 +645,19 @@ func reduce(col []vm.Value, idx []int, agg string) vm.Value {
 	}
 	switch agg {
 	case "sum":
-		return sumf(xs)
+		return native.Sumf(xs)
 	case "mean", "avg":
-		return meanf(xs)
+		return native.Meanf(xs)
 	case "min":
-		return minf(xs)
+		return native.Minf(xs)
 	case "max":
-		return maxf(xs)
+		return native.Maxf(xs)
 	case "median":
 		return quantile(sortedCopy(xs), 0.5)
 	case "std":
-		return stddevf(xs)
+		return native.Stddevf(xs)
 	case "var":
-		return variancef(xs)
+		return native.Variancef(xs)
 	default:
 		panic(vm.Errorf("df:group_by: unknown aggregation %q (use sum, mean, min, max, median, std, var, count, first, last)", agg))
 	}
@@ -675,53 +672,6 @@ func numeric(v vm.Value) (float64, bool) {
 	default:
 		return 0, false
 	}
-}
-
-func sumf(xs []float64) float64 {
-	var s float64
-	for _, x := range xs {
-		s += x
-	}
-	return s
-}
-
-func meanf(xs []float64) float64 { return sumf(xs) / float64(len(xs)) }
-
-func variancef(xs []float64) float64 {
-	if len(xs) < 2 {
-		return 0
-	}
-	m := meanf(xs)
-	var ss float64
-	for _, x := range xs {
-		d := x - m
-		ss += d * d
-	}
-	return ss / float64(len(xs)-1)
-}
-
-func stddevf(xs []float64) float64 {
-	return math.Sqrt(variancef(xs))
-}
-
-func minf(xs []float64) float64 {
-	m := xs[0]
-	for _, x := range xs[1:] {
-		if x < m {
-			m = x
-		}
-	}
-	return m
-}
-
-func maxf(xs []float64) float64 {
-	m := xs[0]
-	for _, x := range xs[1:] {
-		if x > m {
-			m = x
-		}
-	}
-	return m
 }
 
 func sortedCopy(xs []float64) []float64 {
