@@ -700,7 +700,9 @@ func variancef(xs []float64) float64 {
 	return ss / float64(len(xs)-1)
 }
 
-func stddevf(xs []float64) float64 { return math.Sqrt(variancef(xs)) }
+func stddevf(xs []float64) float64 {
+	return math.Sqrt(variancef(xs))
+}
 
 func minf(xs []float64) float64 {
 	m := xs[0]

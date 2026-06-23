@@ -107,8 +107,6 @@ func NewREPL(v *vm.VM, _ io.Reader, out io.Writer) *REPL {
 		fmt.Fprintf(os.Stderr, "Warning: failed to initialize readline: %v\n", err)
 	}
 
-	v.InitForREPL()
-
 	return &REPL{
 		engine: newEngine(v),
 		rl:     rl,
@@ -144,7 +142,6 @@ func (r *REPL) runREPL() {
 			continue
 		case cmdReset:
 			r.vm = vm.New()
-			r.vm.InitForREPL()
 			r.runPostInits(r.vm)
 			r.engine = newEngine(r.vm)
 			fmt.Fprintf(r.out, "%s(REPL state reset — globals cleared)%s\n",
