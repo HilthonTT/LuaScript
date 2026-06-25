@@ -89,14 +89,15 @@ func Logistic(x, a float64) float64 {
 // Tanh is a hyperbolic activator
 type Tanh struct{}
 
-// F is Tanh(x)
+// F is Tanh(x). math.Tanh is a single, numerically stable call — cheaper and
+// more accurate than evaluating (1-e^-2x)/(1+e^-2x), which exponentiates twice.
 func (a Tanh) F(x float64) float64 {
-	return (1 - math.Exp(-2*x)) / (1 + math.Exp(-2*x))
+	return math.Tanh(x)
 }
 
 // Df is Tanh'(y), where y = Tanh(x)
 func (a Tanh) Df(y float64) float64 {
-	return 1 - math.Pow(y, 2)
+	return 1 - y*y
 }
 
 // ReLU is a rectified linear unit activator

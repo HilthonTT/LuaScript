@@ -1,0 +1,66 @@
+--!nocheck
+-- ml native module: a small feed-forward neural network engine.
+-- Pipeline: build a topology with ml.new, train it on labelled examples with
+-- net:train, then net:predict on new inputs. Networks serialize to JSON via
+-- net:marshal / ml.load, so a trained model can be saved and restored.
+local ml = require("ml")
+
+print("=== ML Module ===")
+print("VERSION:", ml.VERSION)
+print()
+
+-- 1) Build a network --------------------------------------------------------
+-- Classic XOR: 2 inputs -> one hidden layer of 4 tanh units -> 1 output.
+-- mode "binary" gives the output neuron a sigmoid, so predictions land in (0,1).
+local net = ml.new({
+  inputs     = 2,
+  layout     = { 4, 1 },
+  activation = "tanh",
+  mode       = "binary",
+  bias       = true,
+  weight     = { kind = "normal", stddev = 0.5 },
+})
+
+print("weights before training:", net:num_weights())
+print()
+
+-- 2) Training data ----------------------------------------------------------
+-- XOR is not linearly separable, so a plain perceptron can't learn it; the
+-- hidden layer is what makes it solvable.
+local data = {
+  { input = { 0, 0 }, response = { 0 } },
+  { input = { 0, 1 }, response = { 1 } },
+  { input = { 1, 0 }, response = { 1 } },
+  { input = { 1, 1 }, response = { 0 } },
+}
+
+-- 3) Train ------------------------------------------------------------------
+-- Adam converges quickly on this tiny problem. verbosity prints the loss (and,
+-- for classification modes, accuracy) on the validation set every N epochs.
+print("--- training ---")
+net:train({
+  data       = data,
+  validation = data,
+  iterations = 2000,
+  solver     = { kind = "adam", lr = 0.05 },
+  verbosity  = 500,
+})
+print()
+
+-- 4) Predict ----------------------------------------------------------------
+print("--- predictions ---")
+local function round(x) return math.floor(x + 0.5) end
+for _, ex in ipairs(data) do
+  local out = net:predict(ex.input)
+  print(string.format("%d XOR %d  ->  %.3f  (rounded %d, want %d)",
+    ex.input[1], ex.input[2], out[1], round(out[1]), ex.response[1]))
+end
+print()
+
+-- 5) Persist & restore ------------------------------------------------------
+-- marshal() returns JSON; ml.load() rebuilds an identical network from it.
+local blob = net:marshal()
+local restored = ml.load(blob)
+local a = net:predict({ 1, 0 })
+local b = restored:predict({ 1, 0 })
+print(string.format("restored model agrees: %.6f == %.6f", a[1], b[1]))

@@ -53,6 +53,12 @@ type Adam struct {
 	epsilon float64
 
 	v, m []float64
+
+	// The bias-corrected learning rate lrt depends only on the iteration t,
+	// but Update runs once per weight — recomputing its two math.Pow calls for
+	// every weight is pure waste. Cache lrt and refresh only when t advances.
+	t   int
+	lrt float64
 }
 
 // NewAdam returns a new Adam solver
@@ -68,14 +74,18 @@ func NewAdam(lr, beta, beta2, epsilon float64) *Adam {
 // Init initializes vectors using number of weights in network
 func (o *Adam) Init(size int) {
 	o.v, o.m = make([]float64, size), make([]float64, size)
+	o.t, o.lrt = 0, 0
 }
 
 // Update returns the update for a given weight
 func (o *Adam) Update(value, gradient float64, t, idx int) float64 {
-	lrt := o.lr * (math.Sqrt(1.0 - math.Pow(o.beta2, float64(t)))) /
-		(1.0 - math.Pow(o.beta, float64(t)))
+	if t != o.t {
+		o.t = t
+		o.lrt = o.lr * math.Sqrt(1.0-math.Pow(o.beta2, float64(t))) /
+			(1.0 - math.Pow(o.beta, float64(t)))
+	}
 	o.m[idx] = o.beta*o.m[idx] + (1.0-o.beta)*gradient
-	o.v[idx] = o.beta2*o.v[idx] + (1.0-o.beta2)*math.Pow(gradient, 2.0)
+	o.v[idx] = o.beta2*o.v[idx] + (1.0-o.beta2)*gradient*gradient
 
-	return -lrt * (o.m[idx] / (math.Sqrt(o.v[idx]) + o.epsilon))
+	return -o.lrt * (o.m[idx] / (math.Sqrt(o.v[idx]) + o.epsilon))
 }

@@ -15,12 +15,14 @@ type Layer struct {
 func NewLayer(n int, activation ActivationType) *Layer {
 	neurons := make([]*Neuron, n)
 
-	for range n {
-		act := activation
-		if activation == ActivationSoftmax {
-			act = ActivationLinear
-		}
-		neurons[n] = NewNeuron(act)
+	// A softmax layer's per-neuron activation is linear; the softmax itself is
+	// applied across the whole layer in fire().
+	act := activation
+	if activation == ActivationSoftmax {
+		act = ActivationLinear
+	}
+	for i := range neurons {
+		neurons[i] = NewNeuron(act)
 	}
 
 	return &Layer{

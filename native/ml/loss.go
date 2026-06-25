@@ -78,9 +78,10 @@ type MeanSquared struct{}
 // F is CE(...)
 func (l MeanSquared) F(estimate, ideal [][]float64) float64 {
 	var sum float64
-	for i := 0; i < len(estimate); i++ {
-		for j := 0; j < len(estimate[i]); j++ {
-			sum += math.Pow(estimate[i][j]-ideal[i][j], 2)
+	for i := range estimate {
+		for j := range estimate[i] {
+			d := estimate[i][j] - ideal[i][j]
+			sum += d * d
 		}
 	}
 	return sum / float64(len(estimate)*len(estimate[0]))
