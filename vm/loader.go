@@ -31,7 +31,10 @@ import (
 // pathTemplate joins multiple search rules separated by `;`. `?` is
 // substituted with the resolved module name. Within a single rule we list
 // .lsc before .lua so .lsc wins.
-const baseSearchPath = "./?.lsc;./?.lua;./?/init.lsc;./?/init.lua;./src/?.lsc;./src/?.lua;./src/?/init.lsc;./src/?/init.lua"
+// The `./lua_modules/...` entries are the install root used by the package
+// manager (`luascript pkg`). They are searched after project-local files so a
+// local `./foo.lsc` still shadows an installed package of the same name.
+const baseSearchPath = "./?.lsc;./?.lua;./?/init.lsc;./?/init.lua;./src/?.lsc;./src/?.lua;./src/?/init.lsc;./src/?/init.lua;./lua_modules/?.lsc;./lua_modules/?.lua;./lua_modules/?/init.lsc;./lua_modules/?/init.lua"
 
 // registerLoader installs the loader globals + the `package` table. Called
 // from VM.New(). Reads $LUASCRIPT_LIB once at startup; any later changes to
