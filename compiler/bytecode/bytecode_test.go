@@ -8,8 +8,8 @@ import (
 	"github.com/hilthontt/luascript/compiler/token"
 )
 
-func base(line int) *ast.BaseNode {
-	return &ast.BaseNode{Token: token.Token{Line: line}}
+func base(line int) ast.BaseNode {
+	return ast.BaseNode{Token: token.Token{Line: line}}
 }
 
 func ident(name string, line int) *ast.Identifier {

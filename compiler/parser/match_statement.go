@@ -137,7 +137,7 @@ func (p *Parser) parseMatchStatement() ast.Statement {
 			return nil
 		}
 		armBody := &ast.Block{
-			BaseNode:   &ast.BaseNode{Token: armTok},
+			BaseNode:   ast.BaseNode{Token: armTok},
 			Statements: []ast.Statement{bodyStmt},
 		}
 
@@ -195,7 +195,7 @@ func (p *Parser) parseMatchStatement() ast.Statement {
 	return &ast.DoStatement{
 		BaseNode: baseAt(matchTok),
 		Body: &ast.Block{
-			BaseNode:   &ast.BaseNode{Token: matchTok},
+			BaseNode:   ast.BaseNode{Token: matchTok},
 			Statements: stmts,
 		},
 	}

@@ -9,7 +9,7 @@ import (
 // Lua's grammar requires `return` to be the last statement of a block, so we
 // model it as a separate field rather than as just another Statement.
 type Block struct {
-	*BaseNode
+	BaseNode
 	Statements []Statement
 	Return     *ReturnStatement
 }
@@ -37,7 +37,7 @@ func (b *Block) IsEmpty() bool {
 // AssignStatement is `varlist = explist`. Each Target must be an Identifier
 // (global/local reference) or an IndexExpression.
 type AssignStatement struct {
-	*BaseNode
+	BaseNode
 	Targets []Expression
 	Values  []Expression
 }
@@ -64,7 +64,7 @@ type LocalName struct {
 
 // LocalStatement is `local namelist [= explist]`.
 type LocalStatement struct {
-	*BaseNode
+	BaseNode
 	Names  []LocalName
 	Values []Expression
 }
@@ -95,7 +95,7 @@ func (ls *LocalStatement) String() string {
 
 // LocalFunctionStatement is `local function Name funcbody`.
 type LocalFunctionStatement struct {
-	*BaseNode
+	BaseNode
 	Name string
 	Func *FunctionExpression
 }
@@ -118,7 +118,7 @@ func (lf *LocalFunctionStatement) String() string {
 // MethodName != "" the implicit `self` parameter is conventionally inserted
 // at codegen time.
 type FunctionDeclaration struct {
-	*BaseNode
+	BaseNode
 	Name         *Identifier
 	DottedFields []string
 	MethodName   string
@@ -152,7 +152,7 @@ type IfClause struct {
 
 // IfStatement is `if c then ... {elseif c then ...} [else ...] end`.
 type IfStatement struct {
-	*BaseNode
+	BaseNode
 	Clauses []IfClause
 	Else    *Block
 }
@@ -183,7 +183,7 @@ func (i *IfStatement) String() string {
 
 // WhileStatement is `while cond do block end`.
 type WhileStatement struct {
-	*BaseNode
+	BaseNode
 	Condition Expression
 	Body      *Block
 }
@@ -205,7 +205,7 @@ func (w *WhileStatement) String() string {
 // RepeatStatement is `repeat block until cond`. Note: `cond` is evaluated in
 // the scope of locals declared in `Body`.
 type RepeatStatement struct {
-	*BaseNode
+	BaseNode
 	Body      *Block
 	Condition Expression
 }
@@ -226,7 +226,7 @@ func (r *RepeatStatement) String() string {
 // NumericForStatement is `for Name = e1, e2 [, e3] do block end`. Step is nil
 // when omitted.
 type NumericForStatement struct {
-	*BaseNode
+	BaseNode
 	Name  string
 	Start Expression
 	Limit Expression
@@ -258,7 +258,7 @@ func (f *NumericForStatement) String() string {
 
 // GenericForStatement is `for namelist in explist do block end`.
 type GenericForStatement struct {
-	*BaseNode
+	BaseNode
 	Names []string
 	Exprs []Expression
 	Body  *Block
@@ -282,7 +282,7 @@ func (f *GenericForStatement) String() string {
 
 // DoStatement is `do block end` — a bare scoping block.
 type DoStatement struct {
-	*BaseNode
+	BaseNode
 	Body *Block
 }
 
@@ -301,7 +301,7 @@ func (d *DoStatement) String() string {
 // ReturnStatement is `return [explist] [;]`. Lua only allows it as the last
 // statement of a block; see Block.Return.
 type ReturnStatement struct {
-	*BaseNode
+	BaseNode
 	Values []Expression
 }
 
@@ -316,7 +316,7 @@ func (rs *ReturnStatement) String() string {
 
 // BreakStatement is `break`.
 type BreakStatement struct {
-	*BaseNode
+	BaseNode
 }
 
 func (*BreakStatement) statementNode()         {}
@@ -325,7 +325,7 @@ func (*BreakStatement) String() string         { return "break" }
 
 // GotoStatement is `goto Name` (Lua 5.2+).
 type GotoStatement struct {
-	*BaseNode
+	BaseNode
 	Label string
 }
 
@@ -335,7 +335,7 @@ func (g *GotoStatement) String() string       { return "goto " + g.Label }
 
 // LabelStatement is `::Name::` — a goto target.
 type LabelStatement struct {
-	*BaseNode
+	BaseNode
 	Name string
 }
 
@@ -347,7 +347,7 @@ func (l *LabelStatement) String() string       { return "::" + l.Name + "::" }
 // permits function and method calls in this position; the parser is
 // responsible for rejecting anything else.
 type ExpressionStatement struct {
-	*BaseNode
+	BaseNode
 	Expression Expression
 }
 
@@ -369,7 +369,7 @@ func (es *ExpressionStatement) String() string {
 //
 // END
 type EnumStatement struct {
-	*BaseNode
+	BaseNode
 	Name     *Identifier
 	Variants []*EnumVariantDef
 }
@@ -401,7 +401,7 @@ func (es *EnumStatement) String() string {
 // the bytecode generator wraps it in a zero-arg closure so it executes lazily
 // at frame teardown.
 type DeferStatement struct {
-	*BaseNode
+	BaseNode
 	Call Expression
 }
 

@@ -103,7 +103,7 @@ func (p *Parser) ParseProgram() (program *ast.Program, err *errors.Error) {
 // statement of a block.
 func (p *Parser) parseBlock() *ast.Block {
 	block := &ast.Block{
-		BaseNode:   &ast.BaseNode{Token: p.curToken},
+		BaseNode:   ast.BaseNode{Token: p.curToken},
 		Statements: []ast.Statement{},
 	}
 	for !p.endOfBlock() {
@@ -344,6 +344,6 @@ func describeTokenType(t token.Type) string {
 // baseAt builds a BaseNode anchored to a specific token. Used when an AST
 // node's source position should be the token that opened it rather than the
 // cursor position at the end of parsing.
-func baseAt(tok token.Token) *ast.BaseNode {
-	return &ast.BaseNode{Token: tok}
+func baseAt(tok token.Token) ast.BaseNode {
+	return ast.BaseNode{Token: tok}
 }

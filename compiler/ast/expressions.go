@@ -8,7 +8,7 @@ import (
 
 // NilLiteral represents the `nil` keyword used as an expression.
 type NilLiteral struct {
-	*BaseNode
+	BaseNode
 }
 
 func (*NilLiteral) expressionNode()        {}
@@ -17,7 +17,7 @@ func (*NilLiteral) String() string         { return "nil" }
 
 // BooleanLiteral represents `true` or `false`.
 type BooleanLiteral struct {
-	*BaseNode
+	BaseNode
 	Value bool
 }
 
@@ -32,7 +32,7 @@ func (b *BooleanLiteral) String() string {
 
 // IntegerLiteral represents a Lua 5.3+ integer subtype value.
 type IntegerLiteral struct {
-	*BaseNode
+	BaseNode
 	Value int64
 }
 
@@ -42,7 +42,7 @@ func (il *IntegerLiteral) String() string       { return strconv.FormatInt(il.Va
 
 // FloatLiteral represents a Lua float subtype value.
 type FloatLiteral struct {
-	*BaseNode
+	BaseNode
 	Value float64
 }
 
@@ -53,7 +53,7 @@ func (fl *FloatLiteral) String() string       { return strconv.FormatFloat(fl.Va
 // StringLiteral represents a string literal. IsLong is true when the source
 // used the `[[ ... ]]` long-bracket form.
 type StringLiteral struct {
-	*BaseNode
+	BaseNode
 	Value  string
 	IsLong bool
 }
@@ -69,7 +69,7 @@ func (sl *StringLiteral) String() string {
 
 // VarargExpression represents the `...` expression inside a vararg function.
 type VarargExpression struct {
-	*BaseNode
+	BaseNode
 }
 
 func (*VarargExpression) expressionNode()        {}
@@ -78,7 +78,7 @@ func (*VarargExpression) String() string         { return "..." }
 
 // Identifier names a local, global, or parameter.
 type Identifier struct {
-	*BaseNode
+	BaseNode
 	Name string
 }
 
@@ -99,7 +99,7 @@ type TypedParam struct {
 // `: T` / `: (T1, T2)` annotation between `)` and the body. VarargType is
 // the optional `...: T` annotation. All type fields are nil-safe.
 type FunctionExpression struct {
-	*BaseNode
+	BaseNode
 	Params      []TypedParam
 	IsVararg    bool
 	VarargType  TypeNode
@@ -165,7 +165,7 @@ type TableField struct {
 
 // TableConstructor is `{ ... }` — Lua's only aggregate literal.
 type TableConstructor struct {
-	*BaseNode
+	BaseNode
 	Fields []TableField
 }
 
@@ -204,7 +204,7 @@ func (tc *TableConstructor) String() string {
 // IndexExpression is `obj[index]` or, when IsDot is true, `obj.name` — in
 // the dot form Index is a *StringLiteral whose Value is the field name.
 type IndexExpression struct {
-	*BaseNode
+	BaseNode
 	Object Expression
 	Index  Expression
 	IsDot  bool
@@ -231,7 +231,7 @@ func (ie *IndexExpression) String() string {
 // CallExpression is `f(args)`. The parser also folds `f"str"` and `f{tbl}`
 // into this shape with a single-element Args slice.
 type CallExpression struct {
-	*BaseNode
+	BaseNode
 	Func Expression
 	Args []Expression
 }
@@ -250,7 +250,7 @@ func (ce *CallExpression) String() string {
 // MethodCallExpression is `obj:method(args)` — distinct from CallExpression
 // because the colon form passes `obj` as an implicit first argument.
 type MethodCallExpression struct {
-	*BaseNode
+	BaseNode
 	Object Expression
 	Method string
 	Args   []Expression
@@ -273,7 +273,7 @@ func (mc *MethodCallExpression) String() string {
 //
 //   - - * / // % ^ ..  ==  ~=  <  >  <=  >=  and  or  &  |  ~  <<  >>
 type BinaryExpression struct {
-	*BaseNode
+	BaseNode
 	Op    string
 	Left  Expression
 	Right Expression
@@ -295,7 +295,7 @@ func (be *BinaryExpression) String() string {
 
 // UnaryExpression covers `-`, `not`, `#`, `~`.
 type UnaryExpression struct {
-	*BaseNode
+	BaseNode
 	Op      string
 	Operand Expression
 }
@@ -317,7 +317,7 @@ func (ue *UnaryExpression) String() string {
 // ParenExpression is a parenthesized expression. In Lua this is semantically
 // meaningful: it adjusts a multi-value result down to exactly one value.
 type ParenExpression struct {
-	*BaseNode
+	BaseNode
 	Inner Expression
 }
 
@@ -336,7 +336,7 @@ func joinExprs(exprs []Expression, sep string) string {
 // WildcardPattern is `_` — matches anything, binds nothing. It is an error
 // for any arm after a wildcard to be reachable.
 type WildcardPattern struct {
-	*BaseNode
+	BaseNode
 }
 
 func (*WildcardPattern) patternNode()           {}
@@ -349,7 +349,7 @@ func (*WildcardPattern) String() string         { return "_" }
 // constraint; the AST does not enforce it via the type system to avoid
 // inventing a duplicate "literal expression" interface.
 type LiteralPattern struct {
-	*BaseNode
+	BaseNode
 	Value Expression
 }
 
@@ -361,7 +361,7 @@ func (lp *LiteralPattern) String() string       { return lp.Value.String() }
 // (and in any guard). Prefer WildcardPattern when no binding is needed —
 // a leading-underscore name is still a binding, not a wildcard.
 type BindingPattern struct {
-	*BaseNode
+	BaseNode
 	Name *Identifier
 }
 
@@ -373,7 +373,7 @@ func (bp *BindingPattern) String() string       { return bp.Name.String() }
 // the first token of the pattern so the typechecker can report
 // arm-specific errors (non-exhaustive, unreachable, type mismatch).
 type MatchArm struct {
-	*BaseNode
+	BaseNode
 	Pattern Pattern
 	Guard   Expression // optional `if expr` between pattern and `->`; nil when absent
 	Body    Expression
@@ -383,7 +383,7 @@ type MatchArm struct {
 // It is exhaustive: every possible value of Subject must be covered by some
 // arm (a trailing `_ -> ...` is the usual way to satisfy that).
 type MatchExpression struct {
-	*BaseNode
+	BaseNode
 	Subject Expression
 	Arms    []MatchArm
 }

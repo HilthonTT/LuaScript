@@ -22,7 +22,7 @@ type TypeNode interface {
 // unknown. The set is fixed; unknown identifiers in type position are
 // parsed as TypeName instead.
 type TypePrimitive struct {
-	*BaseNode
+	BaseNode
 	Name string
 }
 
@@ -33,7 +33,7 @@ func (t *TypePrimitive) String() string       { return t.Name }
 // TypeName references a user-defined type alias by name. Resolution is the
 // type checker's job — the parser only records the name.
 type TypeName struct {
-	*BaseNode
+	BaseNode
 	Name string
 }
 
@@ -45,7 +45,7 @@ func (t *TypeName) String() string       { return t.Name }
 // from TypeUnion so source round-trips and error messages preserve the
 // programmer's notation.
 type TypeOptional struct {
-	*BaseNode
+	BaseNode
 	Inner TypeNode
 }
 
@@ -56,7 +56,7 @@ func (t *TypeOptional) String() string       { return t.Inner.String() + "?" }
 // TypeUnion is `A | B | C`. Always two or more members; single-member
 // "unions" are flattened to the bare member at parse time.
 type TypeUnion struct {
-	*BaseNode
+	BaseNode
 	Members []TypeNode
 }
 
@@ -74,7 +74,7 @@ func (t *TypeUnion) String() string {
 // IsVararg+VarargType model `...: T` at the parameter list's tail.
 // ParamNames is parallel to Params and may contain "" for unnamed slots.
 type TypeFunction struct {
-	*BaseNode
+	BaseNode
 	ParamNames []string
 	Params     []TypeNode
 	Returns    []TypeNode
@@ -136,7 +136,7 @@ type TypeIndexer struct {
 // TypeTable is a structural table type: `{ x: number, y: number }` or
 // `{[string]: number}`. Either Fields or Indexer (or both) may be set.
 type TypeTable struct {
-	*BaseNode
+	BaseNode
 	Fields  []TypeTableField
 	Indexer *TypeIndexer
 }
@@ -167,7 +167,7 @@ func (t *TypeTable) String() string {
 // later phases by report-and-skip in the checker — the parser is
 // permissive).
 type TypeAliasStatement struct {
-	*BaseNode
+	BaseNode
 	Name   string
 	Target TypeNode
 }
@@ -180,7 +180,7 @@ func (s *TypeAliasStatement) String() string       { return "type " + s.Name + "
 // The runtime is a no-op; the bytecode generator emits the inner Expr's
 // code unchanged. The type checker treats the result as the asserted T.
 type TypeAssertionExpression struct {
-	*BaseNode
+	BaseNode
 	Expr Expression
 	Type TypeNode
 }

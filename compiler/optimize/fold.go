@@ -332,18 +332,18 @@ func literalsEqual(l, r ast.Expression) (eq bool, ok bool) {
 	return false, false
 }
 
-func mkInt(b *ast.BaseNode, v int64) *ast.IntegerLiteral {
+func mkInt(b ast.BaseNode, v int64) *ast.IntegerLiteral {
 	return &ast.IntegerLiteral{BaseNode: b, Value: v}
 }
 
-func mkFloat(b *ast.BaseNode, v float64) *ast.FloatLiteral {
+func mkFloat(b ast.BaseNode, v float64) *ast.FloatLiteral {
 	return &ast.FloatLiteral{BaseNode: b, Value: v}
 }
 
-func mkBool(b *ast.BaseNode, v bool) *ast.BooleanLiteral {
+func mkBool(b ast.BaseNode, v bool) *ast.BooleanLiteral {
 	return &ast.BooleanLiteral{BaseNode: b, Value: v}
 }
 
-func mkString(b *ast.BaseNode, v string) *ast.StringLiteral {
+func mkString(b ast.BaseNode, v string) *ast.StringLiteral {
 	return &ast.StringLiteral{BaseNode: b, Value: v}
 }

@@ -231,7 +231,7 @@ func (g *Generator) compileFunctionDecl(is *InstructionSet, s *ast.FunctionDecla
 	fn := s.Func
 	if s.MethodName != "" {
 		selfParam := ast.TypedParam{
-			Name: &ast.Identifier{BaseNode: &ast.BaseNode{Token: s.Func.Token}, Name: "self"},
+			Name: &ast.Identifier{BaseNode: ast.BaseNode{Token: s.Func.Token}, Name: "self"},
 		}
 		fn = &ast.FunctionExpression{
 			BaseNode: s.Func.BaseNode,
