@@ -19,9 +19,19 @@ func mathLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
 	mod.Set("maxinteger", int64(math.MaxInt64))
 	mod.Set("mininteger", int64(math.MinInt64))
 	mod.Set("pi", float64(math.Pi))
+	mod.Set("phi", float64(math.Phi))
 	mod.Set("e", float64(math.E))
 	mod.Set("nan", math.NaN())
-	mod.Set("phi", float64(math.Phi))
+
+	mod.Set("sqrt2", math.Sqrt2)
+	mod.Set("sqrte", math.SqrtE)
+	mod.Set("sqrtpi", math.SqrtPi)
+	mod.Set("sqrtphi", math.SqrtPhi)
+
+	mod.Set("ln2", math.Ln2)
+	mod.Set("log2e", math.Log2E)
+	mod.Set("ln10", math.Ln10)
+	mod.Set("ln10e", math.Log10E)
 
 	return []vm.Value{mod}
 }
