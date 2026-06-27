@@ -224,6 +224,26 @@ func (v *VM) pop() Value {
 	return x
 }
 
+// peek2 returns the top two stack values without changing the stack length:
+// `a` is the lower (left) operand, `b` the upper (right). Paired with
+// setTop2, it lets a binary opcode read both operands, compute, and replace
+// them with a single result using one slice reslice instead of the two pops
+// plus one push the naive form pays. The operands stay live on the stack
+// across any metamethod call the slow path makes, which keeps them reachable
+// for GC and is why the truncate happens afterwards in setTop2.
+func (v *VM) peek2() (a, b Value) {
+	n := len(v.Stack)
+	return v.Stack[n-2], v.Stack[n-1]
+}
+
+// setTop2 replaces the top two stack values with a single result `r`,
+// shrinking the stack by one. It is the write half of the peek2/setTop2 pair.
+func (v *VM) setTop2(r Value) {
+	n := len(v.Stack)
+	v.Stack[n-2] = r
+	v.Stack = v.Stack[:n-1]
+}
+
 func (v *VM) popN(n int) {
 	if n <= 0 {
 		return
@@ -438,96 +458,88 @@ func (v *VM) dispatch(f *CallFrame, ins *bytecode.Instruction) {
 
 	// ----- arithmetic ----- (each routes through metatable.go for metamethod fallback)
 	case bytecode.Add:
-		b := v.pop()
-		a := v.pop()
+		a, b := v.peek2()
 		// Hot path: same-type numeric operands skip the type-switch +
 		// string-keyed dispatch in arithMM entirely. Wraparound semantics
 		// match Lua 5.4 (signed two's-complement, no overflow check).
 		if ai, ok := a.(int64); ok {
 			if bi, ok := b.(int64); ok {
-				v.push(ai + bi)
+				// internInt reuses a pre-boxed Value for small-magnitude
+				// results (loop counters, indices, small accumulators), so
+				// the common case avoids the per-op heap box that plain
+				// `any(ai+bi)` would pay for any value above 255.
+				v.setTop2(internInt(ai + bi))
 				return
 			}
 		}
 		if af, ok := a.(float64); ok {
 			if bf, ok := b.(float64); ok {
-				v.push(af + bf)
+				v.setTop2(af + bf)
 				return
 			}
 		}
-		v.push(v.arithMM(a, b, "+", metaAdd))
+		v.setTop2(v.arithMM(a, b, "+", metaAdd))
 	case bytecode.Sub:
-		b := v.pop()
-		a := v.pop()
+		a, b := v.peek2()
 		if ai, ok := a.(int64); ok {
 			if bi, ok := b.(int64); ok {
-				v.push(ai - bi)
+				v.setTop2(internInt(ai - bi))
 				return
 			}
 		}
 		if af, ok := a.(float64); ok {
 			if bf, ok := b.(float64); ok {
-				v.push(af - bf)
+				v.setTop2(af - bf)
 				return
 			}
 		}
-		v.push(v.arithMM(a, b, "-", metaSub))
+		v.setTop2(v.arithMM(a, b, "-", metaSub))
 	case bytecode.Mul:
-		b := v.pop()
-		a := v.pop()
+		a, b := v.peek2()
 		if ai, ok := a.(int64); ok {
 			if bi, ok := b.(int64); ok {
-				v.push(ai * bi)
+				v.setTop2(internInt(ai * bi))
 				return
 			}
 		}
 		if af, ok := a.(float64); ok {
 			if bf, ok := b.(float64); ok {
-				v.push(af * bf)
+				v.setTop2(af * bf)
 				return
 			}
 		}
-		v.push(v.arithMM(a, b, "*", metaMul))
+		v.setTop2(v.arithMM(a, b, "*", metaMul))
 	case bytecode.Div:
-		b := v.pop()
-		a := v.pop()
-		v.push(v.arithDivMM(a, b))
+		a, b := v.peek2()
+		v.setTop2(v.arithDivMM(a, b))
 	case bytecode.FloorDiv:
-		b := v.pop()
-		a := v.pop()
-		v.push(v.arithFloorDivMM(a, b))
+		a, b := v.peek2()
+		v.setTop2(v.arithFloorDivMM(a, b))
 	case bytecode.Mod:
-		b := v.pop()
-		a := v.pop()
-		v.push(v.arithMM(a, b, "%", metaMod))
+		a, b := v.peek2()
+		v.setTop2(v.arithMM(a, b, "%", metaMod))
 	case bytecode.Pow:
-		b := v.pop()
-		a := v.pop()
-		v.push(v.arithPowMM(a, b))
+		a, b := v.peek2()
+		v.setTop2(v.arithPowMM(a, b))
 	case bytecode.Neg:
 		v.push(v.arithNegMM(v.pop()))
 
 	// ----- bitwise -----
 	case bytecode.BitAnd:
-		b := v.pop()
-		a := v.pop()
-		v.push(v.bitwiseMM(a, b, bitAnd, metaBAnd))
+		a, b := v.peek2()
+		v.setTop2(v.bitwiseMM(a, b, bitAnd, metaBAnd))
 	case bytecode.BitOr:
-		b := v.pop()
-		a := v.pop()
-		v.push(v.bitwiseMM(a, b, bitOr, metaBOr))
+		a, b := v.peek2()
+		v.setTop2(v.bitwiseMM(a, b, bitOr, metaBOr))
 	case bytecode.BitXor:
-		b := v.pop()
-		a := v.pop()
-		v.push(v.bitwiseMM(a, b, bitXor, metaBXor))
+		a, b := v.peek2()
+		v.setTop2(v.bitwiseMM(a, b, bitXor, metaBXor))
 	case bytecode.Shl:
-		b := v.pop()
-		a := v.pop()
-		v.push(v.bitwiseMM(a, b, shl, metaShl))
+		a, b := v.peek2()
+		v.setTop2(v.bitwiseMM(a, b, shl, metaShl))
 	case bytecode.Shr:
-		b := v.pop()
-		a := v.pop()
-		v.push(v.bitwiseMM(a, b, shr, metaShr))
+		a, b := v.peek2()
+		v.setTop2(v.bitwiseMM(a, b, shr, metaShr))
 	case bytecode.BitNot:
 		v.push(v.bitNotMM(v.pop()))
 
@@ -574,113 +586,107 @@ func (v *VM) dispatch(f *CallFrame, ins *bytecode.Instruction) {
 
 	// ----- comparison -----
 	case bytecode.Eq:
-		b := v.pop()
-		a := v.pop()
+		a, b := v.peek2()
 		if ai, ok := a.(int64); ok {
 			if bi, ok := b.(int64); ok {
-				v.push(ai == bi)
+				v.setTop2(ai == bi)
 				return
 			}
 		}
 		if af, ok := a.(float64); ok {
 			if bf, ok := b.(float64); ok {
-				v.push(af == bf)
+				v.setTop2(af == bf)
 				return
 			}
 		}
 		if as, ok := a.(string); ok {
 			if bs, ok := b.(string); ok {
-				v.push(as == bs)
+				v.setTop2(as == bs)
 				return
 			}
 		}
-		v.push(v.equalMM(a, b))
+		v.setTop2(v.equalMM(a, b))
 	case bytecode.NotEq:
-		b := v.pop()
-		a := v.pop()
+		a, b := v.peek2()
 		if ai, ok := a.(int64); ok {
 			if bi, ok := b.(int64); ok {
-				v.push(ai != bi)
+				v.setTop2(ai != bi)
 				return
 			}
 		}
 		if af, ok := a.(float64); ok {
 			if bf, ok := b.(float64); ok {
-				v.push(af != bf)
+				v.setTop2(af != bf)
 				return
 			}
 		}
 		if as, ok := a.(string); ok {
 			if bs, ok := b.(string); ok {
-				v.push(as != bs)
+				v.setTop2(as != bs)
 				return
 			}
 		}
-		v.push(!v.equalMM(a, b))
+		v.setTop2(!v.equalMM(a, b))
 	case bytecode.Lt:
-		b := v.pop()
-		a := v.pop()
+		a, b := v.peek2()
 		if ai, ok := a.(int64); ok {
 			if bi, ok := b.(int64); ok {
-				v.push(ai < bi)
+				v.setTop2(ai < bi)
 				return
 			}
 		}
 		if af, ok := a.(float64); ok {
 			if bf, ok := b.(float64); ok {
-				v.push(af < bf)
+				v.setTop2(af < bf)
 				return
 			}
 		}
-		v.push(v.lessMM(a, b))
+		v.setTop2(v.lessMM(a, b))
 	case bytecode.Le:
-		b := v.pop()
-		a := v.pop()
+		a, b := v.peek2()
 		if ai, ok := a.(int64); ok {
 			if bi, ok := b.(int64); ok {
-				v.push(ai <= bi)
+				v.setTop2(ai <= bi)
 				return
 			}
 		}
 		if af, ok := a.(float64); ok {
 			if bf, ok := b.(float64); ok {
-				v.push(af <= bf)
+				v.setTop2(af <= bf)
 				return
 			}
 		}
-		v.push(v.lessOrEqualMM(a, b))
+		v.setTop2(v.lessOrEqualMM(a, b))
 	case bytecode.Gt:
-		b := v.pop()
-		a := v.pop()
+		a, b := v.peek2()
 		if ai, ok := a.(int64); ok {
 			if bi, ok := b.(int64); ok {
-				v.push(ai > bi)
+				v.setTop2(ai > bi)
 				return
 			}
 		}
 		if af, ok := a.(float64); ok {
 			if bf, ok := b.(float64); ok {
-				v.push(af > bf)
+				v.setTop2(af > bf)
 				return
 			}
 		}
-		v.push(v.lessMM(b, a))
+		v.setTop2(v.lessMM(b, a))
 	case bytecode.Ge:
-		b := v.pop()
-		a := v.pop()
+		a, b := v.peek2()
 		if ai, ok := a.(int64); ok {
 			if bi, ok := b.(int64); ok {
-				v.push(ai >= bi)
+				v.setTop2(ai >= bi)
 				return
 			}
 		}
 		if af, ok := a.(float64); ok {
 			if bf, ok := b.(float64); ok {
-				v.push(af >= bf)
+				v.setTop2(af >= bf)
 				return
 			}
 		}
-		v.push(v.lessOrEqualMM(b, a))
+		v.setTop2(v.lessOrEqualMM(b, a))
 
 	// ----- logical -----
 	case bytecode.Not:

@@ -14,7 +14,7 @@ func formatInteger(x int64) string {
 // value, so handing out a shared box is fully transparent.
 const (
 	internIntMin = -256
-	internIntMax = 1023
+	internIntMax = 8191
 )
 
 var internedInts [internIntMax - internIntMin + 1]Value
