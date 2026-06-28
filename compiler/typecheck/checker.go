@@ -156,6 +156,9 @@ func (c *checker) walkStatement(s ast.Statement) {
 	case *ast.WhileStatement:
 		c.walkExpressionDiscard(n.Condition)
 		c.env.push()
+		// Inside the loop body the condition held true, so its truthy
+		// narrowing applies (e.g. `while x ~= nil do` makes x non-nil).
+		c.applyRefinement(c.refine(n.Condition, true))
 		c.walkBlock(n.Body)
 		c.env.pop()
 	case *ast.RepeatStatement:
@@ -265,12 +268,29 @@ func (c *checker) walkAssignStatement(s *ast.AssignStatement) {
 }
 
 func (c *checker) walkIfStatement(s *ast.IfStatement) {
+	// An accumulator frame carries the *negation* of every clause we've
+	// already passed, so that an `elseif`/`else` is checked knowing each
+	// earlier condition was false — exactly Lua's evaluation order. The
+	// then-branch of each clause gets its own child frame on top.
+	c.env.push()
+	defer c.env.pop()
+
 	for _, cl := range s.Clauses {
+		// Walk the condition once (in the already-narrowed scope) for error
+		// checking; refine() below is side-effect free and re-reads types.
 		c.walkExpressionDiscard(cl.Condition)
+
+		thenR := c.refine(cl.Condition, true)
 		c.env.push()
+		c.applyRefinement(thenR)
 		c.walkBlock(cl.Body)
 		c.env.pop()
+
+		// Fold this clause's "condition is false" narrowing into the
+		// accumulator so subsequent branches see it.
+		c.applyRefinement(c.refine(cl.Condition, false))
 	}
+
 	if s.Else != nil {
 		c.env.push()
 		c.walkBlock(s.Else)
