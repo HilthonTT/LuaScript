@@ -162,12 +162,12 @@ func less(a, b Value) bool {
 		case int64:
 			return x < y
 		case float64:
-			return float64(x) < y
+			return ltIntFloat(x, y)
 		}
 	case float64:
 		switch y := b.(type) {
 		case int64:
-			return x < float64(y)
+			return ltFloatInt(x, y)
 		case float64:
 			return x < y
 		}
@@ -187,12 +187,12 @@ func lessOrEqual(a, b Value) bool {
 		case int64:
 			return x <= y
 		case float64:
-			return float64(x) <= y
+			return leIntFloat(x, y)
 		}
 	case float64:
 		switch y := b.(type) {
 		case int64:
-			return x <= float64(y)
+			return leFloatInt(x, y)
 		case float64:
 			return x <= y
 		}
@@ -202,6 +202,69 @@ func lessOrEqual(a, b Value) bool {
 		}
 	}
 	panic(Errorf("attempt to compare %s with %s", TypeName(a), TypeName(b)))
+}
+
+// Mixed int/float ordering. Converting the int to float64 loses precision
+// above 2^53, so for integers that don't fit exactly in a float we compare
+// against the float's floor/ceil as integers — mirroring Lua 5.4's
+// LTintfloat / LEintfloat / LTfloatint / LEfloatint.
+
+// intFitsFloat reports whether i is representable exactly as a float64.
+func intFitsFloat(i int64) bool {
+	const lim = int64(1) << 53 // 2^53: floats are exact for |i| <= 2^53
+	return i >= -lim && i <= lim
+}
+
+func floatFloorToInt(f float64) (int64, bool) { return floatToIntBound(math.Floor(f)) }
+func floatCeilToInt(f float64) (int64, bool)  { return floatToIntBound(math.Ceil(f)) }
+
+// floatToIntBound converts an already-rounded float to int64, failing for NaN
+// or out-of-range values (the bound is the nearest representable 2^63).
+func floatToIntBound(f float64) (int64, bool) {
+	if math.IsNaN(f) || f < -9.2233720368547758e+18 || f >= 9.2233720368547758e+18 {
+		return 0, false
+	}
+	return int64(f), true
+}
+
+func ltIntFloat(i int64, f float64) bool {
+	if intFitsFloat(i) {
+		return float64(i) < f
+	}
+	if fi, ok := floatCeilToInt(f); ok { // i < f  <=>  i < ceil(f)
+		return i < fi
+	}
+	return f > 0 // f beyond all integers (or NaN -> false)
+}
+
+func leIntFloat(i int64, f float64) bool {
+	if intFitsFloat(i) {
+		return float64(i) <= f
+	}
+	if fi, ok := floatFloorToInt(f); ok { // i <= f  <=>  i <= floor(f)
+		return i <= fi
+	}
+	return f > 0
+}
+
+func ltFloatInt(f float64, i int64) bool {
+	if intFitsFloat(i) {
+		return f < float64(i)
+	}
+	if fi, ok := floatFloorToInt(f); ok { // f < i  <=>  floor(f) < i
+		return fi < i
+	}
+	return f < 0
+}
+
+func leFloatInt(f float64, i int64) bool {
+	if intFitsFloat(i) {
+		return f <= float64(i)
+	}
+	if fi, ok := floatCeilToInt(f); ok { // f <= i  <=>  ceil(f) <= i
+		return fi <= i
+	}
+	return f < 0
 }
 
 // ---------------------------------------------------------------------------

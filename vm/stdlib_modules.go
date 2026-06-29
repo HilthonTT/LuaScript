@@ -6,6 +6,7 @@ import (
 	"math"
 	"math/rand"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -411,33 +412,131 @@ func buildStringLibrary() *Table {
 		return []Value{out, int64(count)}
 	})
 	add("format", func(_ *VM, args []Value) []Value {
-		// Thin wrapper around Go's fmt.Sprintf. Lua's % directives are
-		// largely a subset of Go's, so most simple format strings work
-		// directly. Documented divergence from Lua's spec.
 		fmtStr := StringArg("string.format", 1, args)
-		fargs := make([]any, 0, len(args)-1)
-		for _, a := range args[1:] {
-			fargs = append(fargs, luaToFormatArg(a))
-		}
-		return []Value{fmt.Sprintf(fmtStr, fargs...)}
+		return []Value{luaFormat(fmtStr, args[1:])}
 	})
 	return t
 }
 
-func luaToFormatArg(v Value) any {
+// luaFormat implements string.format per Lua 5.4: each %-directive is parsed,
+// its argument coerced to the type the verb expects (integers for diouxXc,
+// floats for aAeEfgG, strings via tostring for s), then rendered through Go's
+// fmt with an equivalent verb. This replaces the old thin fmt.Sprintf wrapper,
+// which leaked Go's stricter verb typing (e.g. %d rejecting a float 3.0).
+func luaFormat(format string, args []Value) string {
+	var b strings.Builder
+	argIdx := 0
+	nextArg := func() Value {
+		if argIdx >= len(args) {
+			panic(Errorf("bad argument #%d to 'format' (no value)", argIdx+2))
+		}
+		v := args[argIdx]
+		argIdx++
+		return v
+	}
+
+	i := 0
+	for i < len(format) {
+		if format[i] != '%' {
+			b.WriteByte(format[i])
+			i++
+			continue
+		}
+		// Parse a directive: %[-+ #0]*[width][.precision]verb
+		j := i + 1
+		if j < len(format) && format[j] == '%' {
+			b.WriteByte('%')
+			i = j + 1
+			continue
+		}
+		for j < len(format) && strings.IndexByte("-+ #0", format[j]) >= 0 {
+			j++
+		}
+		for j < len(format) && format[j] >= '0' && format[j] <= '9' {
+			j++
+		}
+		if j < len(format) && format[j] == '.' {
+			j++
+			for j < len(format) && format[j] >= '0' && format[j] <= '9' {
+				j++
+			}
+		}
+		if j >= len(format) {
+			panic(Errorf("invalid conversion '%s' to 'format'", format[i:]))
+		}
+		verb := format[j]
+		spec := format[i : j+1] // the whole directive, e.g. "%5.2d"
+		i = j + 1
+
+		switch verb {
+		case 'd', 'i', 'u':
+			b.WriteString(fmt.Sprintf(replaceVerb(spec, 'd'), fmtArgInt(nextArg())))
+		case 'o', 'x', 'X':
+			b.WriteString(fmt.Sprintf(spec, fmtArgInt(nextArg())))
+		case 'c':
+			b.WriteByte(byte(fmtArgInt(nextArg())))
+		case 'e', 'E', 'f', 'F', 'g', 'G':
+			b.WriteString(fmt.Sprintf(spec, fmtArgFloat(nextArg())))
+		case 'a':
+			b.WriteString(fmt.Sprintf(replaceVerb(spec, 'x'), fmtArgFloat(nextArg())))
+		case 'A':
+			b.WriteString(fmt.Sprintf(replaceVerb(spec, 'X'), fmtArgFloat(nextArg())))
+		case 's':
+			b.WriteString(fmt.Sprintf(spec, ToString(nextArg())))
+		case 'q':
+			b.WriteString(formatQ(nextArg()))
+		default:
+			panic(Errorf("invalid conversion '%%%c' to 'format'", verb))
+		}
+	}
+	return b.String()
+}
+
+// replaceVerb swaps the trailing conversion verb of a directive.
+func replaceVerb(spec string, verb byte) string {
+	return spec[:len(spec)-1] + string(verb)
+}
+
+// fmtArgInt coerces a format argument to an integer the way Lua's %d does.
+func fmtArgInt(v Value) int64 {
+	if x, ok := v.(float64); ok {
+		if n, ok2 := floatToInt(x); ok2 {
+			return n
+		}
+		panic(Errorf("bad argument to 'format' (number has no integer representation)"))
+	}
+	if n, ok := ToInteger(v); ok {
+		return n
+	}
+	panic(Errorf("bad argument to 'format' (number expected, got %s)", TypeName(v)))
+}
+
+// fmtArgFloat coerces a format argument to a float for the %f/%g/%e family.
+func fmtArgFloat(v Value) float64 {
+	if f, ok := ToFloat(v); ok {
+		return f
+	}
+	panic(Errorf("bad argument to 'format' (number expected, got %s)", TypeName(v)))
+}
+
+// formatQ renders a value as a reusable literal for %q.
+func formatQ(v Value) string {
 	switch x := v.(type) {
+	case string:
+		return strconv.Quote(x)
+	case int64:
+		return strconv.FormatInt(x, 10)
+	case float64:
+		return strconv.FormatFloat(x, 'g', -1, 64)
+	case bool:
+		if x {
+			return "true"
+		}
+		return "false"
 	case nil:
 		return "nil"
-	case bool:
-		return x
-	case int64:
-		return x
-	case float64:
-		return x
-	case string:
-		return x
 	}
-	return ToString(v)
+	panic(Errorf("bad argument to 'format' (value has no literal form)"))
 }
 
 // ---------------------------------------------------------------------------

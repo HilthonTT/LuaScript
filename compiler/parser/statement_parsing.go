@@ -521,10 +521,11 @@ func (p *Parser) parseExprOrAssignStatement() ast.Statement {
 // entry is on the compound operator token; `binOp` is the binary operator
 // string (e.g. "+", "<<") to use in the synthesised BinaryExpression.
 //
-// Caveat: for IndexExpression targets, this duplicates the object and
-// key expressions. If those have side effects (e.g. `t[f()] += 1`),
-// they will be evaluated twice. Acceptable for v1 — matches Luau's
-// own initial implementation.
+// For an index target whose object or key has side effects (e.g.
+// `t[f()] += 1`), the object and key are hoisted into fresh locals inside a
+// wrapping `do ... end` so each is evaluated exactly once — matching Lua's
+// `a[i] = a[i] + v` semantics. A plain name target has no sub-expressions to
+// duplicate and keeps the direct rewrite.
 func (p *Parser) parseCompoundAssignStatement(tok token.Token, target ast.Expression, binOp string) ast.Statement {
 	if !isAssignTarget(target) {
 		p.errorAt(tok, errors.InvalidAssignmentError, "",
@@ -538,16 +539,47 @@ func (p *Parser) parseCompoundAssignStatement(tok token.Token, target ast.Expres
 	if rhs == nil {
 		return nil
 	}
-	combined := &ast.BinaryExpression{
-		BaseNode: baseAt(opTok),
-		Op:       binOp,
-		Left:     target,
-		Right:    rhs,
+
+	idx, isIndex := target.(*ast.IndexExpression)
+	if !isIndex {
+		// Plain name: `x op= rhs` -> `x = x op rhs`.
+		combined := &ast.BinaryExpression{BaseNode: baseAt(opTok), Op: binOp, Left: target, Right: rhs}
+		return &ast.AssignStatement{
+			BaseNode: baseAt(tok),
+			Targets:  []ast.Expression{target},
+			Values:   []ast.Expression{combined},
+		}
 	}
-	return &ast.AssignStatement{
+
+	p.compoundCounter++
+	n := p.compoundCounter
+	stmts := make([]ast.Statement, 0, 3)
+
+	objName := fmt.Sprintf("__caobj_%d", n)
+	stmts = append(stmts, buildMatchLocal(objName, tok, idx.Object))
+	objRef := func() ast.Expression { return &ast.Identifier{BaseNode: baseAt(tok), Name: objName} }
+
+	// A dot field (`t.x`) has a constant *StringLiteral key — no need to hoist
+	// it; only a bracket `t[k]` key can carry side effects.
+	keyRef := func() ast.Expression { return idx.Index }
+	if !idx.IsDot {
+		keyName := fmt.Sprintf("__cakey_%d", n)
+		stmts = append(stmts, buildMatchLocal(keyName, tok, idx.Index))
+		keyRef = func() ast.Expression { return &ast.Identifier{BaseNode: baseAt(tok), Name: keyName} }
+	}
+
+	load := &ast.IndexExpression{BaseNode: baseAt(tok), Object: objRef(), Index: keyRef(), IsDot: idx.IsDot}
+	store := &ast.IndexExpression{BaseNode: baseAt(tok), Object: objRef(), Index: keyRef(), IsDot: idx.IsDot}
+	combined := &ast.BinaryExpression{BaseNode: baseAt(opTok), Op: binOp, Left: load, Right: rhs}
+	stmts = append(stmts, &ast.AssignStatement{
 		BaseNode: baseAt(tok),
-		Targets:  []ast.Expression{target},
+		Targets:  []ast.Expression{store},
 		Values:   []ast.Expression{combined},
+	})
+
+	return &ast.DoStatement{
+		BaseNode: baseAt(tok),
+		Body:     &ast.Block{BaseNode: ast.BaseNode{Token: tok}, Statements: stmts},
 	}
 }
 

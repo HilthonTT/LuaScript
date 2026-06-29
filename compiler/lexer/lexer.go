@@ -186,10 +186,9 @@ func (l *Lexer) nextToken() token.Token {
 	case ']':
 		return l.singleToken(token.RBracket, "]")
 	case '[':
-		if l.peekChar() == '[' {
-			l.readChar()
-			l.readChar()
-			lit := l.readLongString()
+		if lvl := l.longOpenLevel(); lvl >= 0 {
+			l.consumeLongOpen(lvl)
+			lit := l.readLongString(lvl)
 			return token.Token{Type: token.String, Literal: lit, Line: line, Column: l.tokenCol}
 		}
 		return l.singleToken(token.LBracket, "[")
@@ -221,15 +220,37 @@ func (l *Lexer) nextToken() token.Token {
 // readNumberToken handles integers, floats, and hex. Called when l.ch is a
 // digit; an integer becomes a float if a '.' is encountered mid-read.
 func (l *Lexer) readNumberToken(line int) token.Token {
-	// Hex: 0x...
+	// Hex: 0x... (integer, or a float with a '.' fraction and/or 'p' exponent).
 	if l.ch == '0' && (l.peekChar() == 'x' || l.peekChar() == 'X') {
+		start := l.position // include the leading "0x"
 		l.readChar()
 		l.readChar()
-		start := l.position
 		for isHexDigit(l.ch) {
 			l.readChar()
 		}
-		return token.Token{Type: token.Int, Literal: "0x" + string(l.input[start:l.position]), Line: line, Column: l.tokenCol}
+		isFloat := false
+		if l.ch == '.' {
+			isFloat = true
+			l.readChar()
+			for isHexDigit(l.ch) {
+				l.readChar()
+			}
+		}
+		if l.ch == 'p' || l.ch == 'P' {
+			isFloat = true
+			l.readChar()
+			if l.ch == '+' || l.ch == '-' {
+				l.readChar()
+			}
+			for isDigit(l.ch) {
+				l.readChar()
+			}
+		}
+		lit := string(l.input[start:l.position])
+		if isFloat {
+			return token.Token{Type: token.Float, Literal: lit, Line: line, Column: l.tokenCol}
+		}
+		return token.Token{Type: token.Int, Literal: lit, Line: line, Column: l.tokenCol}
 	}
 
 	start := l.position
@@ -291,10 +312,9 @@ func (l *Lexer) absorbComment() {
 	l.readChar() // consume second '-'
 	l.readChar() // move past --
 
-	if l.ch == '[' && l.peekChar() == '[' {
-		l.readChar()
-		l.readChar()
-		l.readLongString()
+	if lvl := l.longOpenLevel(); lvl >= 0 {
+		l.consumeLongOpen(lvl)
+		l.readLongString(lvl)
 		return
 	}
 
@@ -321,18 +341,64 @@ func (l *Lexer) absorbComment() {
 	}
 }
 
-// readLongString reads a [[...]] long string. Called after [[ has been consumed.
-func (l *Lexer) readLongString() string {
+// longOpenLevel reports the level of a long-bracket opener at the current '['
+// (`[` followed by N '=' then '['), where N is the level, or -1 if the cursor
+// is not on a long-bracket opener. It does not consume input.
+func (l *Lexer) longOpenLevel() int {
+	if l.ch != '[' {
+		return -1
+	}
+	i := l.readPosition // index just past l.ch
+	level := 0
+	for i < len(l.input) && l.input[i] == '=' {
+		level++
+		i++
+	}
+	if i < len(l.input) && l.input[i] == '[' {
+		return level
+	}
+	return -1
+}
+
+// consumeLongOpen advances past a long-bracket opener of the given level
+// (`[` + '='*level + `[`).
+func (l *Lexer) consumeLongOpen(level int) {
+	l.readChar() // opening '['
+	for k := 0; k < level; k++ {
+		l.readChar()
+	}
+	l.readChar() // second '['
+}
+
+// matchLongClose, with the cursor on a ']', reports whether it begins a long
+// close bracket of the given level (`]` + '='*level + `]`). On a match it
+// consumes the whole close bracket; otherwise it leaves the cursor untouched.
+func (l *Lexer) matchLongClose(level int) bool {
+	i := l.readPosition
+	cnt := 0
+	for i < len(l.input) && l.input[i] == '=' {
+		cnt++
+		i++
+	}
+	if cnt != level || i >= len(l.input) || l.input[i] != ']' {
+		return false
+	}
+	l.readChar() // first ']'
+	for k := 0; k < level; k++ {
+		l.readChar()
+	}
+	l.readChar() // closing ']'
+	return true
+}
+
+// readLongString reads a long-bracket string of the given level. Called after
+// the opener has been consumed; stops at the matching `]=*level]` so inner
+// brackets of a different level are kept as content.
+func (l *Lexer) readLongString(level int) string {
 	var b strings.Builder
 
-	for {
-		if l.ch == 0 {
-			break
-		}
-
-		if l.ch == ']' && l.peekChar() == ']' {
-			l.readChar()
-			l.readChar()
+	for l.ch != 0 {
+		if l.ch == ']' && l.matchLongClose(level) {
 			break
 		}
 

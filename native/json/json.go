@@ -3,6 +3,7 @@ package json
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/hilthontt/luascript/vm"
@@ -131,7 +132,10 @@ func vmToJSONValue(v vm.Value, depth int) any {
 			return arr
 		}
 
-		// Encode as JSON object
+		// Encode as JSON object. JSON keys must be strings, so integer/float
+		// keys are stringified (e.g. {[2]=10} -> {"2":10}) instead of being
+		// silently dropped. Only bool/table keys, which have no sensible key
+		// form, are skipped.
 		obj := make(map[string]any)
 		var key vm.Value = nil
 		for {
@@ -140,10 +144,14 @@ func vmToJSONValue(v vm.Value, depth int) any {
 			if key == nil {
 				break
 			}
-			if strKey, ok := key.(string); ok {
-				obj[strKey] = vmToJSONValue(value, depth+1)
+			switch k := key.(type) {
+			case string:
+				obj[k] = vmToJSONValue(value, depth+1)
+			case int64:
+				obj[strconv.FormatInt(k, 10)] = vmToJSONValue(value, depth+1)
+			case float64:
+				obj[strconv.FormatFloat(k, 'g', -1, 64)] = vmToJSONValue(value, depth+1)
 			}
-			// Non-string keys are ignored (standard JSON behavior)
 		}
 		return obj
 

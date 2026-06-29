@@ -39,7 +39,14 @@ func (p *Parser) parseIntegerLiteral() ast.Expression {
 
 func (p *Parser) parseFloatLiteral() ast.Expression {
 	tok := p.curToken
-	v, err := strconv.ParseFloat(tok.Literal, 64)
+	lit := tok.Literal
+	// Lua allows hex floats with no binary exponent (0x1.8 == 1.5), but Go's
+	// strconv requires a 'p' exponent — append a zero one when it's missing.
+	if (strings.HasPrefix(lit, "0x") || strings.HasPrefix(lit, "0X")) &&
+		!strings.ContainsAny(lit, "pP") {
+		lit += "p0"
+	}
+	v, err := strconv.ParseFloat(lit, 64)
 	if err != nil {
 		// Lua 5.4: an overflowing float literal is inf (HUGE_VAL), not an
 		// error. strconv returns ±Inf alongside ErrRange in that case.
