@@ -13,27 +13,40 @@ import (
 func (p *Parser) parseIntegerLiteral() ast.Expression {
 	tok := p.curToken
 	lit := tok.Literal
-	var (
-		v   int64
-		err error
-	)
 	if strings.HasPrefix(lit, "0x") || strings.HasPrefix(lit, "0X") {
-		v, err = strconv.ParseInt(lit[2:], 16, 64)
-	} else {
-		v, err = strconv.ParseInt(lit, 10, 64)
-	}
-	if err != nil {
+		// Lua 5.4 §3.1: hex integer literals wrap modulo 2^64
+		// (0xFFFFFFFFFFFFFFFF == -1), so parse unsigned and reinterpret.
+		if u, err := strconv.ParseUint(lit[2:], 16, 64); err == nil {
+			p.nextToken()
+			return &ast.IntegerLiteral{BaseNode: baseAt(tok), Value: int64(u)}
+		}
 		p.error = errors.NewTypeParsingError(lit, "Integer", tok.Line)
 		return nil
 	}
-	p.nextToken()
-	return &ast.IntegerLiteral{BaseNode: baseAt(tok), Value: v}
+	if v, err := strconv.ParseInt(lit, 10, 64); err == nil {
+		p.nextToken()
+		return &ast.IntegerLiteral{BaseNode: baseAt(tok), Value: v}
+	}
+	// Lua 5.4 §3.1: a decimal integer literal too large for an integer denotes
+	// a float (9999999999999999999 -> 1e19).
+	if f, err := strconv.ParseFloat(lit, 64); err == nil {
+		p.nextToken()
+		return &ast.FloatLiteral{BaseNode: baseAt(tok), Value: f}
+	}
+	p.error = errors.NewTypeParsingError(lit, "Integer", tok.Line)
+	return nil
 }
 
 func (p *Parser) parseFloatLiteral() ast.Expression {
 	tok := p.curToken
 	v, err := strconv.ParseFloat(tok.Literal, 64)
 	if err != nil {
+		// Lua 5.4: an overflowing float literal is inf (HUGE_VAL), not an
+		// error. strconv returns ±Inf alongside ErrRange in that case.
+		if ne, ok := err.(*strconv.NumError); ok && ne.Err == strconv.ErrRange {
+			p.nextToken()
+			return &ast.FloatLiteral{BaseNode: baseAt(tok), Value: v}
+		}
 		p.error = errors.NewTypeParsingError(tok.Literal, "Float", tok.Line)
 		return nil
 	}

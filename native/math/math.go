@@ -154,7 +154,11 @@ func newMath() *vm.Table {
 			return []vm.Value{rand.Float64()}
 		case 1:
 			upper := vm.IntArg("m", 1, args)
-			if upper < 1 {
+			if upper == 0 {
+				// Lua 5.4: math.random(0) returns a value with all bits random.
+				return []vm.Value{int64(rand.Uint64())}
+			}
+			if upper < 0 {
 				panic(vm.Errorf("bad argument #1 to 'random' (interval is empty)"))
 			}
 			return []vm.Value{1 + rand.Int63n(upper)}
@@ -164,7 +168,13 @@ func newMath() *vm.Table {
 			if lower > upper {
 				panic(vm.Errorf("bad argument #2 to 'random' (interval is empty)"))
 			}
-			return []vm.Value{lower + rand.Int63n(upper-lower+1)}
+			// Compute the span as unsigned to avoid int64 overflow on wide
+			// intervals (e.g. mininteger..maxinteger).
+			span := uint64(upper) - uint64(lower)
+			if span == ^uint64(0) {
+				return []vm.Value{int64(rand.Uint64())}
+			}
+			return []vm.Value{lower + int64(rand.Uint64()%(span+1))}
 		}
 	}})
 

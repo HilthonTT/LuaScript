@@ -2,6 +2,7 @@ package vm
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/hilthontt/luascript/compiler/bytecode"
@@ -973,9 +974,10 @@ func (v *VM) forPrep(f *CallFrame, baseSlot, exitTarget int) {
 	limitV := *v.localAt(f, baseSlot+1)
 	stepV := *v.localAt(f, baseSlot+2)
 
-	// Promote to a common subtype: if any of the three is a float, all are
-	// floats; otherwise everything stays an integer.
-	if isFloat(startV) || isFloat(limitV) || isFloat(stepV) {
+	// Lua 5.4 §3.3.5: the loop runs with integers iff the initial value and
+	// the step are both integers — the limit may be a float without forcing a
+	// float loop (it is floored/ceiled to an integer bound instead).
+	if isFloat(startV) || isFloat(stepV) {
 		s, ok1 := ToFloat(startV)
 		l, ok2 := ToFloat(limitV)
 		st, ok3 := ToFloat(stepV)
@@ -996,21 +998,73 @@ func (v *VM) forPrep(f *CallFrame, baseSlot, exitTarget int) {
 		return
 	}
 	s, ok1 := ToInteger(startV)
-	l, ok2 := ToInteger(limitV)
 	st, ok3 := ToInteger(stepV)
-	if !ok1 || !ok2 || !ok3 {
-		panic(LuaError("'for' initial value, limit, and step must be numbers"))
+	if !ok1 || !ok3 {
+		panic(LuaError("'for' initial value and step must be numbers"))
+	}
+	if !isNumber(limitV) {
+		panic(LuaError("'for' limit must be a number"))
 	}
 	if st == 0 {
 		panic(LuaError("'for' step is zero"))
 	}
-	if !((st > 0 && s <= l) || (st < 0 && s >= l)) {
+	// The limit may be a float; convert it to the integer bound the loop will
+	// actually compare against (floor for an ascending loop, ceil for a
+	// descending one), keeping the loop variable an integer.
+	l, run := forLimitInt(s, limitV, st)
+	if !run {
 		f.IP = exitTarget
 		return
 	}
 	*v.localAt(f, baseSlot) = internInt(s)
 	*v.localAt(f, baseSlot+1) = internInt(l)
 	*v.localAt(f, baseSlot+2) = internInt(st)
+}
+
+// forLimitInt resolves an integer `for` loop's limit (which may be a float) to
+// the integer bound the loop compares against, mirroring Lua 5.4's forlimit.
+// It returns the bound and whether the loop should run at all. A float limit is
+// floored for an ascending loop and ceiled for a descending one; out-of-range
+// or NaN limits clamp to MaxInt64/MinInt64 or skip the loop entirely.
+func forLimitInt(init int64, limitV Value, step int64) (int64, bool) {
+	if i, ok := limitV.(int64); ok {
+		return i, (step > 0 && init <= i) || (step < 0 && init >= i)
+	}
+	f, _ := ToFloat(limitV)
+	if math.IsNaN(f) {
+		return 0, false
+	}
+	var ff float64
+	if step < 0 {
+		ff = math.Ceil(f)
+	} else {
+		ff = math.Floor(f)
+	}
+	const twoPow63 = 9223372036854775808.0 // 2^63; the float just past MaxInt64
+	var p int64
+	switch {
+	case ff >= -twoPow63 && ff < twoPow63:
+		p = int64(ff)
+	case f > 0:
+		if step < 0 {
+			return 0, false // limit far above any reachable value
+		}
+		p = math.MaxInt64
+	default:
+		if step > 0 {
+			return 0, false // limit far below any reachable value
+		}
+		p = math.MinInt64
+	}
+	return p, (step > 0 && init <= p) || (step < 0 && init >= p)
+}
+
+func isNumber(v Value) bool {
+	switch v.(type) {
+	case int64, float64:
+		return true
+	}
+	return false
 }
 
 // forLoop adds step to the index; if the new value is still within range

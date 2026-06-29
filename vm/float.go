@@ -49,6 +49,11 @@ func parseNumber(s string) (int64, float64, bool, bool) {
 	if s == "" {
 		return 0, 0, false, false
 	}
+	// Lua rejects "inf"/"nan"/"infinity": no valid numeral contains 'n'/'N',
+	// so refuse them before strconv.ParseFloat (which would accept them).
+	if strings.ContainsAny(s, "nN") {
+		return 0, 0, false, false
+	}
 	lower := strings.ToLower(s)
 	if strings.HasPrefix(lower, "0x") || strings.HasPrefix(lower, "-0x") || strings.HasPrefix(lower, "+0x") {
 		if i, err := strconv.ParseInt(s, 0, 64); err == nil {

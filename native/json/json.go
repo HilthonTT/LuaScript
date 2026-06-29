@@ -25,7 +25,7 @@ func newJson() *vm.Table {
 
 	methods.Set("encode", &vm.GoFunc{Name: "json:encode", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 		value := vm.AnyArg("encode", 1, args) // Allow table or other types
-		goValue := vmToJSONValue(value)
+		goValue := vmToJSONValue(value, 0)
 
 		jsonBytes, err := json.Marshal(goValue)
 		if err != nil {
@@ -101,7 +101,14 @@ func jsonToVMValue(v any) vm.Value {
 	}
 }
 
-func vmToJSONValue(v vm.Value) any {
+// maxJSONDepth bounds encode recursion so a cyclic table raises a catchable
+// Lua error instead of overflowing the Go stack (a fatal, uncatchable crash).
+const maxJSONDepth = 1000
+
+func vmToJSONValue(v vm.Value, depth int) any {
+	if depth > maxJSONDepth {
+		panic(vm.Errorf("json.encode: table nesting too deep (cyclic reference?)"))
+	}
 	switch x := v.(type) {
 	case nil:
 		return nil
@@ -119,7 +126,7 @@ func vmToJSONValue(v vm.Value) any {
 			// Encode as JSON array
 			arr := make([]any, 0, x.Len())
 			for i := int64(1); i <= x.Len(); i++ {
-				arr = append(arr, vmToJSONValue(x.Get(i)))
+				arr = append(arr, vmToJSONValue(x.Get(i), depth+1))
 			}
 			return arr
 		}
@@ -134,7 +141,7 @@ func vmToJSONValue(v vm.Value) any {
 				break
 			}
 			if strKey, ok := key.(string); ok {
-				obj[strKey] = vmToJSONValue(value)
+				obj[strKey] = vmToJSONValue(value, depth+1)
 			}
 			// Non-string keys are ignored (standard JSON behavior)
 		}

@@ -145,7 +145,10 @@ func PatternGSub(
 	s, pat string, repl Value, maxN int,
 	callFn func(fn Value, args []Value) []Value,
 ) (string, int) {
-	if maxN <= 0 {
+	// A negative maxN is the "absent 4th argument" sentinel → unlimited.
+	// An explicit 0 must perform no substitutions (callers clamp explicit
+	// negatives to 0 before reaching here).
+	if maxN < 0 {
 		maxN = 1<<31 - 1
 	}
 	var b strings.Builder
@@ -499,7 +502,11 @@ func (ms *matchState) matchBracket(c byte, pIdx int) bool {
 		idx++
 	}
 	found := false
-	for idx < len(ms.pat) && ms.pat[idx] != ']' {
+	// A ']' immediately after '[' or '[^' is a literal member, not the close
+	// bracket (matches singleClassEnd's length detection and Lua semantics).
+	first := true
+	for idx < len(ms.pat) && (first || ms.pat[idx] != ']') {
+		first = false
 		if ms.pat[idx] == '%' && idx+1 < len(ms.pat) {
 			if matchClass(c, ms.pat[idx+1]) {
 				found = true
@@ -622,14 +629,15 @@ func (ms *matchState) matchBalance(sIdx, pIdx int) int {
 	depth := 1
 	i := sIdx + 1
 	for i < len(ms.src) {
-		switch ms.src[i] {
-		case open:
-			depth++
-		case close:
+		// Test close before open so a pattern with identical delimiters
+		// (e.g. %b||) still terminates, matching Lua's matchbalance.
+		if ms.src[i] == close {
 			depth--
 			if depth == 0 {
 				return ms.match(i+1, pIdx+2)
 			}
+		} else if ms.src[i] == open {
+			depth++
 		}
 		i++
 	}

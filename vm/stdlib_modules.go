@@ -154,14 +154,28 @@ func buildMathLibrary() *Table {
 			return []Value{rng.Float64()}
 		case 1:
 			m := IntArg("math.random", 1, args[:1])
+			if m == 0 {
+				// Lua 5.4: math.random(0) returns a value with all bits random.
+				return []Value{int64(rng.Uint64())}
+			}
+			if m < 0 {
+				panic(LuaError("bad argument #1 to 'random' (interval is empty)"))
+			}
 			return []Value{int64(rng.Int63n(m)) + 1}
 		default:
 			lo := IntArg("math.random", 1, args[:1])
 			hi := IntArg("math.random", 2, args[1:2])
 			if hi < lo {
-				panic(LuaError("bad argument to 'random' (interval is empty)"))
+				panic(LuaError("bad argument #2 to 'random' (interval is empty)"))
 			}
-			return []Value{int64(rng.Int63n(hi-lo+1)) + lo}
+			// Compute the span as unsigned to avoid int64 overflow on wide
+			// intervals (e.g. mininteger..maxinteger). span == ^0 means the
+			// full 2^64 range: every value is equally likely.
+			span := uint64(hi) - uint64(lo)
+			if span == ^uint64(0) {
+				return []Value{int64(rng.Uint64())}
+			}
+			return []Value{lo + int64(rng.Uint64()%(span+1))}
 		}
 	})
 	add("randomseed", func(_ *VM, args []Value) []Value {
@@ -382,10 +396,13 @@ func buildStringLibrary() *Table {
 			panic(Errorf("bad argument #3 to 'gsub' (string/table/function expected)"))
 		}
 		repl := args[2]
-		n := -1
+		n := -1 // sentinel: 4th arg absent → replace all
 		if len(args) >= 4 {
 			if i, ok := ToInteger(args[3]); ok {
 				n = int(i)
+				if n < 0 {
+					n = 0 // Lua: a non-positive count performs no substitutions
+				}
 			}
 		}
 		out, count := PatternGSub(s, pat, repl, n, func(fn Value, fnArgs []Value) []Value {
@@ -441,15 +458,21 @@ func buildTableLibrary() *Table {
 		case 2:
 			// Append at the end.
 			tbl.Set(tbl.Len()+1, args[1])
-		default:
+		case 3:
 			pos := IntArg("table.insert", 2, args)
 			val := args[2]
 			n := tbl.Len()
+			// Lua 5.4: the position must be in [1, n+1].
+			if pos < 1 || pos > n+1 {
+				panic(LuaError("bad argument #2 to 'insert' (position out of bounds)"))
+			}
 			// Shift right to make room for the new element.
 			for i := n; i >= pos; i-- {
 				tbl.Set(i+1, tbl.Get(i))
 			}
 			tbl.Set(pos, val)
+		default:
+			panic(LuaError("wrong number of arguments to 'insert'"))
 		}
 		return nil
 	})

@@ -247,6 +247,13 @@ func (l *Lexer) readNumberToken(line int) token.Token {
 		return token.Token{Type: token.Float, Literal: string(l.input[start:l.position]), Line: line, Column: l.tokenCol}
 	}
 
+	// An exponent with no radix point still denotes a float (Lua 5.4 §3.1):
+	// `1e10`, `2E3` are floats, not an integer followed by an identifier.
+	if l.ch == 'e' || l.ch == 'E' {
+		l.readExponent()
+		return token.Token{Type: token.Float, Literal: string(l.input[start:l.position]), Line: line, Column: l.tokenCol}
+	}
+
 	return token.Token{Type: token.Int, Literal: string(l.input[start:l.position]), Line: line, Column: l.tokenCol}
 }
 
@@ -258,7 +265,7 @@ func (l *Lexer) readDotFloat(line int) token.Token {
 		l.readChar()
 	}
 	l.readExponent()
-	return token.Token{Type: token.Float, Literal: string(l.input[start:l.position]), Line: line}
+	return token.Token{Type: token.Float, Literal: string(l.input[start:l.position]), Line: line, Column: l.tokenCol}
 }
 
 // readExponent reads an optional e/E exponent from the current position.
@@ -350,29 +357,113 @@ func (l *Lexer) readIdentifier() []rune {
 func (l *Lexer) readString(ch rune) string {
 	l.readChar() // skip opening quote
 
-	if l.ch == ch {
-		l.readChar()
-		return ""
-	}
-
 	var b strings.Builder
-
-	for {
-		if isEscapedChar(l.ch) {
-			b.WriteString(escapedCharResult(l.peekChar()))
-			l.readChar()
-		} else {
-			b.WriteRune(l.ch)
+	for l.ch != ch && l.ch != 0 {
+		if l.ch == '\\' {
+			l.readChar() // consume the backslash
+			l.readEscape(&b)
+			continue
 		}
+		b.WriteRune(l.ch)
 		l.readChar()
-		if l.ch == ch || l.peekChar() == 0 {
-			break
-		}
 	}
 
-	l.readChar() // move past closing quote
+	l.readChar() // move past closing quote (or EOF on an unterminated string)
 
 	return b.String()
+}
+
+// readEscape consumes one escape sequence (the cursor is on the char after the
+// backslash) and appends the decoded bytes to b, advancing past the sequence.
+// Covers Lua 5.4 §3.1: \a \b \f \n \r \t \v, \\ \" \' \`, \ddd (decimal),
+// \xHH (hex), \u{XXX} (UTF-8), \z (skip following whitespace), and a
+// backslash-newline line continuation.
+func (l *Lexer) readEscape(b *strings.Builder) {
+	switch l.ch {
+	case 'n':
+		b.WriteByte('\n')
+		l.readChar()
+	case 't':
+		b.WriteByte('\t')
+		l.readChar()
+	case 'r':
+		b.WriteByte('\r')
+		l.readChar()
+	case 'v':
+		b.WriteByte('\v')
+		l.readChar()
+	case 'f':
+		b.WriteByte('\f')
+		l.readChar()
+	case 'a':
+		b.WriteByte('\a')
+		l.readChar()
+	case 'b':
+		b.WriteByte('\b')
+		l.readChar()
+	case '\\':
+		b.WriteByte('\\')
+		l.readChar()
+	case '"':
+		b.WriteByte('"')
+		l.readChar()
+	case '\'':
+		b.WriteByte('\'')
+		l.readChar()
+	case '`':
+		b.WriteByte('`')
+		l.readChar()
+	case '\n', '\r':
+		// Line continuation: \<newline> yields a single '\n'.
+		first := l.ch
+		l.readChar()
+		if (first == '\r' && l.ch == '\n') || (first == '\n' && l.ch == '\r') {
+			l.readChar() // swallow the paired CR/LF
+		}
+		b.WriteByte('\n')
+	case 'x':
+		l.readChar() // consume 'x'
+		v := 0
+		for i := 0; i < 2 && isHexDigit(l.ch); i++ {
+			v = v*16 + hexVal(l.ch)
+			l.readChar()
+		}
+		b.WriteByte(byte(v))
+	case 'z':
+		l.readChar() // consume 'z'
+		for l.ch == ' ' || l.ch == '\t' || l.ch == '\n' || l.ch == '\r' {
+			l.readChar()
+		}
+	case 'u':
+		l.readChar() // consume 'u'
+		if l.ch == '{' {
+			l.readChar()
+			var r rune
+			for isHexDigit(l.ch) {
+				r = r*16 + rune(hexVal(l.ch))
+				l.readChar()
+			}
+			if l.ch == '}' {
+				l.readChar()
+			}
+			b.WriteRune(r)
+		}
+	default:
+		if isDigit(l.ch) {
+			// \ddd: up to three decimal digits.
+			v := 0
+			for i := 0; i < 3 && isDigit(l.ch); i++ {
+				v = v*10 + int(l.ch-'0')
+				l.readChar()
+			}
+			b.WriteByte(byte(v))
+		} else {
+			// Unknown escape: keep it verbatim rather than dropping data.
+			b.WriteByte('\\')
+			b.WriteRune(l.ch)
+			l.readChar()
+		}
+	}
 }
 
 func (l *Lexer) skipWhitespace() {
@@ -433,29 +524,14 @@ func isHexDigit(ch rune) bool {
 	return isDigit(ch) || ('a' <= ch && ch <= 'f') || ('A' <= ch && ch <= 'F')
 }
 
-func isEscapedChar(ch rune) bool {
-	return ch == '\\'
-}
-
-func escapedCharResult(peeked rune) string {
-	switch peeked {
-	case 'n':
-		return "\n"
-	case 't':
-		return "\t"
-	case 'r':
-		return "\r"
-	case 'v':
-		return "\v"
-	case 'f':
-		return "\f"
-	case '\\':
-		return "\\"
-	case '"', '`':
-		return "\""
-	case '\'':
-		return "'"
-	default:
-		return "\\" + string(peeked)
+func hexVal(ch rune) int {
+	switch {
+	case ch >= '0' && ch <= '9':
+		return int(ch - '0')
+	case ch >= 'a' && ch <= 'f':
+		return int(ch-'a') + 10
+	case ch >= 'A' && ch <= 'F':
+		return int(ch-'A') + 10
 	}
+	return 0
 }
