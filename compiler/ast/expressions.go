@@ -100,6 +100,10 @@ type TypedParam struct {
 // the optional `...: T` annotation. All type fields are nil-safe.
 type FunctionExpression struct {
 	BaseNode
+	// TypeParams is the optional generic parameter list written between the
+	// name (or `function` keyword) and `(`: `function map<T, U>(...)` parses
+	// to TypeParams: ["T", "U"]. Empty for non-generic functions.
+	TypeParams  []string
 	Params      []TypedParam
 	IsVararg    bool
 	VarargType  TypeNode
@@ -111,7 +115,11 @@ func (*FunctionExpression) expressionNode()         {}
 func (fe *FunctionExpression) TokenLiteral() string { return fe.Token.Literal }
 func (fe *FunctionExpression) String() string {
 	var out bytes.Buffer
-	out.WriteString("function(")
+	out.WriteString("function")
+	if len(fe.TypeParams) > 0 {
+		out.WriteString("<" + strings.Join(fe.TypeParams, ", ") + ">")
+	}
+	out.WriteString("(")
 	parts := make([]string, 0, len(fe.Params)+1)
 	for _, p := range fe.Params {
 		if p.Type != nil {

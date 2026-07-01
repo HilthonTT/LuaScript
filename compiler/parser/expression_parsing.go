@@ -413,6 +413,16 @@ func (p *Parser) parseFunctionExpression() ast.Expression {
 // keyword, or for `local function f` the keyword `function` of the
 // rewritten form).
 func (p *Parser) parseFunctionBody(headerTok token.Token) *ast.FunctionExpression {
+	// Optional generic parameter list: `function map<T, U>(...)`. The cursor
+	// sits just after the function name (or `function` keyword) at this point.
+	var typeParams []string
+	if p.curTokenIs(token.LT) {
+		typeParams = p.parseTypeParamList()
+		if p.error != nil {
+			return nil
+		}
+	}
+
 	if !p.expectCur(token.LParen) {
 		return nil
 	}
@@ -454,6 +464,7 @@ func (p *Parser) parseFunctionBody(headerTok token.Token) *ast.FunctionExpressio
 
 	return &ast.FunctionExpression{
 		BaseNode:    baseAt(headerTok),
+		TypeParams:  typeParams,
 		Params:      params,
 		IsVararg:    isVararg,
 		VarargType:  varargType,

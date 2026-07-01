@@ -1,6 +1,10 @@
 package typecheck
 
-import "github.com/hilthontt/luascript/compiler/ast"
+import (
+	"strings"
+
+	"github.com/hilthontt/luascript/compiler/ast"
+)
 
 // resolveAST converts an ast.TypeNode (parsed type syntax) into the
 // checker's internal Type. Aliases are looked up against the env's alias
@@ -26,6 +30,24 @@ func (c *checker) resolveAST(n ast.TypeNode) *Type {
 		// also covered by primitiveByName. Anything else is a parser bug.
 		return anyT
 	case *ast.TypeName:
+		// In-scope generic parameter (e.g. the `T` inside `type Box<T> = ...`
+		// or a generic function body) — becomes an opaque type variable.
+		if c.isTypeParam(t.Name) {
+			if len(t.TypeArgs) > 0 {
+				c.errf(n.Line(), "not-generic",
+					"type parameter %q does not take type arguments", t.Name)
+			}
+			return newTypeParam(t.Name)
+		}
+		// Generic alias reference: `Box<number>` → substitute into template.
+		if scheme, ok := c.env.genericAliases[t.Name]; ok {
+			return c.instantiateAlias(n.Line(), t, scheme)
+		}
+		if len(t.TypeArgs) > 0 {
+			c.errf(n.Line(), "not-generic",
+				"type %q is not generic and does not take type arguments", t.Name)
+			// Fall through and resolve the base name for a best-effort type.
+		}
 		// Alias reference — look up. Annotate with the alias name so
 		// diagnostics show the user's spelling rather than the expansion.
 		resolved := c.env.alias(t.Name)
@@ -77,4 +99,36 @@ func (c *checker) resolveAST(n ast.TypeNode) *Type {
 		return NewTable(fields, idx)
 	}
 	return anyT
+}
+
+// instantiateAlias resolves a generic alias reference `Name<A1, A2>` by
+// substituting the supplied type arguments into the scheme's template.
+// Arity mismatches are reported; missing args are filled with `any` and
+// extras ignored so the checker keeps making progress. The result carries
+// a display AliasName like `Box<number>`.
+func (c *checker) instantiateAlias(line int, t *ast.TypeName, scheme *GenericScheme) *Type {
+	if len(t.TypeArgs) != len(scheme.Params) {
+		c.errf(line, "type-arity",
+			"generic type %q expects %d type argument(s), got %d",
+			t.Name, len(scheme.Params), len(t.TypeArgs))
+	}
+	subst := make(map[string]*Type, len(scheme.Params))
+	argStrs := make([]string, len(scheme.Params))
+	for i, p := range scheme.Params {
+		if i < len(t.TypeArgs) {
+			at := c.resolveAST(t.TypeArgs[i])
+			subst[p] = at
+			argStrs[i] = at.String()
+		} else {
+			subst[p] = anyT
+			argStrs[i] = anyT.String()
+		}
+	}
+	if scheme.Template == nil {
+		return anyT
+	}
+	inst := substituteType(scheme.Template, subst)
+	named := *inst
+	named.AliasName = t.Name + "<" + strings.Join(argStrs, ", ") + ">"
+	return &named
 }

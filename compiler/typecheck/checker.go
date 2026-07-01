@@ -40,6 +40,45 @@ type checker struct {
 	// "no return type declared" — return statements in such functions
 	// flow no constraints.
 	returnsStack [][]*Type
+
+	// typeParamScopes is a stack of in-scope generic parameter name sets.
+	// Pushed while resolving a generic alias template or a generic
+	// function's signature/body; a TypeName matching an in-scope entry
+	// resolves to a KindTypeParam rather than an alias lookup.
+	typeParamScopes []map[string]bool
+}
+
+// pushTypeParams makes `names` resolve as generic type variables for the
+// duration of a matching popTypeParams. Empty lists are a no-op so callers
+// can invoke it unconditionally.
+func (c *checker) pushTypeParams(names []string) {
+	if len(names) == 0 {
+		return
+	}
+	set := make(map[string]bool, len(names))
+	for _, n := range names {
+		set[n] = true
+	}
+	c.typeParamScopes = append(c.typeParamScopes, set)
+}
+
+// popTypeParams unwinds a pushTypeParams. The `names` argument mirrors the
+// push so an empty list stays a no-op and push/pop pair up symmetrically.
+func (c *checker) popTypeParams(names []string) {
+	if len(names) == 0 || len(c.typeParamScopes) == 0 {
+		return
+	}
+	c.typeParamScopes = c.typeParamScopes[:len(c.typeParamScopes)-1]
+}
+
+// isTypeParam reports whether `name` is an in-scope generic type variable.
+func (c *checker) isTypeParam(name string) bool {
+	for i := len(c.typeParamScopes) - 1; i >= 0; i-- {
+		if c.typeParamScopes[i][name] {
+			return true
+		}
+	}
+	return false
 }
 
 // expandRHS evaluates an explist of length m against an N-target slot list
@@ -102,10 +141,17 @@ func (c *checker) installGlobals() {
 // today, and the runtime still guarantees `Color.RED == 1` and that the
 // table is frozen.
 func (c *checker) preResolveAliases(stmts []ast.Statement) {
-	// Pass 1: register placeholders so name → never (sentinel).
+	// Pass 1: register placeholders so name → never (sentinel). Generic
+	// aliases register an empty scheme carrying their parameter arity, so
+	// forward references to them (`Other<T>` inside another template) can be
+	// arity-checked in pass 2 before their own template is resolved.
 	for _, s := range stmts {
 		if a, ok := s.(*ast.TypeAliasStatement); ok {
-			c.env.aliases[a.Name] = neverT
+			if len(a.TypeParams) > 0 {
+				c.env.genericAliases[a.Name] = &GenericScheme{Params: a.TypeParams}
+			} else {
+				c.env.aliases[a.Name] = neverT
+			}
 		}
 		if e, ok := s.(*ast.EnumStatement); ok && e.Name != nil {
 			c.env.aliases[e.Name.Name] = neverT
@@ -117,7 +163,13 @@ func (c *checker) preResolveAliases(stmts []ast.Statement) {
 	// "unknown" error if used).
 	for _, s := range stmts {
 		if a, ok := s.(*ast.TypeAliasStatement); ok {
-			c.env.aliases[a.Name] = c.resolveAST(a.Target)
+			if len(a.TypeParams) > 0 {
+				c.pushTypeParams(a.TypeParams)
+				c.env.genericAliases[a.Name].Template = c.resolveAST(a.Target)
+				c.popTypeParams(a.TypeParams)
+			} else {
+				c.env.aliases[a.Name] = c.resolveAST(a.Target)
+			}
 		}
 		if e, ok := s.(*ast.EnumStatement); ok && e.Name != nil {
 			c.env.aliases[e.Name.Name] = numberT
@@ -384,6 +436,10 @@ func (c *checker) functionShapeFromExpr(fe *ast.FunctionExpression) *Type {
 	if fe == nil {
 		return anyT
 	}
+	// Generic parameters are in scope while resolving the signature so `T`
+	// in a param/return annotation becomes an opaque type variable.
+	c.pushTypeParams(fe.TypeParams)
+	defer c.popTypeParams(fe.TypeParams)
 	params := make([]*Type, len(fe.Params))
 	for i, p := range fe.Params {
 		if p.Type != nil {
@@ -404,7 +460,9 @@ func (c *checker) functionShapeFromExpr(fe *ast.FunctionExpression) *Type {
 	if fe.IsVararg && fe.VarargType != nil {
 		va = c.resolveAST(fe.VarargType)
 	}
-	return NewFunction(params, returns, fe.IsVararg, va)
+	shape := NewFunction(params, returns, fe.IsVararg, va)
+	shape.Fn.TypeParams = fe.TypeParams
+	return shape
 }
 
 // walkFunctionBody pushes a fresh frame, binds params, walks the body, and
@@ -414,6 +472,10 @@ func (c *checker) walkFunctionBody(fe *ast.FunctionExpression, shape *FunctionSh
 	if fe == nil || fe.Body == nil {
 		return
 	}
+	// Keep the function's generic parameters in scope for the body so that
+	// annotations inside it (`local acc: T`) resolve to the type variable.
+	c.pushTypeParams(fe.TypeParams)
+	defer c.popTypeParams(fe.TypeParams)
 	c.env.push()
 	defer c.env.pop()
 	for i, p := range fe.Params {
@@ -579,6 +641,11 @@ func (c *checker) typeOfCall(call *ast.CallExpression) *Type {
 			"cannot call a value of type %q", callee.String())
 		return anyT
 	}
+	// Generic call: infer a concrete type for each type parameter from the
+	// arguments, then check and return against the instantiated signature.
+	if len(fn.TypeParams) > 0 {
+		fn = c.instantiateCall(fn, args)
+	}
 	c.checkCallArgs(call.Line(), fn, args)
 	if len(fn.Returns) == 0 {
 		// Unannotated functions have no declared returns, but Lua callers
@@ -587,6 +654,102 @@ func (c *checker) typeOfCall(call *ast.CallExpression) *Type {
 		return anyT
 	}
 	return fn.Returns[0]
+}
+
+// instantiateCall infers type arguments for a generic function from the call
+// arguments and returns a concrete (non-generic) FunctionShape with the
+// inferred substitution applied to params, returns, and vararg type. Type
+// params that inference can't pin down default to `any` — matching the
+// gradual stance everywhere else in the checker.
+func (c *checker) instantiateCall(fn *FunctionShape, args []*Type) *FunctionShape {
+	subst := make(map[string]*Type, len(fn.TypeParams))
+	// Positional params against provided args.
+	n := len(args)
+	if len(fn.Params) < n {
+		n = len(fn.Params)
+	}
+	for i := 0; i < n; i++ {
+		unify(fn.Params[i], args[i], subst)
+	}
+	// Trailing args flow into the vararg type, if any.
+	if fn.IsVararg && fn.VarargType != nil && len(args) > len(fn.Params) {
+		for _, a := range args[len(fn.Params):] {
+			unify(fn.VarargType, a, subst)
+		}
+	}
+	// Any param never mentioned by the arguments defaults to `any`.
+	for _, p := range fn.TypeParams {
+		if subst[p] == nil {
+			subst[p] = anyT
+		}
+	}
+	return &FunctionShape{
+		Params:     substituteList(fn.Params, subst),
+		Returns:    substituteList(fn.Returns, subst),
+		IsVararg:   fn.IsVararg,
+		VarargType: substituteType(fn.VarargType, subst),
+		// TypeParams cleared: the returned shape is fully instantiated.
+	}
+}
+
+// unify walks a declared parameter type alongside a concrete argument type,
+// binding any type variables it encounters in `subst`. It is intentionally
+// lightweight (no occurs-check, no full HM): it descends matching function
+// and table structure and records leaf-level type-param bindings. When a
+// variable is seen more than once with differing types the bindings are
+// merged into a union, so `pair<T>(a: T, b: T)` called with (number, string)
+// infers `T = number | string` rather than erroring.
+func unify(param, arg *Type, subst map[string]*Type) {
+	if param == nil || arg == nil {
+		return
+	}
+	switch param.Kind {
+	case KindTypeParam:
+		if existing, ok := subst[param.TypeParam]; ok && existing != nil {
+			if !Same(existing, arg) {
+				subst[param.TypeParam] = NewUnion(existing, arg)
+			}
+			return
+		}
+		subst[param.TypeParam] = arg
+	case KindFunction:
+		// Nothing to learn from a non-function argument (e.g. `any`).
+		af := callableShape(arg)
+		if param.Fn == nil || af == nil {
+			return
+		}
+		pn := len(param.Fn.Params)
+		if len(af.Params) < pn {
+			pn = len(af.Params)
+		}
+		for i := 0; i < pn; i++ {
+			unify(param.Fn.Params[i], af.Params[i], subst)
+		}
+		rn := len(param.Fn.Returns)
+		if len(af.Returns) < rn {
+			rn = len(af.Returns)
+		}
+		for i := 0; i < rn; i++ {
+			unify(param.Fn.Returns[i], af.Returns[i], subst)
+		}
+	case KindTable:
+		if param.Table == nil || arg.Kind != KindTable || arg.Table == nil {
+			return
+		}
+		if param.Table.Indexer != nil && arg.Table.Indexer != nil {
+			unify(param.Table.Indexer.Key, arg.Table.Indexer.Key, subst)
+			unify(param.Table.Indexer.Value, arg.Table.Indexer.Value, subst)
+		}
+		argFields := make(map[string]*Type, len(arg.Table.Fields))
+		for _, f := range arg.Table.Fields {
+			argFields[f.Key] = f.Type
+		}
+		for _, f := range param.Table.Fields {
+			if at, ok := argFields[f.Key]; ok {
+				unify(f.Type, at, subst)
+			}
+		}
+	}
 }
 
 // callableShape returns the FunctionShape inside `t` — directly if t is a

@@ -1,0 +1,67 @@
+-- Generics — parametric polymorphism for aliases and functions.
+--
+-- Type parameters are written in angle brackets. They exist only for the
+-- type checker: like every other annotation they are erased before bytecode,
+-- so this file runs on the plain VM with zero runtime cost.
+
+-- ---------------------------------------------------------------------------
+-- Generic type aliases
+-- ---------------------------------------------------------------------------
+
+-- A single-parameter box, instantiated with a concrete type at each use.
+type Box<T> = { value: T }
+
+local n: Box<number> = { value = 42 }
+local s: Box<string> = { value = "hello" }
+print("boxes:", n.value, s.value)
+
+-- Two parameters, and nesting. `Box<Box<number>>` exercises the `>>` split.
+type Pair<A, B> = { first: A, second: B }
+
+local p: Pair<string, number> = { first = "age", second = 7 }
+print("pair:", p.first, p.second)
+
+local nested: Box<Box<number>> = { value = { value = 99 } }
+print("nested:", nested.value.value)
+
+-- ---------------------------------------------------------------------------
+-- Generic functions — type arguments are inferred from the call site
+-- ---------------------------------------------------------------------------
+
+-- identity: the classic. `identity(42)` infers T = number.
+local function identity<T>(x: T): T
+    return x
+end
+
+print("identity:", identity(42), identity("str"), identity(true))
+
+-- first: pull the head off a typed array. T is inferred from the array.
+local function first<T>(xs: { T }): T
+    return xs[1]
+end
+
+local nums: { number } = { 10, 20, 30 }
+print("first:", first(nums))
+
+-- map: the payoff. T comes from the input array, U from the mapper's return.
+local function map<T, U>(xs: { T }, f: (T) -> U): { U }
+    local out = {}
+    for i = 1, #xs do
+        out[i] = f(xs[i])
+    end
+    return out
+end
+
+local doubled = map(nums, function(x: number): number
+    return x * 2
+end)
+print("doubled:", doubled[1], doubled[2], doubled[3])
+
+local labels = map(nums, function(x: number): string
+    return "#" .. x
+end)
+print("labels:", labels[1], labels[2], labels[3])
+
+-- A type error the checker catches (uncomment to see it):
+--   local bad: Box<number> = { value = "oops" }   -- string ~= number
+--   local n2: Box<number> = identity("str")        -- infers Box<string>

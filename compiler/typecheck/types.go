@@ -40,6 +40,13 @@ const (
 	KindFunction
 	KindTable
 	KindUnion
+	// KindTypeParam is a bound generic type variable, e.g. the `T` inside
+	// `function id<T>(x: T): T`. It is opaque: assignable only to `any`,
+	// `unknown`, and the same-named type param. Type params are introduced by
+	// generic aliases and generic functions and eliminated by substitution
+	// (alias instantiation) or inference (call sites) before any concrete
+	// checking happens.
+	KindTypeParam
 )
 
 // Type is the internal type representation. Constructed by the checker
@@ -56,6 +63,9 @@ type Type struct {
 	// resolving a TypeName; the structural Kind/Fn/Table fields are still
 	// the source of truth for assignability.
 	AliasName string
+
+	// TypeParam holds the variable name when Kind == KindTypeParam.
+	TypeParam string
 }
 
 // FunctionShape is the parameter/return signature of a function type.
@@ -66,6 +76,12 @@ type FunctionShape struct {
 	Returns    []*Type
 	IsVararg   bool
 	VarargType *Type
+
+	// TypeParams names the generic parameters the function is quantified
+	// over. Non-empty for `function map<T, U>(...)`. Call sites infer a
+	// concrete type for each and substitute before arg/return checking; the
+	// declaring body sees them as opaque KindTypeParam types.
+	TypeParams []string
 }
 
 // TableShape is a structural table type. Fields are ordered for stable
@@ -172,6 +188,8 @@ func Same(a, b *Type) bool {
 	case KindNumber, KindString, KindBoolean, KindNil,
 		KindAny, KindUnknown, KindNever:
 		return true
+	case KindTypeParam:
+		return a.TypeParam == b.TypeParam
 	case KindFunction:
 		return sameFunction(a.Fn, b.Fn)
 	case KindTable:
@@ -285,6 +303,8 @@ func (t *Type) String() string {
 		return "unknown"
 	case KindNever:
 		return "never"
+	case KindTypeParam:
+		return t.TypeParam
 	case KindFunction:
 		return formatFunction(t.Fn)
 	case KindTable:
@@ -315,6 +335,11 @@ func formatFunction(f *FunctionShape) string {
 		}
 	}
 	var b strings.Builder
+	if len(f.TypeParams) > 0 {
+		b.WriteString("<")
+		b.WriteString(strings.Join(f.TypeParams, ", "))
+		b.WriteString(">")
+	}
 	b.WriteString("(")
 	b.WriteString(strings.Join(parts, ", "))
 	b.WriteString(") -> ")
@@ -384,3 +409,75 @@ func StringT() *Type  { return stringT }
 func BooleanT() *Type { return booleanT }
 func UnknownT() *Type { return unknownT }
 func NeverT() *Type   { return neverT }
+
+// newTypeParam builds an opaque generic type variable named `name`.
+func newTypeParam(name string) *Type {
+	return &Type{Kind: KindTypeParam, TypeParam: name}
+}
+
+// substituteType returns a copy of `t` with every KindTypeParam replaced by
+// its binding in `subst`. Type params absent from `subst` are left in place
+// (still opaque). Primitive singletons are returned unchanged (immutable);
+// compound types are rebuilt so the template is never mutated. AliasName is
+// deliberately dropped on rebuilt compounds so a stale pre-substitution
+// spelling (e.g. `Box<T>`) doesn't mask the concrete instantiation — the
+// instantiating caller stamps the display name.
+func substituteType(t *Type, subst map[string]*Type) *Type {
+	if t == nil {
+		return nil
+	}
+	switch t.Kind {
+	case KindTypeParam:
+		if r, ok := subst[t.TypeParam]; ok && r != nil {
+			return r
+		}
+		return t
+	case KindFunction:
+		if t.Fn == nil {
+			return t
+		}
+		fn := &FunctionShape{
+			Params:     substituteList(t.Fn.Params, subst),
+			Returns:    substituteList(t.Fn.Returns, subst),
+			IsVararg:   t.Fn.IsVararg,
+			VarargType: substituteType(t.Fn.VarargType, subst),
+			TypeParams: t.Fn.TypeParams,
+		}
+		return &Type{Kind: KindFunction, Fn: fn}
+	case KindTable:
+		if t.Table == nil {
+			return t
+		}
+		fields := make([]TableField, len(t.Table.Fields))
+		for i, f := range t.Table.Fields {
+			fields[i] = TableField{Key: f.Key, Type: substituteType(f.Type, subst)}
+		}
+		var idx *Indexer
+		if t.Table.Indexer != nil {
+			idx = &Indexer{
+				Key:   substituteType(t.Table.Indexer.Key, subst),
+				Value: substituteType(t.Table.Indexer.Value, subst),
+			}
+		}
+		return &Type{Kind: KindTable, Table: &TableShape{Fields: fields, Indexer: idx}}
+	case KindUnion:
+		members := make([]*Type, len(t.Union))
+		for i, m := range t.Union {
+			members[i] = substituteType(m, subst)
+		}
+		return NewUnion(members...)
+	default:
+		return t
+	}
+}
+
+func substituteList(ts []*Type, subst map[string]*Type) []*Type {
+	if len(ts) == 0 {
+		return nil
+	}
+	out := make([]*Type, len(ts))
+	for i, t := range ts {
+		out[i] = substituteType(t, subst)
+	}
+	return out
+}

@@ -14,6 +14,21 @@ type env struct {
 	// population; the walker only reads. Recursive aliases aren't in v1
 	// (recursive references resolve to KindNever).
 	aliases map[string]*Type
+
+	// genericAliases holds parameterized aliases (`type Box<T> = ...`),
+	// kept separate from `aliases` because they can't be used bare — a
+	// reference must supply type arguments and is resolved by substitution
+	// into the scheme's template.
+	genericAliases map[string]*GenericScheme
+}
+
+// GenericScheme is a parameterized type alias: the ordered type-parameter
+// names plus the resolved template that references them via KindTypeParam.
+// Instantiation substitutes concrete types for the params into a copy of
+// Template.
+type GenericScheme struct {
+	Params   []string
+	Template *Type
 }
 
 type frame struct {
@@ -22,8 +37,9 @@ type frame struct {
 
 func newEnv() *env {
 	return &env{
-		frames:  []frame{{bindings: map[string]*Type{}}},
-		aliases: map[string]*Type{},
+		frames:         []frame{{bindings: map[string]*Type{}}},
+		aliases:        map[string]*Type{},
+		genericAliases: map[string]*GenericScheme{},
 	}
 }
 

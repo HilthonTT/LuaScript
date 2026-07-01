@@ -61,7 +61,14 @@ func (p *Parser) parseTypeAtom() ast.TypeNode {
 		if isPrimitiveTypeName(name) {
 			t = &ast.TypePrimitive{BaseNode: baseAt(tok), Name: name}
 		} else {
-			t = &ast.TypeName{BaseNode: baseAt(tok), Name: name}
+			var args []ast.TypeNode
+			if p.curTokenIs(token.LT) {
+				args = p.parseTypeArgList()
+				if p.error != nil {
+					return nil
+				}
+			}
+			t = &ast.TypeName{BaseNode: baseAt(tok), Name: name, TypeArgs: args}
 		}
 	default:
 		p.errorAt(p.curToken, errors.SyntaxError, "type",
@@ -301,6 +308,75 @@ func (p *Parser) parseTableType() ast.TypeNode {
 	}
 	p.nextToken() // consume '}'
 	return &ast.TypeTable{BaseNode: baseAt(openTok), Fields: fields, Indexer: indexer}
+}
+
+// consumeTypeArgClose consumes the single `>` that closes a type-parameter
+// or type-argument list. It transparently splits a `>>` (RShift) token into
+// two `>` so nested generics like `Box<Box<number>>` parse: the first close
+// rewrites the shared `>>` token in place to a lone `>` and does NOT advance,
+// leaving the remaining `>` for the enclosing list to consume.
+func (p *Parser) consumeTypeArgClose() bool {
+	switch {
+	case p.curTokenIs(token.GT):
+		p.nextToken()
+		return true
+	case p.curTokenIs(token.RShift):
+		p.curToken.Type = token.GT
+		p.curToken.Literal = ">"
+		return true
+	default:
+		p.errorAt(p.curToken, errors.SyntaxError, "type",
+			"expected '>' to close type list, got "+describeToken(p.curToken),
+			"type parameters and arguments are written between angle brackets: `Box<number>`")
+		return false
+	}
+}
+
+// parseTypeParamList reads a generic parameter declaration `<T, U>`. The
+// cursor is on `<` on entry. Returns the parameter names; sets p.error and
+// returns nil on failure. Bounds/defaults (`<T: number>`, `<T = number>`)
+// are intentionally unsupported in v1.
+func (p *Parser) parseTypeParamList() []string {
+	p.nextToken() // consume '<'
+	var params []string
+	for {
+		if !p.expectCur(token.Ident) {
+			return nil
+		}
+		params = append(params, p.curToken.Literal)
+		p.nextToken() // consume name
+		if !p.curTokenIs(token.Comma) {
+			break
+		}
+		p.nextToken() // consume ','
+	}
+	if !p.consumeTypeArgClose() {
+		return nil
+	}
+	return params
+}
+
+// parseTypeArgList reads a generic instantiation `<T1, T2>` in type position.
+// The cursor is on `<` on entry. Returns the argument type nodes; sets
+// p.error and returns nil on failure.
+func (p *Parser) parseTypeArgList() []ast.TypeNode {
+	p.nextToken() // consume '<'
+	var args []ast.TypeNode
+	for {
+		a := p.parseType()
+		if a == nil {
+			return nil
+		}
+		args = append(args, a)
+		if !p.curTokenIs(token.Comma) {
+			break
+		}
+		p.nextToken() // consume ','
+	}
+	if !p.consumeTypeArgClose() {
+		return nil
+	}
+	return args
 }
 
 // isPrimitiveTypeName lists the closed set of Luau-style primitive type

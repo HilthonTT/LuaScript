@@ -64,6 +64,15 @@ func assignable(from, to *Type) bool {
 		return false
 	}
 
+	// Generic type variables are opaque: a `T` satisfies only another `T`
+	// of the same name (plus `any`/`unknown`/`never`, handled above). No
+	// concrete type flows into a type param and vice versa. Placed after the
+	// union rules so `T` still flows into `T | nil` via the to-side scan.
+	if from.Kind == KindTypeParam || to.Kind == KindTypeParam {
+		return from.Kind == KindTypeParam && to.Kind == KindTypeParam &&
+			from.TypeParam == to.TypeParam
+	}
+
 	// Same primitive kind.
 	if from.Kind == to.Kind {
 		switch from.Kind {

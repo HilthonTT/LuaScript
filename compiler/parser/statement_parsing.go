@@ -79,6 +79,15 @@ func (p *Parser) parseTypeAliasStatement() ast.Statement {
 	name := p.curToken.Literal
 	p.nextToken() // consume Name
 
+	// Optional generic parameter list: `type Box<T> = ...`.
+	var typeParams []string
+	if p.curTokenIs(token.LT) {
+		typeParams = p.parseTypeParamList()
+		if p.error != nil {
+			return nil
+		}
+	}
+
 	if !p.expectCur(token.Assign) {
 		return nil
 	}
@@ -89,9 +98,10 @@ func (p *Parser) parseTypeAliasStatement() ast.Statement {
 		return nil
 	}
 	return &ast.TypeAliasStatement{
-		BaseNode: baseAt(tok),
-		Name:     name,
-		Target:   target,
+		BaseNode:   baseAt(tok),
+		Name:       name,
+		TypeParams: typeParams,
+		Target:     target,
 	}
 }
 

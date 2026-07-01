@@ -31,15 +31,27 @@ func (t *TypePrimitive) TokenLiteral() string { return t.Token.Literal }
 func (t *TypePrimitive) String() string       { return t.Name }
 
 // TypeName references a user-defined type alias by name. Resolution is the
-// type checker's job — the parser only records the name.
+// type checker's job — the parser only records the name. TypeArgs is the
+// optional generic instantiation list: `Box<number>` parses to
+// TypeName{Name: "Box", TypeArgs: [number]}. Empty for non-generic uses.
 type TypeName struct {
 	BaseNode
-	Name string
+	Name     string
+	TypeArgs []TypeNode
 }
 
 func (*TypeName) typeNode()              {}
 func (t *TypeName) TokenLiteral() string { return t.Token.Literal }
-func (t *TypeName) String() string       { return t.Name }
+func (t *TypeName) String() string {
+	if len(t.TypeArgs) == 0 {
+		return t.Name
+	}
+	parts := make([]string, len(t.TypeArgs))
+	for i, a := range t.TypeArgs {
+		parts[i] = a.String()
+	}
+	return t.Name + "<" + strings.Join(parts, ", ") + ">"
+}
 
 // TypeOptional is the postfix-`?` sugar: `T?` ≡ `T | nil`. Kept distinct
 // from TypeUnion so source round-trips and error messages preserve the
@@ -168,13 +180,22 @@ func (t *TypeTable) String() string {
 // permissive).
 type TypeAliasStatement struct {
 	BaseNode
-	Name   string
-	Target TypeNode
+	Name string
+	// TypeParams is the optional generic parameter list: `type Box<T> = ...`
+	// parses to TypeParams: ["T"]. Empty for non-generic aliases.
+	TypeParams []string
+	Target     TypeNode
 }
 
 func (*TypeAliasStatement) statementNode()         {}
 func (s *TypeAliasStatement) TokenLiteral() string { return s.Token.Literal }
-func (s *TypeAliasStatement) String() string       { return "type " + s.Name + " = " + s.Target.String() }
+func (s *TypeAliasStatement) String() string {
+	name := s.Name
+	if len(s.TypeParams) > 0 {
+		name += "<" + strings.Join(s.TypeParams, ", ") + ">"
+	}
+	return "type " + name + " = " + s.Target.String()
+}
 
 // TypeAssertionExpression is `expr :: T` — a programmer-controlled cast.
 // The runtime is a no-op; the bytecode generator emits the inner Expr's
