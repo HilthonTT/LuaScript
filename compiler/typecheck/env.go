@@ -1,5 +1,16 @@
 package typecheck
 
+import "github.com/hilthontt/luascript/compiler/ast"
+
+// genericAlias is the template for a generic type alias or generic struct:
+// its type parameters plus the unresolved target AST. Instantiation binds the
+// parameters to concrete arguments and resolves the target (see
+// resolveTypeApplication).
+type genericAlias struct {
+	params []string
+	target ast.TypeNode
+}
+
 // env is the scoped type environment used while walking the AST. It mirrors
 // the bytecode generator's localTable shape: a stack of frames where each
 // frame holds a name → Type map. Lookups walk innermost-to-outermost.
@@ -14,6 +25,11 @@ type env struct {
 	// population; the walker only reads. Recursive aliases aren't in v1
 	// (recursive references resolve to KindNever).
 	aliases map[string]*Type
+
+	// generics holds templates for parameterized aliases and structs
+	// (`type Box<T> = ...`, `struct Box<T> { ... }`). A `Box<number>`
+	// TypeApplication instantiates the template on demand.
+	generics map[string]*genericAlias
 }
 
 type frame struct {
@@ -22,8 +38,9 @@ type frame struct {
 
 func newEnv() *env {
 	return &env{
-		frames:  []frame{{bindings: map[string]*Type{}}},
-		aliases: map[string]*Type{},
+		frames:   []frame{{bindings: map[string]*Type{}}},
+		aliases:  map[string]*Type{},
+		generics: map[string]*genericAlias{},
 	}
 }
 

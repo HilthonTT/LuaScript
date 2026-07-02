@@ -997,3 +997,89 @@ func TestCloseScopeIsSafeOnEmpty(t *testing.T) {
 	// Should not panic.
 	lt.closeScope()
 }
+
+// TestStructLowersToDefineCall asserts a struct declaration lowers to a
+// `__struct_define("Name", {fields...})` call bound to a local, mirroring
+// the enum lowering strategy.
+func TestStructLowersToStructDefineCall(t *testing.T) {
+	// struct Point { x: number, y: number }
+	stmts := []ast.Statement{
+		&ast.StructStatement{
+			BaseNode: base(1),
+			Name:     ident("Point", 1),
+			Fields: []ast.StructField{
+				{Name: "x", Type: &ast.TypePrimitive{BaseNode: base(1), Name: "number"}},
+				{Name: "y", Type: &ast.TypePrimitive{BaseNode: base(1), Name: "number"}},
+			},
+		},
+	}
+	main := generate(t, stmts)[0]
+	assertOpcodes(t, main,
+		"getglobal",  // __struct_define
+		"loadstring", // "Point"
+		"newtable",   // field-name array
+		"dup", "loadint", "loadstring", "settable", // "x"
+		"dup", "loadint", "loadstring", "settable", // "y"
+		"call",     // __struct_define(name, fields)
+		"setlocal", // bind Point
+		"leave",
+	)
+
+	// The GetGlobal target is the runtime helper.
+	gg := findFirst(main, GetGlobal)
+	if gg == nil || gg.Params[0].(string) != "__struct_define" {
+		t.Fatalf("expected getglobal __struct_define, got %v", opcodes(main))
+	}
+}
+
+// TestTaggedEnumLowersToADTCall asserts a tagged enum lowers to an
+// `__enum_adt("Name", {Variant = arity, ...})` call, distinct from the
+// classic integer-freeze path.
+func TestTaggedEnumLowersToADTCall(t *testing.T) {
+	numT := &ast.TypePrimitive{BaseNode: base(1), Name: "number"}
+	// enum Shape Circle(number), Rect(number, number), Unit end
+	stmts := []ast.Statement{
+		&ast.EnumStatement{
+			BaseNode: base(1),
+			Name:     ident("Shape", 1),
+			Variants: []*ast.EnumVariantDef{
+				{Name: "Circle", Payload: []ast.TypeNode{numT}},
+				{Name: "Rect", Payload: []ast.TypeNode{numT, numT}},
+				{Name: "Unit"},
+			},
+		},
+	}
+	main := generate(t, stmts)[0]
+	assertOpcodes(t, main,
+		"getglobal",  // __enum_adt
+		"loadstring", // "Shape"
+		"newtable",   // arities hash
+		"dup", "loadint", "setfield", // Circle = 1
+		"dup", "loadint", "setfield", // Rect = 2
+		"dup", "loadint", "setfield", // Unit = 0
+		"call",
+		"setlocal",
+		"leave",
+	)
+	gg := findFirst(main, GetGlobal)
+	if gg == nil || gg.Params[0].(string) != "__enum_adt" {
+		t.Fatalf("expected getglobal __enum_adt, got %v", opcodes(main))
+	}
+}
+
+// TestPlainEnumStillUsesFreeze guards the classic integer-enum path against
+// regressions from the tagged-enum branch.
+func TestPlainEnumStillUsesFreeze(t *testing.T) {
+	stmts := []ast.Statement{
+		&ast.EnumStatement{
+			BaseNode: base(1),
+			Name:     ident("Color", 1),
+			Variants: []*ast.EnumVariantDef{{Name: "RED"}, {Name: "GREEN"}},
+		},
+	}
+	main := generate(t, stmts)[0]
+	gg := findFirst(main, GetGlobal)
+	if gg == nil || gg.Params[0].(string) != "__enum_freeze" {
+		t.Fatalf("expected getglobal __enum_freeze, got %v", opcodes(main))
+	}
+}

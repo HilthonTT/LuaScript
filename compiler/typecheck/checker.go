@@ -102,13 +102,29 @@ func (c *checker) installGlobals() {
 // today, and the runtime still guarantees `Color.RED == 1` and that the
 // table is frozen.
 func (c *checker) preResolveAliases(stmts []ast.Statement) {
-	// Pass 1: register placeholders so name → never (sentinel).
+	// Pass 1: register placeholders so name → never (sentinel). Generic
+	// declarations register their template immediately (instantiation is
+	// lazy, so no forward-reference problem) and skip the placeholder.
 	for _, s := range stmts {
 		if a, ok := s.(*ast.TypeAliasStatement); ok {
-			c.env.aliases[a.Name] = neverT
+			if len(a.TypeParams) > 0 {
+				c.env.generics[a.Name] = &genericAlias{params: a.TypeParams, target: a.Target}
+			} else {
+				c.env.aliases[a.Name] = neverT
+			}
 		}
 		if e, ok := s.(*ast.EnumStatement); ok && e.Name != nil {
 			c.env.aliases[e.Name.Name] = neverT
+		}
+		if st, ok := s.(*ast.StructStatement); ok && st.Name != nil {
+			if len(st.TypeParams) > 0 {
+				c.env.generics[st.Name.Name] = &genericAlias{
+					params: st.TypeParams,
+					target: structTableAST(st),
+				}
+			} else {
+				c.env.aliases[st.Name.Name] = neverT
+			}
 		}
 	}
 	// Pass 2: resolve each alias's RHS with the table populated. Self-
@@ -116,12 +132,100 @@ func (c *checker) preResolveAliases(stmts []ast.Statement) {
 	// recursive cycles yielding neverT (which produces a downstream
 	// "unknown" error if used).
 	for _, s := range stmts {
-		if a, ok := s.(*ast.TypeAliasStatement); ok {
+		if a, ok := s.(*ast.TypeAliasStatement); ok && len(a.TypeParams) == 0 {
 			c.env.aliases[a.Name] = c.resolveAST(a.Target)
 		}
 		if e, ok := s.(*ast.EnumStatement); ok && e.Name != nil {
-			c.env.aliases[e.Name.Name] = numberT
+			if e.IsTagged() {
+				// A tagged enum's *type* is a nominal opaque table: field/
+				// index access on a value yields `any` (so `s.__tag`, `s[1]`
+				// don't error), but a bare number/string is NOT a Shape.
+				t := NewTable(nil, &Indexer{Key: anyT, Value: anyT})
+				t.AliasName = e.Name.Name
+				c.env.aliases[e.Name.Name] = t
+			} else {
+				c.env.aliases[e.Name.Name] = numberT
+			}
 		}
+		if st, ok := s.(*ast.StructStatement); ok && st.Name != nil && len(st.TypeParams) == 0 {
+			// A struct name resolves, as a *type*, to its structural table
+			// `{ f1: T1, ... }` tagged with the struct's name for readable
+			// diagnostics. The *value* side (the constructor) is bound later
+			// in walkStatement. Generic structs live in the generics table
+			// instead and are instantiated via `Name<Args>`.
+			c.env.aliases[st.Name.Name] = c.structType(st)
+		}
+	}
+}
+
+// structTableAST builds a synthetic table-type AST for a struct's fields, so
+// a generic struct can be stored as a generic alias template and instantiated
+// through the same `Name<Args>` path as a generic `type` alias.
+func structTableAST(s *ast.StructStatement) ast.TypeNode {
+	fields := make([]ast.TypeTableField, len(s.Fields))
+	for i, f := range s.Fields {
+		fields[i] = ast.TypeTableField{Key: f.Name, Value: f.Type}
+	}
+	return &ast.TypeTable{BaseNode: s.BaseNode, Fields: fields}
+}
+
+// structType builds the nominal table type a struct name resolves to. The
+// AliasName is the struct name so `typeof(p)`-style diagnostics show `Point`
+// rather than the expanded `{ x: number, y: number }`.
+func (c *checker) structType(s *ast.StructStatement) *Type {
+	fields := make([]TableField, len(s.Fields))
+	for i, f := range s.Fields {
+		fields[i] = TableField{Key: f.Name, Type: c.resolveAST(f.Type)}
+	}
+	t := NewTable(fields, nil)
+	t.AliasName = s.Name.Name
+	return t
+}
+
+// taggedEnumNamespaceType builds the type of a tagged enum's namespace
+// value. Each variant becomes a field: payload variants map to constructor
+// functions `(P...) -> Enum`, nullary variants map to `Enum` itself.
+func (c *checker) taggedEnumNamespaceType(e *ast.EnumStatement) *Type {
+	enumT := c.env.alias(e.Name.Name) // the nominal type registered in the pre-pass
+	fields := make([]TableField, 0, len(e.Variants))
+	for _, v := range e.Variants {
+		if len(v.Payload) == 0 {
+			fields = append(fields, TableField{Key: v.Name, Type: enumT})
+			continue
+		}
+		params := make([]*Type, len(v.Payload))
+		for i, p := range v.Payload {
+			params[i] = c.resolveAST(p)
+		}
+		ctor := NewFunction(params, []*Type{enumT}, false, nil)
+		fields = append(fields, TableField{Key: v.Name, Type: ctor})
+	}
+	return NewTable(fields, nil)
+}
+
+// structConstructorType builds the constructor function type bound to a
+// struct's value name. Positionally it is `(T1, T2, ...) -> Struct`; the
+// Struct marker also lets typeOfCall accept the `Name{ ... }` named form.
+func (c *checker) structConstructorType(s *ast.StructStatement) *Type {
+	// For a generic struct the field types mention the parameters, so bring
+	// them into scope as type variables while building the constructor. A
+	// call like `Box(5)` then infers `T` and yields `Box<number>`.
+	restore := c.pushTypeParams(s.TypeParams)
+	defer restore()
+
+	shape := c.structType(s)
+	params := make([]*Type, len(shape.Table.Fields))
+	for i, f := range shape.Table.Fields {
+		params[i] = f.Type
+	}
+	return &Type{
+		Kind: KindFunction,
+		Fn: &FunctionShape{
+			Params:     params,
+			Returns:    []*Type{shape},
+			TypeParams: s.TypeParams,
+			Struct:     &StructCtor{Name: s.Name.Name, Shape: shape.Table},
+		},
 	}
 }
 
@@ -187,16 +291,29 @@ func (c *checker) walkStatement(s ast.Statement) {
 		// Type aliases were handled in the pre-pass; the others carry no
 		// type-relevant state.
 	case *ast.EnumStatement:
-		// Pre-pass already registered Name as an alias. Bind the value-
-		// side as `any` so member access (`Color.RED`) doesn't get
-		// flagged as accessing fields of a non-structural type — the
-		// runtime table is structurally `{[string]: number}`, but
-		// pinning that precisely would force every user of the alias to
-		// disambiguate value-vs-type at the use site. `any` is the
-		// existing escape hatch the checker already uses for runtime
-		// values it can't model statically.
+		if n.Name == nil {
+			break
+		}
+		if n.IsTagged() {
+			// Tagged enum: bind the namespace value to a table typing each
+			// variant. Payload variants are constructors `(P...) -> Enum`;
+			// nullary variants are `Enum` singletons. This lets the checker
+			// validate `Shape.Circle(5)` arity/args and yield a `Shape`.
+			c.env.define(n.Name.Name, c.taggedEnumNamespaceType(n))
+			break
+		}
+		// Classic integer enum: bind the value-side as `any` so member
+		// access (`Color.RED`) doesn't get flagged as accessing fields of a
+		// non-structural type. The runtime table is structurally
+		// `{[string]: number}`, but pinning that precisely would force every
+		// user of the alias to disambiguate value-vs-type at the use site.
+		c.env.define(n.Name.Name, anyT)
+	case *ast.StructStatement:
+		// Pre-pass already registered Name as a type alias. Bind the value
+		// side to the constructor function so `Point(1, 2)` / `Point{...}`
+		// type-check and yield a `Point`.
 		if n.Name != nil {
-			c.env.define(n.Name.Name, anyT)
+			c.env.define(n.Name.Name, c.structConstructorType(n))
 		}
 	}
 }
@@ -384,6 +501,11 @@ func (c *checker) functionShapeFromExpr(fe *ast.FunctionExpression) *Type {
 	if fe == nil {
 		return anyT
 	}
+	// Generic parameters are in scope for the whole signature: register them
+	// as gradual type variables while resolving param/return annotations.
+	restore := c.pushTypeParams(fe.TypeParams)
+	defer restore()
+
 	params := make([]*Type, len(fe.Params))
 	for i, p := range fe.Params {
 		if p.Type != nil {
@@ -404,7 +526,9 @@ func (c *checker) functionShapeFromExpr(fe *ast.FunctionExpression) *Type {
 	if fe.IsVararg && fe.VarargType != nil {
 		va = c.resolveAST(fe.VarargType)
 	}
-	return NewFunction(params, returns, fe.IsVararg, va)
+	shape := NewFunction(params, returns, fe.IsVararg, va)
+	shape.Fn.TypeParams = fe.TypeParams
+	return shape
 }
 
 // walkFunctionBody pushes a fresh frame, binds params, walks the body, and
@@ -414,6 +538,10 @@ func (c *checker) walkFunctionBody(fe *ast.FunctionExpression, shape *FunctionSh
 	if fe == nil || fe.Body == nil {
 		return
 	}
+	// Type parameters are in scope inside the body too (`local y: T = ...`).
+	restore := c.pushTypeParams(fe.TypeParams)
+	defer restore()
+
 	c.env.push()
 	defer c.env.pop()
 	for i, p := range fe.Params {
@@ -579,12 +707,24 @@ func (c *checker) typeOfCall(call *ast.CallExpression) *Type {
 			"cannot call a value of type %q", callee.String())
 		return anyT
 	}
+	// Struct constructors accept a second call form: a single table literal
+	// naming the fields (`Point{ x = 1, y = 2 }`). Detect it and validate
+	// the table against the struct shape instead of the positional params.
+	if fn.Struct != nil && c.isNamedStructCall(call) {
+		c.checkNamedStructCall(call, fn.Struct)
+		return fn.Returns[0]
+	}
 	c.checkCallArgs(call.Line(), fn, args)
 	if len(fn.Returns) == 0 {
 		// Unannotated functions have no declared returns, but Lua callers
 		// routinely use them in multi-value contexts. Returning `any`
 		// (rather than `nil`) keeps gradual code unblocked.
 		return anyT
+	}
+	// Generic call: infer the type variables from the arguments and
+	// substitute them into the return type so `identity(5)` yields `number`.
+	if len(fn.TypeParams) > 0 {
+		return c.instantiateCall(fn, args)[0]
 	}
 	return fn.Returns[0]
 }
@@ -675,6 +815,64 @@ func (c *checker) checkCallArgs(line int, fn *FunctionShape, args []*Type) {
 			if !assignable(a, fn.Params[i]) {
 				c.errAssign(line, a, fn.Params[i])
 			}
+		}
+	}
+}
+
+// isNamedStructCall reports whether a call is the `Name{ ... }` brace form —
+// a single table-literal argument. This is the syntactic signal for named
+// construction; a single *variable* of table type still goes through the
+// positional path (and thus an arity check), nudging users toward the
+// unambiguous literal form.
+func (c *checker) isNamedStructCall(call *ast.CallExpression) bool {
+	if len(call.Args) != 1 {
+		return false
+	}
+	_, ok := call.Args[0].(*ast.TableConstructor)
+	return ok
+}
+
+// checkNamedStructCall validates a `Name{ field = v, ... }` construction
+// against the struct shape: every field key must be declared, each value
+// must be assignable to its field type, and every non-optional field must
+// be present.
+func (c *checker) checkNamedStructCall(call *ast.CallExpression, sc *StructCtor) {
+	lit := call.Args[0].(*ast.TableConstructor)
+
+	declared := make(map[string]*Type, len(sc.Shape.Fields))
+	for _, f := range sc.Shape.Fields {
+		declared[f.Key] = f.Type
+	}
+
+	provided := map[string]bool{}
+	for _, f := range lit.Fields {
+		// Only record-form entries (`name = v`) name a field.
+		id, ok := f.Key.(*ast.Identifier)
+		if !ok || f.IsBracketed {
+			c.errf(call.Line(), "struct-bad-field",
+				"struct %q is constructed with named fields (`%s{ field = value }`)",
+				sc.Name, sc.Name)
+			continue
+		}
+		want, known := declared[id.Name]
+		if !known {
+			c.errf(call.Line(), "struct-unknown-field",
+				"struct %q has no field %q", sc.Name, id.Name)
+			continue
+		}
+		provided[id.Name] = true
+		got := c.typeOfExpression(f.Value)
+		if !assignable(got, want) {
+			c.errAssign(call.Line(), got, want)
+		}
+	}
+	for _, f := range sc.Shape.Fields {
+		if provided[f.Key] {
+			continue
+		}
+		if !assignable(nilT, f.Type) {
+			c.errf(call.Line(), "struct-missing-field",
+				"struct %q is missing required field %q", sc.Name, f.Key)
 		}
 	}
 }

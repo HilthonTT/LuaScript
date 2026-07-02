@@ -58,9 +58,17 @@ func (p *Parser) parseTypeAtom() ast.TypeNode {
 		tok := p.curToken
 		name := p.curToken.Literal
 		p.nextToken()
-		if isPrimitiveTypeName(name) {
+		switch {
+		case isPrimitiveTypeName(name):
 			t = &ast.TypePrimitive{BaseNode: baseAt(tok), Name: name}
-		} else {
+		case p.curTokenIs(token.LT):
+			// Generic instantiation `Name<A, B>`. In type position `<` is
+			// never a comparison, so this is unambiguous.
+			t = p.parseTypeArgs(name, tok)
+			if t == nil {
+				return nil
+			}
+		default:
 			t = &ast.TypeName{BaseNode: baseAt(tok), Name: name}
 		}
 	default:
@@ -301,6 +309,103 @@ func (p *Parser) parseTableType() ast.TypeNode {
 	}
 	p.nextToken() // consume '}'
 	return &ast.TypeTable{BaseNode: baseAt(openTok), Fields: fields, Indexer: indexer}
+}
+
+// parseTypeArgs reads the `< A, B, ... >` argument list of a generic
+// instantiation `Name<...>`. The cursor is on `<` at entry. Returns a
+// TypeApplication, or nil on error.
+func (p *Parser) parseTypeArgs(name string, tok token.Token) ast.TypeNode {
+	p.nextToken() // consume '<'
+	var args []ast.TypeNode
+	for {
+		arg := p.parseType()
+		if arg == nil {
+			return nil
+		}
+		args = append(args, arg)
+		if !p.curTokenIs(token.Comma) {
+			break
+		}
+		p.nextToken() // consume ','
+	}
+	if !p.closeTypeArg() {
+		p.errorAt(p.curToken, errors.SyntaxError, "type",
+			"expected '>' to close type arguments of '"+name+"', got "+describeToken(p.curToken),
+			"generic instantiation looks like `Box<number>` or `Map<string, number>`")
+		return nil
+	}
+	return &ast.TypeApplication{BaseNode: baseAt(tok), Name: name, Args: args}
+}
+
+// closeTypeArg consumes exactly one `>` that closes a type-argument list. To
+// support nested generics like `Array<Array<number>>`, a compound token whose
+// first character is `>` (`>>`, `>=`, `>>=`) is split: one `>` is consumed and
+// the remainder is left as the current token for the enclosing level (or the
+// following statement). Returns false when the current token is not a `>`-led
+// closer.
+func (p *Parser) closeTypeArg() bool {
+	c := p.curToken
+	switch c.Type {
+	case token.GT:
+		p.nextToken()
+		return true
+	case token.RShift: // '>>' -> consume one '>', leave '>'
+		p.curToken = token.Token{Type: token.GT, Literal: ">", Line: c.Line, Column: c.Column + 1}
+		return true
+	case token.GTE: // '>=' -> consume '>', leave '='
+		p.curToken = token.Token{Type: token.Assign, Literal: "=", Line: c.Line, Column: c.Column + 1}
+		return true
+	case token.RShiftAssign: // '>>=' -> consume '>', leave '>='
+		p.curToken = token.Token{Type: token.GTE, Literal: ">=", Line: c.Line, Column: c.Column + 1}
+		return true
+	}
+	return false
+}
+
+// parseTypeParams reads an optional generic parameter list `< T, U, ... >`
+// and returns the parameter names. When the cursor is not on `<` it returns
+// nil and leaves the cursor untouched — callers use this to make the list
+// optional. Duplicate names are reported. Shared by struct, function, and
+// type-alias declarations.
+func (p *Parser) parseTypeParams() []string {
+	if !p.curTokenIs(token.LT) {
+		return nil
+	}
+	openTok := p.curToken
+	p.nextToken() // consume '<'
+
+	var params []string
+	seen := map[string]bool{}
+	for {
+		if !p.curTokenIs(token.Ident) {
+			p.errorAt(p.curToken, errors.SyntaxError, "type",
+				"expected a type-parameter name, got "+describeToken(p.curToken),
+				"generic parameters are names: `<T>`, `<K, V>`")
+			return nil
+		}
+		name := p.curToken.Literal
+		if seen[name] {
+			p.errorAt(p.curToken, errors.SyntaxError, "type",
+				"duplicate type parameter '"+name+"'",
+				"each type parameter in the list must be unique")
+			return nil
+		}
+		seen[name] = true
+		params = append(params, name)
+		p.nextToken() // consume name
+		if !p.curTokenIs(token.Comma) {
+			break
+		}
+		p.nextToken() // consume ','
+	}
+	if !p.curTokenIs(token.GT) {
+		p.errorAt(openTok, errors.SyntaxError, "type",
+			"expected '>' to close the type-parameter list, got "+describeToken(p.curToken),
+			"generic parameters look like `<T, U>`")
+		return nil
+	}
+	p.nextToken() // consume '>'
+	return params
 }
 
 // isPrimitiveTypeName lists the closed set of Luau-style primitive type

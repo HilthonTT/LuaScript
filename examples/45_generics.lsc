@@ -1,0 +1,106 @@
+-- Generics: parametric polymorphism for functions, type aliases, and
+-- structs. Type parameters are written `<T, U>` after the name. Like all
+-- types in LuaScript they are erased before bytecode — generics are a purely
+-- static feature with zero runtime cost. Precision comes from *inference*:
+-- the checker unifies a call's arguments against the declared parameter types
+-- to resolve the type variables, then substitutes them into the return type.
+
+-- --- generic functions ---------------------------------------------------
+local function identity<T>(x: T): T
+    return x
+end
+print("=== generic functions ===")
+print("identity(42)   :", identity(42))
+print("identity('hi') :", identity("hi"))
+
+-- The checker infers T at each call site:
+--   local n: number = identity(42)   -- ok,  T = number
+--   local s: string = identity(42)   -- error: T inferred number, not string
+
+-- A generic container-returning function.
+local function singleton<T>(x: T): {T}
+    return { x }
+end
+local one = singleton(7)
+print("singleton(7)   :", one[1])
+print()
+
+-- --- generic higher-order functions --------------------------------------
+print("=== map / filter ===")
+local function map<T, U>(xs: {T}, f: (T) -> U): {U}
+    local out = {}
+    for i, x in ipairs(xs) do
+        out[i] = f(x)
+    end
+    return out
+end
+
+local function filter<T>(xs: {T}, keep: (T) -> boolean): {T}
+    local out = {}
+    for _, x in ipairs(xs) do
+        if keep(x) then
+            out[#out + 1] = x
+        end
+    end
+    return out
+end
+
+local nums = { 1, 2, 3, 4, 5 }
+local squares = map(nums, function(n: number): number return n * n end)
+local evens = filter(nums, function(n: number): boolean return n % 2 == 0 end)
+print("squares:", table.concat(squares, ", "))
+print("evens  :", table.concat(evens, ", "))
+print()
+
+-- --- generic type aliases ------------------------------------------------
+print("=== generic type aliases ===")
+type Box<T> = { value: T }
+
+local n: Box<number> = { value = 10 }
+local s: Box<string> = { value = "boxed" }
+print("Box<number>.value:", n.value)
+print("Box<string>.value:", s.value)
+
+-- Aliases nest — the parser splits the `>>` closing tokens for you.
+type Nested = Box<Box<number>>
+local deep: Nested = { value = { value = 99 } }
+print("nested box value :", deep.value.value)
+print()
+
+-- --- generic structs -----------------------------------------------------
+print("=== generic structs ===")
+struct Pair<A, B> {
+    first: A,
+    second: B,
+}
+
+local p = Pair(1, "one")
+print("Pair(1, 'one')     :", p.first, p.second, "::", typeof(p))
+
+local q = Pair{ first = true, second = 3.14 }
+print("Pair{true, 3.14}   :", q.first, q.second)
+print()
+
+-- --- a generic Stack ------------------------------------------------------
+print("=== generic Stack ===")
+struct Stack<T> {
+    items: {T},
+}
+
+local function push<T>(s: Stack<T>, x: T)
+    s.items[#s.items + 1] = x
+end
+
+local function pop<T>(s: Stack<T>): T
+    local x = s.items[#s.items]
+    s.items[#s.items] = nil
+    return x
+end
+
+local st = Stack{ items = {} }
+push(st, 10)
+push(st, 20)
+push(st, 30)
+print("pop:", pop(st))  -- 30
+print("pop:", pop(st))  -- 20
+print("pop:", pop(st))  -- 10

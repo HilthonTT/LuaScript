@@ -100,6 +100,7 @@ type TypedParam struct {
 // the optional `...: T` annotation. All type fields are nil-safe.
 type FunctionExpression struct {
 	BaseNode
+	TypeParams  []string // generic parameters `<T, U>`; empty for a non-generic function
 	Params      []TypedParam
 	IsVararg    bool
 	VarargType  TypeNode

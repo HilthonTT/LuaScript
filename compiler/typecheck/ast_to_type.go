@@ -40,6 +40,8 @@ func (c *checker) resolveAST(n ast.TypeNode) *Type {
 			return &withName
 		}
 		return resolved
+	case *ast.TypeApplication:
+		return c.resolveTypeApplication(t)
 	case *ast.TypeOptional:
 		return Optional(c.resolveAST(t.Inner))
 	case *ast.TypeUnion:

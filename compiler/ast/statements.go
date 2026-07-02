@@ -375,8 +375,25 @@ type EnumStatement struct {
 }
 
 type EnumVariantDef struct {
-	Name   string
-	Fields []string // Empty for simple variants
+	Name string
+	// Payload holds the positional field types of a *tagged* variant, e.g.
+	// `Circle(number)` → one entry, `Rect(number, number)` → two. Empty
+	// (nil) for a bare variant. Any variant carrying a payload promotes the
+	// whole enum to a tagged (sum-type) enum; see EnumStatement.IsTagged.
+	Payload []TypeNode
+}
+
+// IsTagged reports whether the enum is a tagged sum type (at least one
+// variant carries a payload) rather than the classic integer-constant enum.
+// The two lower to different runtime shapes, so codegen and the checker both
+// branch on this.
+func (es *EnumStatement) IsTagged() bool {
+	for _, v := range es.Variants {
+		if len(v.Payload) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func (*EnumStatement) statementNode()          {}
@@ -390,6 +407,16 @@ func (es *EnumStatement) String() string {
 			out.WriteString(", ")
 		}
 		out.WriteString(v.Name)
+		if len(v.Payload) > 0 {
+			out.WriteString("(")
+			for j, p := range v.Payload {
+				if j > 0 {
+					out.WriteString(", ")
+				}
+				out.WriteString(p.String())
+			}
+			out.WriteString(")")
+		}
 	}
 	out.WriteString("end")
 	return out.String()
@@ -409,4 +436,59 @@ func (*DeferStatement) statementNode()          {}
 func (ds *DeferStatement) TokenLiteral() string { return ds.Token.Literal }
 func (ds *DeferStatement) String() string {
 	return "defer " + ds.Call.String()
+}
+
+// StructField is one named field in a StructStatement: `name: T`. Type is
+// never nil — the parser requires an annotation on every struct field
+// (that annotation is the whole point of a struct: a fixed, typed shape).
+type StructField struct {
+	Name string
+	Type TypeNode
+}
+
+// StructStatement is a nominal product type declaration:
+//
+//	struct Point {
+//	    x: number,
+//	    y: number,
+//	}
+//
+// It lowers (in the bytecode generator) to a constructor value bound to
+// `Name`, and registers `Name` both as a type alias for the structural
+// table `{ field: T, ... }` and as a constructor function in the type
+// environment. TypeParams carries the optional `<T, U>` generic parameter
+// list (empty for a non-generic struct).
+type StructStatement struct {
+	BaseNode
+	Name       *Identifier
+	TypeParams []string
+	Fields     []StructField
+}
+
+func (*StructStatement) statementNode()          {}
+func (ss *StructStatement) TokenLiteral() string { return ss.Token.Literal }
+func (ss *StructStatement) String() string {
+	var out bytes.Buffer
+	out.WriteString("struct ")
+	out.WriteString(ss.Name.String())
+	if len(ss.TypeParams) > 0 {
+		out.WriteString("<")
+		out.WriteString(strings.Join(ss.TypeParams, ", "))
+		out.WriteString(">")
+	}
+	out.WriteString(" {")
+	for i, f := range ss.Fields {
+		if i > 0 {
+			out.WriteString(",")
+		}
+		out.WriteString(" ")
+		out.WriteString(f.Name)
+		out.WriteString(": ")
+		out.WriteString(f.Type.String())
+	}
+	if len(ss.Fields) > 0 {
+		out.WriteString(" ")
+	}
+	out.WriteString("}")
+	return out.String()
 }

@@ -41,6 +41,25 @@ func (*TypeName) typeNode()              {}
 func (t *TypeName) TokenLiteral() string { return t.Token.Literal }
 func (t *TypeName) String() string       { return t.Name }
 
+// TypeApplication is a generic instantiation `Name<A, B>` — a reference to a
+// generic type alias or struct with concrete type arguments. Resolution
+// (substituting Args for the alias's type parameters) is the checker's job.
+type TypeApplication struct {
+	BaseNode
+	Name string
+	Args []TypeNode
+}
+
+func (*TypeApplication) typeNode()              {}
+func (t *TypeApplication) TokenLiteral() string { return t.Token.Literal }
+func (t *TypeApplication) String() string {
+	parts := make([]string, len(t.Args))
+	for i, a := range t.Args {
+		parts[i] = a.String()
+	}
+	return t.Name + "<" + strings.Join(parts, ", ") + ">"
+}
+
 // TypeOptional is the postfix-`?` sugar: `T?` ≡ `T | nil`. Kept distinct
 // from TypeUnion so source round-trips and error messages preserve the
 // programmer's notation.
@@ -168,13 +187,20 @@ func (t *TypeTable) String() string {
 // permissive).
 type TypeAliasStatement struct {
 	BaseNode
-	Name   string
-	Target TypeNode
+	Name       string
+	TypeParams []string // generic parameters `<T, U>`; empty for a plain alias
+	Target     TypeNode
 }
 
 func (*TypeAliasStatement) statementNode()         {}
 func (s *TypeAliasStatement) TokenLiteral() string { return s.Token.Literal }
-func (s *TypeAliasStatement) String() string       { return "type " + s.Name + " = " + s.Target.String() }
+func (s *TypeAliasStatement) String() string {
+	head := "type " + s.Name
+	if len(s.TypeParams) > 0 {
+		head += "<" + strings.Join(s.TypeParams, ", ") + ">"
+	}
+	return head + " = " + s.Target.String()
+}
 
 // TypeAssertionExpression is `expr :: T` — a programmer-controlled cast.
 // The runtime is a no-op; the bytecode generator emits the inner Expr's

@@ -31,6 +31,17 @@ func assignable(from, to *Type) bool {
 		return true
 	}
 
+	// A generic type variable is opaque inside its body: treat it gradually
+	// (compatible both directions) so type-variable code never mis-reports,
+	// EXCEPT that two *named* variables must match by name so `T` and `U`
+	// stay distinct.
+	if from.Kind == KindTypeParam || to.Kind == KindTypeParam {
+		if from.Kind == KindTypeParam && to.Kind == KindTypeParam {
+			return from.AliasName == to.AliasName
+		}
+		return true
+	}
+
 	// `never` flows to everything.
 	if from.Kind == KindNever {
 		return true

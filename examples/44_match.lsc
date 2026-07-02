@@ -1,0 +1,113 @@
+-- match v2: on top of the value/literal patterns from 14_match.lsc, `match`
+-- now supports typed binding patterns, destructuring of structs and tagged
+-- enums, and `if` guards. It stays a parser-level desugar (a `do` block with
+-- a matched-flag driving a sequence of guarded `if`s), so there is no runtime
+-- machinery beyond ordinary Lua.
+
+-- --- typed binding patterns ---------------------------------------------
+-- `name: Type` matches when the value has that runtime type and binds it.
+-- Primitives probe `type()`; named types (structs/enums) probe `typeof()`.
+-- `_: Type` tests without binding; `x: any` binds anything.
+print("=== typed bindings ===")
+local function describe(v): string
+    match v do
+        n: number -> return "number: " .. n
+        s: string -> return "string of length " .. #s
+        b: boolean -> return "boolean: " .. tostring(b)
+        x: any -> return "other: " .. tostring(x)
+    end
+    return "unreachable"
+end
+print(describe(42))
+print(describe("hello"))
+print(describe(true))
+print(describe(nil))
+print()
+
+-- --- guards --------------------------------------------------------------
+-- `pattern if <cond> -> body`. If the guard fails, control falls through to
+-- the next arm — so overlapping patterns disambiguate by guard.
+print("=== guards ===")
+local function sign(n: number): string
+    match n do
+        x: number if x > 0 -> return "positive"
+        x: number if x < 0 -> return "negative"
+        _                  -> return "zero"
+    end
+    return "?"
+end
+print("sign(7)  :", sign(7))
+print("sign(-3) :", sign(-3))
+print("sign(0)  :", sign(0))
+print()
+
+-- --- destructuring tagged enums -----------------------------------------
+-- `Enum.Variant(binders)` matches on the variant tag and binds the payload
+-- positionally. Use `_` to ignore a position.
+print("=== enum destructuring ===")
+enum Shape
+    Circle(number),
+    Rect(number, number),
+    Unit,
+end
+
+local function area(s: Shape): number
+    match s do
+        Shape.Circle(r)  -> return 3.14159 * r * r
+        Shape.Rect(w, h) -> return w * h
+        Shape.Unit       -> return 0
+        _                -> return -1
+    end
+    return -1
+end
+print("area(Circle 5) :", area(Shape.Circle(5)))
+print("area(Rect 3x4) :", area(Shape.Rect(3, 4)))
+print("area(Unit)     :", area(Shape.Unit))
+print()
+
+-- --- destructuring structs ----------------------------------------------
+-- `Struct{ field = binder }` matches by nominal type and binds named fields.
+print("=== struct destructuring ===")
+struct Point { x: number, y: number }
+
+local function quadrant(p): string
+    match p do
+        Point{ x = px, y = py } if px >= 0 and py >= 0 -> return "Q1"
+        Point{ x = px, y = py } if px < 0 and py >= 0  -> return "Q2"
+        Point{ x = px }                                -> return "lower half (x=" .. px .. ")"
+        _                                              -> return "not a Point"
+    end
+    return "?"
+end
+print("quadrant(1, 2)   :", quadrant(Point(1, 2)))
+print("quadrant(-1, 2)  :", quadrant(Point(-1, 2)))
+print("quadrant(1, -2)  :", quadrant(Point(1, -2)))
+print("quadrant(42)     :", quadrant(42))
+print()
+
+-- --- a Result pipeline combining everything -----------------------------
+print("=== Result pipeline ===")
+enum Result
+    Ok(number),
+    Err(string),
+end
+
+local function checked_sqrt(n: number): Result
+    if n < 0 then
+        return Result.Err("cannot sqrt a negative")
+    end
+    return Result.Ok(math.sqrt(n))
+end
+
+local function render(r: Result): string
+    match r do
+        Result.Ok(v)    -> return "ok: " .. v
+        Result.Err(msg) -> return "error: " .. msg
+        _               -> return "?"
+    end
+    return "?"
+end
+
+for _, n in ipairs({ 16, -4, 2 }) do
+    print(string.format("sqrt(%d) -> %s", n, render(checked_sqrt(n))))
+end

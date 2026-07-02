@@ -1,0 +1,73 @@
+-- struct: a nominal product type — a fixed set of named, typed fields plus
+-- a constructor. Declaring `struct Name { ... }` does two things:
+--   1. binds `Name` to a constructor value, and
+--   2. registers `Name` as a type alias for the structural table
+--      `{ field: T, ... }`, so `: Name` annotations type-check.
+-- `struct` is a soft keyword (like `type`): it is only special in the
+-- `struct <Name>` position, so existing code using `struct` as a variable
+-- keeps working.
+
+struct Point {
+    x: number,
+    y: number,
+}
+
+print("=== construction ===")
+
+-- Positional: fields are filled in declaration order.
+local p = Point(3, 4)
+print("Point(3, 4)      :", tostring(p))   -- Point{ x = 3, y = 4 }
+
+-- Named (Lua's `f{}` call sugar): order-independent, self-documenting.
+local q = Point{ y = 20, x = 10 }
+print("Point{ y=20, x=10}:", tostring(q))  -- Point{ x = 10, y = 20 }
+print()
+
+-- --- typeof reports the struct name ---
+-- Instances carry a metatable whose __type is the struct name, so `typeof`
+-- distinguishes a Point from a plain table.
+print("=== typeof ===")
+print("typeof(p) :", typeof(p))   -- Point
+print("type(p)   :", type(p))     -- table (Lua-level type is still a table)
+print()
+
+-- --- instances are ordinary mutable records ---
+print("=== mutation ===")
+q.x = 99
+print("q.x after write:", q.x)    -- 99
+print()
+
+-- --- typed parameters and returns ---
+-- Because `Point` is a type alias, functions can annotate `: Point` and the
+-- checker validates field access against the declared shape.
+print("=== typed use ===")
+local function distance_sq(a: Point, b: Point): number
+    local dx = a.x - b.x
+    local dy = a.y - b.y
+    return dx * dx + dy * dy
+end
+print("distance_sq(p, q):", distance_sq(p, q))
+print()
+
+-- --- optional fields ---
+-- A field typed `T?` may be omitted in named construction; it defaults to nil.
+struct Config {
+    name: string,
+    timeout: number?,
+}
+local c1 = Config{ name = "svc" }
+local c2 = Config{ name = "svc", timeout = 30 }
+print("=== optional fields ===")
+print("c1.timeout :", c1.timeout)   -- nil
+print("c2.timeout :", c2.timeout)   -- 30
+print()
+
+-- --- nesting structs ---
+struct Line {
+    from: Point,
+    to: Point,
+}
+local seg = Line{ from = Point(0, 0), to = Point(3, 4) }
+print("=== nesting ===")
+print("seg.to.x :", seg.to.x)       -- 3
+print("length_sq:", distance_sq(seg.from, seg.to))  -- 25

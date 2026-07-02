@@ -330,3 +330,163 @@ print(next())
 `
 	expectOK(t, src)
 }
+
+// ---------------------------------------------------------------------------
+// Structs
+// ---------------------------------------------------------------------------
+
+func TestStructPositionalConstruction(t *testing.T) {
+	expectOK(t, `struct Point { x: number, y: number }
+local p = Point(1, 2)
+local n: number = p.x`)
+}
+
+func TestStructNamedConstruction(t *testing.T) {
+	expectOK(t, `struct Point { x: number, y: number }
+local p = Point{ x = 1, y = 2 }`)
+}
+
+func TestStructFieldAccessType(t *testing.T) {
+	// p.x is number; assigning it to a string slot must fail.
+	expectErrContains(t, `struct Point { x: number, y: number }
+local p = Point(1, 2)
+local s: string = p.x`, `"number"`)
+}
+
+func TestStructUnknownFieldAccess(t *testing.T) {
+	expectErrContains(t, `struct Point { x: number, y: number }
+local p = Point(1, 2)
+local z = p.zzz`, `no field "zzz"`)
+}
+
+func TestStructNamedMissingField(t *testing.T) {
+	expectErrContains(t, `struct Point { x: number, y: number }
+local p = Point{ x = 1 }`, `missing required field "y"`)
+}
+
+func TestStructNamedUnknownField(t *testing.T) {
+	expectErrContains(t, `struct Point { x: number, y: number }
+local p = Point{ x = 1, y = 2, z = 3 }`, `no field "z"`)
+}
+
+func TestStructNamedWrongType(t *testing.T) {
+	expectErrContains(t, `struct Point { x: number, y: number }
+local p = Point{ x = "hi", y = 2 }`, `"string"`)
+}
+
+func TestStructPositionalArity(t *testing.T) {
+	expectErrContains(t, `struct Point { x: number, y: number }
+local p = Point(1)`, "expects at least 2")
+}
+
+func TestStructAsParamType(t *testing.T) {
+	expectOK(t, `struct Point { x: number, y: number }
+local function mag(p: Point): number return p.x + p.y end
+local r: number = mag(Point(1, 2))`)
+}
+
+func TestStructOptionalFieldMayBeOmitted(t *testing.T) {
+	expectOK(t, `struct Config { name: string, timeout: number? }
+local c = Config{ name = "svc" }`)
+}
+
+// ---------------------------------------------------------------------------
+// Tagged enums (sum types)
+// ---------------------------------------------------------------------------
+
+func TestTaggedEnumConstruction(t *testing.T) {
+	expectOK(t, `enum Shape
+	Circle(number),
+	Rect(number, number),
+	Unit,
+end
+local a: Shape = Shape.Circle(5)
+local b: Shape = Shape.Rect(3, 4)
+local c: Shape = Shape.Unit`)
+}
+
+func TestTaggedEnumWrongArgType(t *testing.T) {
+	expectErrContains(t, `enum Shape Circle(number), Unit end
+local a = Shape.Circle("hi")`, `"string"`)
+}
+
+func TestTaggedEnumArity(t *testing.T) {
+	expectErrContains(t, `enum Shape Circle(number), Unit end
+local a = Shape.Circle(1, 2)`, "at most 1")
+}
+
+func TestTaggedEnumNumberIsNotEnum(t *testing.T) {
+	expectErrContains(t, `enum Shape Circle(number), Unit end
+local bad: Shape = 42`, "Shape")
+}
+
+func TestPlainEnumStillAliasesNumber(t *testing.T) {
+	// Backward compatibility: a classic integer enum aliases to number.
+	expectOK(t, `enum Color RED, GREEN, BLUE end
+local function name_of(c: Color): string return "?" end
+local s = name_of(Color.RED)`)
+}
+
+// ---------------------------------------------------------------------------
+// Generics
+// ---------------------------------------------------------------------------
+
+func TestGenericIdentityInference(t *testing.T) {
+	expectOK(t, `local function id<T>(x: T): T return x end
+local n: number = id(5)
+local s: string = id("hi")`)
+}
+
+func TestGenericInferenceMismatch(t *testing.T) {
+	// id(5) infers T = number, so binding to a string slot must fail.
+	expectErrContains(t, `local function id<T>(x: T): T return x end
+local s: string = id(5)`, `"string"`)
+}
+
+func TestGenericBodyIsGradual(t *testing.T) {
+	// A type variable is opaque but gradual: using it doesn't error.
+	expectOK(t, `local function id<T>(x: T): T
+	local y: T = x
+	return y
+end`)
+}
+
+func TestGenericAliasInstantiation(t *testing.T) {
+	expectOK(t, `type Box<T> = { value: T }
+local b: Box<number> = { value = 1 }
+local n: number = b.value`)
+}
+
+func TestGenericAliasInstantiationMismatch(t *testing.T) {
+	expectErrContains(t, `type Box<T> = { value: T }
+local b: Box<number> = { value = 1 }
+local s: string = b.value`, `"string"`)
+}
+
+func TestGenericArityError(t *testing.T) {
+	expectErrContains(t, `type Box<T> = { value: T }
+local b: Box<number, string> = x`, "expects 1 type argument")
+}
+
+func TestGenericNonGenericApplied(t *testing.T) {
+	expectErrContains(t, `type Plain = number
+local x: Plain<number> = 1`, "not generic")
+}
+
+func TestGenericStructConstruction(t *testing.T) {
+	expectOK(t, `struct Pair<A, B> { first: A, second: B }
+local p = Pair(1, "hi")
+local q = Pair{ first = true, second = 3.14 }`)
+}
+
+func TestGenericStructFieldInference(t *testing.T) {
+	// Pair(1, "hi") infers A = number; first must not satisfy a string slot.
+	expectErrContains(t, `struct Pair<A, B> { first: A, second: B }
+local p = Pair(1, "hi")
+local s: string = p.first`, `"string"`)
+}
+
+func TestGenericTwoParamsStayDistinct(t *testing.T) {
+	expectOK(t, `local function pick<A, B>(a: A, b: B): A return a end
+local n: number = pick(1, "two")`)
+}

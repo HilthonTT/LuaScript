@@ -40,6 +40,13 @@ const (
 	KindFunction
 	KindTable
 	KindUnion
+	// KindTypeParam is a generic type variable (`T` inside `function f<T>`).
+	// Within a generic body it behaves gradually — assignable to and from
+	// anything, so opaque type-variable code never produces spurious errors.
+	// Precision comes from *instantiation*: call-site inference substitutes a
+	// concrete type for the variable and re-checks the result. The variable's
+	// name is carried in AliasName for display and identity.
+	KindTypeParam
 )
 
 // Type is the internal type representation. Constructed by the checker
@@ -66,6 +73,25 @@ type FunctionShape struct {
 	Returns    []*Type
 	IsVararg   bool
 	VarargType *Type
+
+	// TypeParams names the function's generic parameters (`f<T, U>`). Non-
+	// empty for a generic function; call-site inference resolves them.
+	TypeParams []string
+
+	// Struct, when non-nil, marks this function as a struct constructor.
+	// The checker then also accepts the single-table "named" call form
+	// (`Point{ x = 1, y = 2 }`) in addition to the positional Params form.
+	// Field is the ordered struct field list used to validate the named
+	// form. FieldNames parallels Params for named-arg checking.
+	Struct *StructCtor
+}
+
+// StructCtor carries the extra shape a struct constructor needs to validate
+// the brace/named call form. Shape is the structural table each instance
+// conforms to (also what `Name` resolves to as a type alias).
+type StructCtor struct {
+	Name  string
+	Shape *TableShape
 }
 
 // TableShape is a structural table type. Fields are ordered for stable
@@ -172,6 +198,8 @@ func Same(a, b *Type) bool {
 	case KindNumber, KindString, KindBoolean, KindNil,
 		KindAny, KindUnknown, KindNever:
 		return true
+	case KindTypeParam:
+		return a.AliasName == b.AliasName
 	case KindFunction:
 		return sameFunction(a.Fn, b.Fn)
 	case KindTable:
@@ -285,6 +313,11 @@ func (t *Type) String() string {
 		return "unknown"
 	case KindNever:
 		return "never"
+	case KindTypeParam:
+		if t.AliasName != "" {
+			return t.AliasName
+		}
+		return "?T"
 	case KindFunction:
 		return formatFunction(t.Fn)
 	case KindTable:

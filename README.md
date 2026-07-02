@@ -30,12 +30,15 @@ The implementation is a clean-room rewrite focused on being readable end-to-end:
 
 - **Lexer** — Lua 5.4 tokens, long-bracket strings/comments, hex/exponent numbers, `--!strict` / `--!nonstrict` / `--!nocheck` mode directives.
 - **Parser** — full Lua 5.4 grammar including `goto`/labels, attributes (`<const>`, `<close>`), method-call sugar, numeric and generic `for`, plus Luau type-syntax (annotations, type aliases, type assertions, optionals, unions, function types, structural table types).
-- **Type checker** — gradual: untyped code is implicitly `any`; annotations opt in. Primitives, function types, optionals, unions, type aliases (including structural table shapes), type assertions. Stdlib has hand-written signatures so `math.sqrt(true)` is a compile error.
+- **Type checker** — gradual: untyped code is implicitly `any`; annotations opt in. Primitives, function types, optionals, unions, type aliases (including structural table shapes), type assertions, **generics** (parametric functions, type aliases, and structs with call-site inference), **structs**, and **tagged enums**. Stdlib has hand-written signatures so `math.sqrt(true)` is a compile error.
 - **Bytecode** — stack-based with closure upvalues, vararg passing, generic-`for` iteration, and a one-time scan that fills `NumLocals` at runtime where the generator left it blank. Types are erased before this stage — the VM never sees them.
 - **VM** — closures, metatables, coroutines (via goroutines + channels), `pcall`/`error` unwinding.
 - **Standard library** — `print`/`tostring`/`tonumber`, `ipairs`/`pairs`/`next`, `pcall`/`assert`/`error`, `type` plus the `typeof`/`sizeof` reflection builtins, raw and metatable helpers, plus `math`, `string` (full Lua pattern surface: `find`/`match`/`gmatch`/`gsub`), `table`, `io.write`/`read`, `coroutine`, and `package`/`require`. `__tostring` is honoured by `tostring`, `print`, `io.write`, `error`, and the REPL.
 - **Native modules** — `require("…")` for `db`, `os`, `math`, `json`, `http` (client), `httpserver`, `crypto`, `time`, `regexp`, `uuid`, `sort`, `compression`, `bit32`, `utf8`, `io`, `log`, `debug`, `std` (stack/queue/deque/set/list/heap/hashmap), `clustering` (k-means/DBSCAN/hierarchical/mean-shift), `classification` (Naive Bayes/KNN/perceptron/logistic/SVM), and the data-science set: `stats` (descriptive/inferential statistics), `linalg` (vectors/matrices), `csv` (read/write), and `dataframe` (column-oriented tables). All ship by default; `cmd/natives.go::nativeRegistrars` is the single source of truth. The Fyne-backed `ui` GUI module is **opt-in** behind the `luascript_ui` build tag (it pulls in OpenGL/cgo) — see [Desktop UI module](#desktop-ui-module-opt-in).
-- **Enums** — `enum Name V1, V2 end` declares an int-auto-increment, frozen-via-`__newindex`-proxy table. Lowered at parse time; typecheck treats the alias as `number`.
+- **Enums** — `enum Name V1, V2 end` declares an int-auto-increment, frozen-via-`__newindex`-proxy table (typecheck treats the alias as `number`). Add a payload to any variant — `enum Shape Circle(number), Rect(number, number), Unit end` — to make it a **tagged sum type**: payload variants become constructors, nullary variants become singletons, and every value carries a `__tag` plus a `typeof`-visible nominal type. Bare-variant enums keep the original behaviour.
+- **Structs** — `struct Point { x: number, y: number }` declares a nominal product type: a constructor value plus a type alias for the structural shape. Construct positionally (`Point(1, 2)`) or by name (`Point{ x = 1, y = 2 }`); instances report their name via `typeof`. `struct` is a soft keyword, so existing `struct` variables still compile.
+- **Match** — `match subject do ... end` dispatches over an expression. Value/literal arms (`0`, `1, 2, 3`, `_`), typed binding arms (`n: number ->`, `x: any ->`), destructuring arms for tagged enums (`Shape.Circle(r) ->`) and structs (`Point{ x = px } ->`), and `if` guards. A pure parser-level desugar — no runtime machinery, no new VM opcodes.
+- **Generics** — `<T, U>` type parameters on functions, type aliases, and structs (`function map<T, U>(xs: {T}, f: (T) -> U): {U}`, `type Box<T> = { value: T }`, `struct Pair<A, B> { ... }`). Instantiated with `Name<Args>` (nested `Box<Box<number>>` works). Fully erased before bytecode; the checker infers type variables from call arguments and substitutes them into return types.
 - **Defer** — `defer cleanup()` schedules a call to run when the enclosing function exits, in last-in-first-out order, on normal return **and** when an error unwinds the frame (caught by `pcall`). Lowered to a frame-local closure list; ideal for paired acquire/release. Capture is by upvalue, so a deferred call sees a variable's value at exit time (unlike Go, which snapshots arguments eagerly).
 - **REPL** — readline-driven, history-backed, with continuation prompts for incomplete input. Top-level `local` declarations persist across REPL chunks (a deliberate convenience deviation from `lua`). Type-check errors are surfaced with a distinct `type-error:` prefix.
 
@@ -177,7 +180,7 @@ repo root with `go run ./cmd examples/<file>`:
 | `11_compounds.lsc`             | compound assignment operators (`x op= e`)                                                                                             |
 | `12_math_module.lsc`           | the `math` native module                                                                                                              |
 | `13_json_module.lsc`           | the `json` native module                                                                                                              |
-| `14_match.lsc`                 | `match` statement — parser-level desugar into `if/elseif`, `_` wildcard                                                               |
+| `14_match.lsc`                 | `match` statement basics — value/literal patterns, multi-pattern arms, `_` wildcard (a parser-level desugar)                          |
 | `15_http_module.lsc`           | the `http` client native module (shortcuts, `http.request{...}`, stateful clients)                                                    |
 | `16_httpserver_module.lsc`     | the `httpserver` native module — handlers, `:listen` / `:stop`                                                                        |
 | `17_crypto_module.lsc`         | the `crypto` native module — hashing, HMAC, random bytes                                                                              |
@@ -204,6 +207,11 @@ repo root with `go run ./cmd examples/<file>`:
 | `38_linalg_module.lsc`         | the `linalg` native module — vectors and matrices (dot, norm, matmul, transpose, det, inverse, solve)                                  |
 | `39_csv_module.lsc`            | the `csv` native module — parse/stringify/read/write with header + numeric coercion and custom delimiters                             |
 | `40_dataframe_module.lsc`      | the `dataframe` native module — column-oriented tables (select/filter/with_column/sort/group_by/describe/to_csv, pretty `print`)       |
+| `41_ml_module.lsc`             | the `ml` native module — a feed-forward neural-network engine (build a topology, train on labelled data, predict)                     |
+| `42_structs.lsc`               | `struct Name { field: T }` — nominal product types, positional and named construction, `typeof`, typed parameters, optional fields, nesting |
+| `43_tagged_enums.lsc`          | tagged sum-type enums — payload variants as constructors, nullary variants as singletons, `__tag`/`typeof` introspection, a `Result` pattern |
+| `44_match.lsc`                 | `match` v2 — typed binding patterns, `if` guards, and destructuring of tagged enums and structs (with a `Result` pipeline)            |
+| `45_generics.lsc`              | generics — parametric functions with inference (`map`/`filter`), generic type aliases (`Box<T>`), and generic structs (a `Stack<T>`)   |
 
 ### Running the module examples
 
@@ -315,6 +323,114 @@ local raw: any = 7
 local n: number = raw :: number
 ```
 
+### Structs
+
+`struct` declares a nominal product type — a fixed, typed set of fields plus a
+constructor. The name doubles as a type alias for the structural shape, so
+`: Point` annotations check field access. `struct` is a soft keyword (only
+special in `struct <Name>` position), so it remains a legal identifier
+elsewhere.
+
+```lua
+struct Point { x: number, y: number }
+
+local p = Point(3, 4)             -- positional
+local q = Point{ x = 3, y = 4 }   -- named (order-independent)
+
+print(typeof(p))                  -- Point
+print(p.x + q.y)                  -- 7
+
+local function mag(pt: Point): number
+    return math.sqrt(pt.x * pt.x + pt.y * pt.y)
+end
+```
+
+Fields typed `T?` may be omitted in named construction. The checker rejects
+missing required fields, unknown fields, and type mismatches.
+
+### Tagged enums (sum types)
+
+Give any enum variant a payload and the whole enum becomes a tagged union:
+payload variants become constructors, nullary variants become singleton
+values. Each value carries a `__tag` (the variant name) and a `typeof`-visible
+nominal type. Bare-only enums keep the classic integer form (see
+[`29_enums.lsc`](examples/29_enums.lsc)).
+
+```lua
+enum Shape
+    Circle(number),
+    Rect(number, number),
+    Unit,
+end
+
+local c = Shape.Circle(5)   -- constructor
+local u = Shape.Unit        -- singleton value
+print(typeof(c), c.__tag, c[1])   -- Shape  Circle  5
+```
+
+### Pattern matching
+
+`match` dispatches over a subject once. On top of value/literal patterns it
+supports typed binding patterns, destructuring of tagged enums and structs, and
+`if` guards. It is a parser-level desugar — no runtime cost.
+
+```lua
+local function area(s: Shape): number
+    match s do
+        Shape.Circle(r)  -> return 3.14159 * r * r   -- destructure payload
+        Shape.Rect(w, h) -> return w * h
+        Shape.Unit       -> return 0
+        _                -> return -1
+    end
+    return -1
+end
+
+local function describe(v): string
+    match v do
+        n: number if n < 0 -> return "negative"      -- typed binding + guard
+        n: number          -> return "number " .. n
+        s: string          -> return "string of " .. #s
+        Point{ x = px }    -> return "point at x=" .. px  -- struct destructure
+        x: any             -> return "other"
+    end
+    return "?"
+end
+```
+
+Value/literal patterns (`0`, `1, 2, 3`, `Color.RED`, `_`) work exactly as
+before. `x: any` binds unconditionally; guards fall through to the next arm on
+failure.
+
+### Generics
+
+Type parameters `<T, U>` attach to functions, type aliases, and structs.
+They are erased before bytecode; precision comes from **inference** — the checker
+unifies a call's arguments against the declared parameter types and substitutes
+the result into the return type.
+
+```lua
+local function identity<T>(x: T): T
+    return x
+end
+local n: number = identity(5)     -- ok:    T inferred = number
+-- local s: string = identity(5)  -- error: T inferred number, not string
+
+local function map<T, U>(xs: {T}, f: (T) -> U): {U}
+    local out = {}
+    for i, x in ipairs(xs) do out[i] = f(x) end
+    return out
+end
+
+type Box<T> = { value: T }              -- generic alias
+type Nested = Box<Box<number>>          -- instantiate; nested `>>` is handled
+
+struct Pair<A, B> { first: A, second: B }  -- generic struct
+local pr = Pair(1, "one")               -- A = number, B = string inferred
+```
+
+Inside a generic body a type variable is opaque but gradual, so parametric code
+never produces spurious errors; the concrete types are pinned at each call site.
+
 ### Mode directives
 
 A leading `--!strict`, `--!nonstrict`, or `--!nocheck` on the first line of a file controls how strictly that file is checked.
@@ -328,14 +444,14 @@ A leading `--!strict`, `--!nonstrict`, or `--!nocheck` on the first line of a fi
 
 ### Not in v1 (deliberately)
 
-- Generics (`function f<T>(x: T): T`)
 - Intersection types (`A & B`)
-- Type refinements (narrowing inside `if type(x) == "string"`)
 - String-singleton types (`"foo" | "bar"`)
 - Cross-module type checking — `require()` returns `any`
 - Recursive type aliases (the parser accepts them; the resolver doesn't)
 
 These are explicitly named in error messages where relevant, so users hit a clear wall instead of silent miscompiles.
+
+Generics **are** supported now (parametric functions, type aliases, and structs with call-site inference) — see [Generics](#generics).
 
 ## REPL
 
@@ -413,15 +529,6 @@ type-error: Type "string" could not be converted into "number" at line 1
 ```
 
 The compiler is designed so each stage is independently testable and the AST is the only contract between parser, type checker, and bytecode generator. The VM never sees source text or types; the parser never sees instructions.
-
-## Non-goals (for now)
-
-- Garbage-collection metamethods (`__gc`, `__close` enforcement).
-- Generics, intersections, refinements, string-singleton types, cross-module type checking, recursive aliases (type-system v1 deliberately omits these; see "Not in v1" above).
-
-These are deliberate omissions, not bugs — they're listed so contributors know what's out of scope rather than wondering whether to file an issue.
-
-Previously listed but now shipped: Lua patterns, `io.open` + full file-handle stdlib, expanded `os`, the `debug` library.
 
 ## Contributing
 

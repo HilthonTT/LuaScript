@@ -1,0 +1,84 @@
+-- Tagged enums (sum types): enum variants may carry a typed payload. A
+-- single payload variant promotes the whole enum from the classic
+-- integer-constant form (see 29_enums.lsc) to a tagged union:
+--
+--   * a payload variant  `Circle(number)`  becomes a constructor function
+--   * a nullary variant  `Unit`            becomes a singleton value
+--
+-- Every constructed value carries a `__tag` field (the variant name) and a
+-- metatable whose `__type` is the enum name, so `typeof` reports the enum
+-- and `__tag` discriminates the variant. The namespace itself is frozen.
+
+enum Shape
+    Circle(number),
+    Rect(number, number),
+    Unit,
+end
+
+print("=== construction ===")
+local c = Shape.Circle(5)
+local r = Shape.Rect(3, 4)
+local u = Shape.Unit
+print("Circle(5)  :", tostring(c))   -- Shape.Circle(5)
+print("Rect(3, 4) :", tostring(r))   -- Shape.Rect(3, 4)
+print("Unit       :", tostring(u))   -- Shape.Unit
+print()
+
+print("=== introspection ===")
+print("typeof(c) :", typeof(c))      -- Shape
+print("c.__tag   :", c.__tag)        -- Circle
+print("c[1]      :", c[1])           -- 5  (positional payload)
+print("r[1], r[2]:", r[1], r[2])     -- 3  4
+print()
+
+-- Nullary variants are singletons, so reference equality is a valid test.
+print("=== singletons ===")
+print("Unit is a singleton:", u == Shape.Unit)  -- true
+print()
+
+-- Discriminating by tag. (See 44_match.lsc for the same dispatch written far
+-- more cleanly with `match` destructuring patterns.)
+print("=== area via tag dispatch ===")
+local function area(s: Shape): number
+    if s.__tag == "Circle" then
+        local radius = s[1]
+        return 3.14159 * radius * radius
+    elseif s.__tag == "Rect" then
+        return s[1] * s[2]
+    else -- Unit
+        return 0
+    end
+end
+print("area(Circle(5)) :", area(c))
+print("area(Rect(3,4)) :", area(r))
+print("area(Unit)      :", area(u))
+print()
+
+-- The namespace is frozen: variants can't be reassigned.
+print("=== frozen namespace ===")
+local ok, err = pcall(function() Shape.Circle = 0 end)
+print("reassign variant:", ok, "-", err)
+
+-- --- a classic Result-style tagged enum ---
+print()
+print("=== Result<T> pattern ===")
+enum Result
+    Ok(number),
+    Err(string),
+end
+
+local function safe_div(a: number, b: number): Result
+    if b == 0 then
+        return Result.Err("division by zero")
+    end
+    return Result.Ok(a / b)
+end
+
+for _, pair in ipairs({ {10, 2}, {1, 0} }) do
+    local res = safe_div(pair[1], pair[2])
+    if res.__tag == "Ok" then
+        print(string.format("%d / %d = %s", pair[1], pair[2], tostring(res[1])))
+    else
+        print(string.format("%d / %d failed: %s", pair[1], pair[2], res[1]))
+    end
+end

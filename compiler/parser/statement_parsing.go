@@ -63,6 +63,15 @@ func (p *Parser) parseStatement() ast.Statement {
 		return p.parseTypeAliasStatement()
 	}
 
+	// `struct Name { ... }` — a nominal product-type declaration. Like
+	// `type`, `struct` is a *soft* keyword (not reserved) so existing code
+	// using `struct` as a variable keeps compiling. The disambiguator is
+	// `struct <Ident>`, which is otherwise not a valid statement start
+	// (two bare identifiers in a row is a syntax error in Lua).
+	if p.curTokenIs(token.Ident) && p.curToken.Literal == "struct" && p.peekTokenIs(token.Ident) {
+		return p.parseStructStatement()
+	}
+
 	// Otherwise: assignment or function-call statement.
 	return p.parseExprOrAssignStatement()
 }
@@ -79,6 +88,15 @@ func (p *Parser) parseTypeAliasStatement() ast.Statement {
 	name := p.curToken.Literal
 	p.nextToken() // consume Name
 
+	// Optional generic parameters: `type Box<T> = ...`.
+	var typeParams []string
+	if p.curTokenIs(token.LT) {
+		typeParams = p.parseTypeParams()
+		if p.error != nil {
+			return nil
+		}
+	}
+
 	if !p.expectCur(token.Assign) {
 		return nil
 	}
@@ -89,9 +107,10 @@ func (p *Parser) parseTypeAliasStatement() ast.Statement {
 		return nil
 	}
 	return &ast.TypeAliasStatement{
-		BaseNode: baseAt(tok),
-		Name:     name,
-		Target:   target,
+		BaseNode:   baseAt(tok),
+		Name:       name,
+		TypeParams: typeParams,
+		Target:     target,
 	}
 }
 
@@ -654,8 +673,19 @@ func (p *Parser) parseEnumStatement() *ast.EnumStatement {
 			return nil
 		}
 		seen[name] = true
-		stmt.Variants = append(stmt.Variants, &ast.EnumVariantDef{Name: name})
-		p.nextToken()
+		p.nextToken() // consume variant name
+
+		variant := &ast.EnumVariantDef{Name: name}
+		// Optional payload: `Circle(number)`, `Rect(number, number)`. A
+		// variant with a payload makes the whole enum a tagged sum type.
+		if p.curTokenIs(token.LParen) {
+			payload, ok := p.parseEnumVariantPayload(name)
+			if !ok {
+				return nil
+			}
+			variant.Payload = payload
+		}
+		stmt.Variants = append(stmt.Variants, variant)
 	}
 
 	if len(stmt.Variants) == 0 {
@@ -667,6 +697,39 @@ func (p *Parser) parseEnumStatement() *ast.EnumStatement {
 
 	p.nextToken() // consume 'end'
 	return stmt
+}
+
+// parseEnumVariantPayload reads a tagged variant's `(Type {, Type})` payload.
+// The cursor is on `(` at entry. An empty `()` is rejected — a variant with
+// no payload should just be written bare (`Unit`, not `Unit()`).
+func (p *Parser) parseEnumVariantPayload(variant string) ([]ast.TypeNode, bool) {
+	p.nextToken() // consume '('
+	if p.curTokenIs(token.RParen) {
+		p.errorAt(p.curToken, errors.SyntaxError, "enum",
+			fmt.Sprintf("variant '%s' has an empty payload '()'", variant),
+			"omit the parentheses for a payload-less variant: `"+variant+"`")
+		return nil, false
+	}
+	var payload []ast.TypeNode
+	for {
+		ty := p.parseType()
+		if ty == nil {
+			return nil, false
+		}
+		payload = append(payload, ty)
+		if !p.curTokenIs(token.Comma) {
+			break
+		}
+		p.nextToken() // consume ','
+	}
+	if !p.curTokenIs(token.RParen) {
+		p.errorAt(p.curToken, errors.UnexpectedTokenError, "enum",
+			"expected ')' to close the payload of variant '"+variant+"', got "+describeToken(p.curToken),
+			"payloads look like `Circle(number)` or `Rect(number, number)`")
+		return nil, false
+	}
+	p.nextToken() // consume ')'
+	return payload, true
 }
 
 // parseDeferStatement reads `defer <call>`. Like Go's defer it accepts only a

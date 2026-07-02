@@ -24,6 +24,7 @@ import (
 	"github.com/hilthontt/luascript/native/sort"
 	"github.com/hilthontt/luascript/native/stats"
 	"github.com/hilthontt/luascript/native/std"
+	"github.com/hilthontt/luascript/native/structrt"
 	"github.com/hilthontt/luascript/native/timex"
 	"github.com/hilthontt/luascript/native/ui"
 	"github.com/hilthontt/luascript/native/utf8x"
@@ -72,6 +73,10 @@ var nativeRegistrars = []func(*vm.VM){
 	// CLI VM (via repl.AddPostInit) and the bundled-binary VM (via
 	// registerAllNatives) without a separate plumbing pass.
 	enumrt.RegisterEnumRT,
+	// structrt installs __struct_define, the constructor factory the
+	// bytecode generator calls when lowering a `struct` declaration. Like
+	// enumrt it is an internal emit target, not a require() module.
+	structrt.RegisterStructRT,
 }
 
 // registerAllNatives applies each registrar to the given VM directly.
