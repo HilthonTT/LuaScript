@@ -46,7 +46,7 @@ func (hm *HashMap) Put(key, value any) {
 	index := hm.hash(key)
 	if hm.buckets[index] == nil {
 		hm.buckets[index] = &node{key: key, value: value}
-		hm.size++
+		// size is incremented once, unconditionally, after this if/else.
 	} else {
 		current := hm.buckets[index]
 		for {

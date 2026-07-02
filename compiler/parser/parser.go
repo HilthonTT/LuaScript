@@ -48,6 +48,12 @@ type Parser struct {
 	// nested matches don't shadow each other in a confusing way.
 	matchCounter int
 
+	// compoundCounter generates unique temp-local names for the compound
+	// assignment desugar (compiler/parser/statement_parsing.go). An index
+	// target like `t[f()] += 1` hoists its object and key into fresh
+	// `__caobj_N` / `__cakey_N` locals so they are evaluated exactly once.
+	compoundCounter int
+
 	// loopDepth tracks how many for/while/repeat loops enclose the
 	// current cursor. parseBreakStatement rejects `break` when it's 0.
 	// Function bodies save and zero this — break does not escape into

@@ -15,10 +15,26 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 	"strings"
+	"sync"
 
 	"github.com/hilthontt/luascript/vm"
 )
+
+// ownFile attaches a GC finalizer that closes the underlying fd if the handle
+// becomes unreachable while still open. This stands in for Lua's __gc on file
+// objects (which this runtime does not implement), so files opened by io.open
+// / io.input / io.output / io.tmpfile don't leak their descriptor when the
+// script drops the handle without calling :close().
+func ownFile(h *fileHandle) *fileHandle {
+	runtime.SetFinalizer(h, func(h *fileHandle) {
+		if !h.closed && !h.isStd {
+			_ = h.f.Close()
+		}
+	})
+	return h
+}
 
 // RegisterIOPreload installs the io module at package.preload as "io".
 func RegisterIOPreload(v *vm.VM) {
@@ -80,12 +96,12 @@ func newIO() *vm.Table {
 		if err != nil {
 			return []vm.Value{nil, err.Error()}
 		}
-		return []vm.Value{newFileTable(&fileHandle{f: f, br: bufio.NewReader(f)})}
+		return []vm.Value{newFileTable(ownFile(&fileHandle{f: f, br: bufio.NewReader(f)}))}
 	})
 
 	add("lines", func(_ *vm.VM, args []vm.Value) []vm.Value {
 		var br *bufio.Reader
-		var closeOnDone *os.File
+		var owned *os.File
 		if len(args) >= 1 {
 			path := vm.StringArg("io.lines", 1, args)
 			f, err := os.Open(path)
@@ -93,22 +109,34 @@ func newIO() *vm.Table {
 				panic(vm.Errorf("io.lines: %s", err.Error()))
 			}
 			br = bufio.NewReader(f)
-			closeOnDone = f
+			owned = f
 		} else {
 			br = defaultIn.br
+		}
+		// Close the owned file exactly once, whether the iterator reaches EOF
+		// or the loop is abandoned early (the finalizer below is the safety
+		// net for break/return). sync.Once makes the two paths race-free.
+		var once sync.Once
+		closeOwned := func() {
+			once.Do(func() {
+				if owned != nil {
+					_ = owned.Close()
+				}
+			})
 		}
 		iter := &vm.GoFunc{Name: "io:lines:iter", Fn: func(_ *vm.VM, _ []vm.Value) []vm.Value {
 			line, err := br.ReadString('\n')
 			if err != nil && line == "" {
-				if closeOnDone != nil {
-					_ = closeOnDone.Close()
-				}
+				closeOwned()
 				return []vm.Value{nil}
 			}
 			line = strings.TrimRight(line, "\n")
 			line = strings.TrimRight(line, "\r")
 			return []vm.Value{line}
 		}}
+		if owned != nil {
+			runtime.SetFinalizer(iter, func(*vm.GoFunc) { closeOwned() })
+		}
 		return []vm.Value{iter}
 	})
 
@@ -153,7 +181,7 @@ func newIO() *vm.Table {
 		if err != nil {
 			return []vm.Value{nil, err.Error()}
 		}
-		return []vm.Value{newFileTable(&fileHandle{f: f, br: bufio.NewReader(f)})}
+		return []vm.Value{newFileTable(ownFile(&fileHandle{f: f, br: bufio.NewReader(f)}))}
 	})
 
 	add("type", func(_ *vm.VM, args []vm.Value) []vm.Value {
@@ -182,7 +210,7 @@ func newIO() *vm.Table {
 			if err != nil {
 				panic(vm.Errorf("io.input: %s", err.Error()))
 			}
-			defaultIn = &fileHandle{f: f, br: bufio.NewReader(f)}
+			defaultIn = ownFile(&fileHandle{f: f, br: bufio.NewReader(f)})
 		default:
 			h := handleFrom(a)
 			if h == nil {
@@ -202,7 +230,7 @@ func newIO() *vm.Table {
 			if err != nil {
 				panic(vm.Errorf("io.output: %s", err.Error()))
 			}
-			defaultOut = &fileHandle{f: f}
+			defaultOut = ownFile(&fileHandle{f: f})
 		default:
 			h := handleFrom(a)
 			if h == nil {

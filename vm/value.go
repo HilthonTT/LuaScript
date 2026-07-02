@@ -17,7 +17,6 @@ package vm
 
 import (
 	"fmt"
-	"math"
 	"strings"
 )
 
@@ -172,13 +171,17 @@ func Equal(a, b Value) bool {
 		case int64:
 			return x == y
 		case float64:
-			return float64(x) == y && math.Trunc(y) == y
+			// Exact: int == float iff the float is an integer equal to x.
+			// Converting x to float64 would lose precision above 2^53.
+			yi, ok := floatToInt(y)
+			return ok && x == yi
 		}
 		return false
 	case float64:
 		switch y := b.(type) {
 		case int64:
-			return x == float64(y) && math.Trunc(x) == x
+			xi, ok := floatToInt(x)
+			return ok && xi == y
 		case float64:
 			return x == y
 		}

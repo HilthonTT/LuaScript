@@ -3,6 +3,7 @@ package json
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/hilthontt/luascript/vm"
@@ -25,7 +26,7 @@ func newJson() *vm.Table {
 
 	methods.Set("encode", &vm.GoFunc{Name: "json:encode", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 		value := vm.AnyArg("encode", 1, args) // Allow table or other types
-		goValue := vmToJSONValue(value)
+		goValue := vmToJSONValue(value, 0)
 
 		jsonBytes, err := json.Marshal(goValue)
 		if err != nil {
@@ -101,7 +102,14 @@ func jsonToVMValue(v any) vm.Value {
 	}
 }
 
-func vmToJSONValue(v vm.Value) any {
+// maxJSONDepth bounds encode recursion so a cyclic table raises a catchable
+// Lua error instead of overflowing the Go stack (a fatal, uncatchable crash).
+const maxJSONDepth = 1000
+
+func vmToJSONValue(v vm.Value, depth int) any {
+	if depth > maxJSONDepth {
+		panic(vm.Errorf("json.encode: table nesting too deep (cyclic reference?)"))
+	}
 	switch x := v.(type) {
 	case nil:
 		return nil
@@ -119,12 +127,15 @@ func vmToJSONValue(v vm.Value) any {
 			// Encode as JSON array
 			arr := make([]any, 0, x.Len())
 			for i := int64(1); i <= x.Len(); i++ {
-				arr = append(arr, vmToJSONValue(x.Get(i)))
+				arr = append(arr, vmToJSONValue(x.Get(i), depth+1))
 			}
 			return arr
 		}
 
-		// Encode as JSON object
+		// Encode as JSON object. JSON keys must be strings, so integer/float
+		// keys are stringified (e.g. {[2]=10} -> {"2":10}) instead of being
+		// silently dropped. Only bool/table keys, which have no sensible key
+		// form, are skipped.
 		obj := make(map[string]any)
 		var key vm.Value = nil
 		for {
@@ -133,10 +144,14 @@ func vmToJSONValue(v vm.Value) any {
 			if key == nil {
 				break
 			}
-			if strKey, ok := key.(string); ok {
-				obj[strKey] = vmToJSONValue(value)
+			switch k := key.(type) {
+			case string:
+				obj[k] = vmToJSONValue(value, depth+1)
+			case int64:
+				obj[strconv.FormatInt(k, 10)] = vmToJSONValue(value, depth+1)
+			case float64:
+				obj[strconv.FormatFloat(k, 'g', -1, 64)] = vmToJSONValue(value, depth+1)
 			}
-			// Non-string keys are ignored (standard JSON behavior)
 		}
 		return obj
 

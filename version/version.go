@@ -8,8 +8,8 @@ import (
 )
 
 const (
-	Version   = "dev"
-	GitCommit = "unknown"
+	Version   = "0.0.1"
+	GitCommit = "e59e261"
 	BuildTime = "unknown"
 )
 

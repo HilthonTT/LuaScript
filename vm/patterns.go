@@ -62,8 +62,16 @@ func PatternFind(s, pat string, init int) (int, int, []Value, bool) {
 // find runs the search loop, reusing ms's capture buffer across attempts
 // (and across calls, for callers that keep the matchState alive).
 func (ms *matchState) find(init int) (int, int, []Value, bool) {
+	return ms.findImpl(init, true)
+}
+
+// findImpl is find with explicit control over `^` anchoring. gmatch passes
+// allowAnchor=false: Lua 5.4 documents that a leading '^' does NOT anchor in
+// gmatch (it would prevent iteration), so there it is matched as an ordinary
+// character instead.
+func (ms *matchState) findImpl(init int, allowAnchor bool) (int, int, []Value, bool) {
 	start := luaInit(ms.src, init)
-	anchored := strings.HasPrefix(ms.pat, "^")
+	anchored := allowAnchor && strings.HasPrefix(ms.pat, "^")
 	pStart := 0
 	if anchored {
 		pStart = 1
@@ -120,7 +128,7 @@ func (g *GMatchIter) Next() []Value {
 	if g.pos > len(g.ms.src)+1 {
 		return nil
 	}
-	startByte, endByte, caps, ok := g.ms.find(g.pos)
+	startByte, endByte, caps, ok := g.ms.findImpl(g.pos, false)
 	if !ok {
 		return nil
 	}
@@ -145,7 +153,10 @@ func PatternGSub(
 	s, pat string, repl Value, maxN int,
 	callFn func(fn Value, args []Value) []Value,
 ) (string, int) {
-	if maxN <= 0 {
+	// A negative maxN is the "absent 4th argument" sentinel → unlimited.
+	// An explicit 0 must perform no substitutions (callers clamp explicit
+	// negatives to 0 before reaching here).
+	if maxN < 0 {
 		maxN = 1<<31 - 1
 	}
 	var b strings.Builder
@@ -207,9 +218,12 @@ func applyReplacement(
 		// "%%" is a literal %.
 		for i := 0; i < len(r); i++ {
 			c := r[i]
-			if c != '%' || i+1 >= len(r) {
+			if c != '%' {
 				b.WriteByte(c)
 				continue
+			}
+			if i+1 >= len(r) {
+				panic(Errorf("invalid use of '%%' in replacement string"))
 			}
 			i++
 			d := r[i]
@@ -220,12 +234,17 @@ func applyReplacement(
 				b.WriteString(matchStr)
 			case d >= '1' && d <= '9':
 				idx := int(d - '1')
-				if idx < len(caps) {
+				switch {
+				case idx < len(caps):
 					b.WriteString(ToString(caps[idx]))
+				case idx == 0:
+					// %1 with no explicit captures aliases the whole match.
+					b.WriteString(matchStr)
+				default:
+					panic(Errorf("invalid capture index %%%d in replacement string", idx+1))
 				}
 			default:
-				b.WriteByte('%')
-				b.WriteByte(d)
+				panic(Errorf("invalid use of '%%' in replacement string"))
 			}
 		}
 	case *Table:
@@ -406,7 +425,7 @@ func (ms *matchState) singleClassEnd(pIdx int) int {
 	switch ms.pat[pIdx] {
 	case '%':
 		if pIdx+1 >= len(ms.pat) {
-			return -1
+			panic(Errorf("malformed pattern (ends with '%%')"))
 		}
 		return pIdx + 2
 	case '[':
@@ -425,7 +444,7 @@ func (ms *matchState) singleClassEnd(pIdx int) int {
 			end++
 		}
 		if end >= len(ms.pat) {
-			return -1
+			panic(Errorf("malformed pattern (missing ']')"))
 		}
 		return end + 1
 	default:
@@ -499,7 +518,11 @@ func (ms *matchState) matchBracket(c byte, pIdx int) bool {
 		idx++
 	}
 	found := false
-	for idx < len(ms.pat) && ms.pat[idx] != ']' {
+	// A ']' immediately after '[' or '[^' is a literal member, not the close
+	// bracket (matches singleClassEnd's length detection and Lua semantics).
+	first := true
+	for idx < len(ms.pat) && (first || ms.pat[idx] != ']') {
+		first = false
 		if ms.pat[idx] == '%' && idx+1 < len(ms.pat) {
 			if matchClass(c, ms.pat[idx+1]) {
 				found = true
@@ -594,11 +617,11 @@ func (ms *matchState) findUnfinishedCapture() int {
 // matchBackref tests s at sIdx against the contents of capture[n].
 func (ms *matchState) matchBackref(sIdx, pIdx, n int) int {
 	if n < 0 || n >= len(ms.captures) {
-		return -1
+		panic(Errorf("invalid capture index %%%d in pattern", n+1))
 	}
 	c := ms.captures[n]
 	if c.len < 0 {
-		return -1
+		panic(Errorf("unfinished capture"))
 	}
 	captured := ms.src[c.start : c.start+c.len]
 	if sIdx+len(captured) > len(ms.src) {
@@ -622,14 +645,15 @@ func (ms *matchState) matchBalance(sIdx, pIdx int) int {
 	depth := 1
 	i := sIdx + 1
 	for i < len(ms.src) {
-		switch ms.src[i] {
-		case open:
-			depth++
-		case close:
+		// Test close before open so a pattern with identical delimiters
+		// (e.g. %b||) still terminates, matching Lua's matchbalance.
+		if ms.src[i] == close {
 			depth--
 			if depth == 0 {
 				return ms.match(i+1, pIdx+2)
 			}
+		} else if ms.src[i] == open {
+			depth++
 		}
 		i++
 	}
@@ -640,7 +664,7 @@ func (ms *matchState) matchBalance(sIdx, pIdx int) int {
 // source char must NOT be in [set] and the current one must.
 func (ms *matchState) matchFrontier(sIdx, pIdx int) int {
 	if pIdx >= len(ms.pat) || ms.pat[pIdx] != '[' {
-		return -1
+		panic(Errorf("missing '[' after '%%f' in pattern"))
 	}
 	classStart := pIdx
 	classEnd := ms.singleClassEnd(classStart)
