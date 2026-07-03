@@ -19,6 +19,7 @@ import (
 	"github.com/hilthontt/luascript/native/logx"
 	"github.com/hilthontt/luascript/native/math"
 	"github.com/hilthontt/luascript/native/ml/luaml"
+	"github.com/hilthontt/luascript/native/ndarray"
 	osNative "github.com/hilthontt/luascript/native/os"
 	regexpNative "github.com/hilthontt/luascript/native/regexp"
 	"github.com/hilthontt/luascript/native/sort"
@@ -66,6 +67,7 @@ var nativeRegistrars = []func(*vm.VM){
 	linalg.RegisterLinalgPreload,
 	csv.RegisterCSVPreload,
 	dataframe.RegisterDataFramePreload,
+	ndarray.RegisterNDArrayPreload,
 	luaml.RegisterMLPreload,
 	// enumrt installs an internal global (__enum_freeze) the bytecode
 	// generator calls when lowering `enum` declarations. Not a require()

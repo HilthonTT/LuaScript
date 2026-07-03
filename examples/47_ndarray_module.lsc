@@ -1,0 +1,49 @@
+-- ndarray: dense N-dimensional numeric arrays (NumPy-style).
+-- Run: go run ./cmd examples/47_ndarray_module.lsc
+local nd = require("ndarray")
+
+print("== construction ==")
+local a = nd.array({ {1, 2, 3}, {4, 5, 6} })
+print(a)                          -- 2x3, pretty-printed
+print("shape:", a:shape()[1], a:shape()[2])
+print("zeros:", nd.zeros(2, 2))
+print("arange:", nd.arange(0, 5))
+print("linspace:", nd.linspace(0, 1, 5))
+
+print("\n== broadcast arithmetic (operators) ==")
+print("a * 2 + 1 =")
+print(a * 2 + 1)
+print("a + row{10,20,30} =")
+print(a + nd.array({10, 20, 30}))
+print("-a =")
+print(-a)
+
+print("\n== reductions ==")
+print("sum        =", a:sum())
+print("mean       =", a:mean())
+print("max        =", a:max())
+print("std        =", a:std())
+print("col sums   =", a:sum(1))     -- reduce axis 1 (rows) -> per-column
+print("row means  =", a:mean(2))    -- reduce axis 2 (cols) -> per-row
+print("argmax     =", a:argmax())
+
+print("\n== linear algebra ==")
+local b = nd.array({ {7, 8}, {9, 10}, {11, 12} })
+print("a (2x3) matmul b (3x2) =")
+print(a:matmul(b))
+print("dot(v1, v2) =", nd.array({1, 2, 3}):dot(nd.array({4, 5, 6})))
+print("identity 3 =")
+print(nd.eye(3))
+
+print("\n== transforms & elementwise math ==")
+print("transpose(a) =")
+print(a:transpose())
+print("a reshaped to (3,2) =")
+print(a:reshape(3, 2))
+print("sqrt(arange 0..4) =", nd.arange(0, 5):sqrt())
+print("map x -> x*x over {1,2,3,4} =", nd.array({1, 2, 3, 4}):map(function(x) return x * x end))
+
+print("\n== equality & interop ==")
+print("a == copy(a):", a == a:copy())
+print("to_table row 1, col 2:", a:to_table()[1][2])
+print("is_ndarray(a):", nd.is_ndarray(a), " is_ndarray({}):", nd.is_ndarray({}))
