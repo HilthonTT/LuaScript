@@ -80,3 +80,13 @@ func WriteBack[T any](t *vm.Table, values []T) {
 		t.Set(int64(i+1), v)
 	}
 }
+
+func Clamp(x, min, max float64) float64 {
+	if x < min {
+		return min
+	}
+	if x > max {
+		return max
+	}
+	return x
+}

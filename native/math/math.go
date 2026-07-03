@@ -210,6 +210,13 @@ func newMath() *vm.Table {
 		return []vm.Value{floatSliceToTable(native.Softmax(numericTableArg("math.softmax", args)))}
 	}})
 
+	methods.Set("clamp", &vm.GoFunc{Name: "math:clamp", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
+		x := vm.FloatArg("x", 1, args)
+		min := vm.FloatArg("min", 2, args)
+		max := vm.FloatArg("max", 3, args)
+		return []vm.Value{native.Clamp(x, min, max)}
+	}})
+
 	mt := vm.NewTable(0, 1)
 	mt.Set("__index", methods)
 	m.SetMetatable(mt)
