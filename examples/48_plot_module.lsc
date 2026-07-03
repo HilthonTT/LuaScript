@@ -1,0 +1,37 @@
+-- plot: render numeric data to standalone SVG charts (no dependencies).
+-- Run: go run ./cmd examples/48_plot_module.lsc
+local plot = require("plot")
+
+-- A multi-series figure with shared, auto-ranged axes.
+local xs = {}
+local sq = {}
+local noisy = {}
+for i = 1, 20 do
+  xs[i] = i
+  sq[i] = i * i
+  noisy[i] = i * i + (i % 3 - 1) * 12   -- deterministic wobble
+end
+
+local fig = plot.figure({ title = "y = x^2", xlabel = "x", ylabel = "y", width = 720, height = 420 })
+fig:line(xs, sq, { label = "exact", color = "#4e79a7" })
+   :scatter(xs, noisy, { label = "observed", color = "#e15759" })
+fig:save("scratch_line.svg")
+print("line+scatter:", tostring(fig))
+
+-- A bar chart with categorical labels.
+local bars = plot.figure({ title = "fruit counts", ylabel = "count" })
+bars:bar({ "apple", "pear", "plum", "fig" }, { 8, 5, 3, 6 }, { color = "#59a14f" })
+bars:save("scratch_bar.svg")
+print("bar:", tostring(bars))
+
+-- A histogram one-liner over a batch of samples.
+local samples = {}
+for i = 1, 200 do
+  samples[i] = (i * 7) % 50            -- deterministic spread over [0,50)
+end
+plot.histogram(samples, 10):title("sample distribution"):save("scratch_hist.svg")
+print("wrote scratch_line.svg, scratch_bar.svg, scratch_hist.svg")
+
+-- The SVG is just a string you can inspect or embed anywhere.
+local svg = plot.line({ 1, 2, 3 }, { 3, 1, 2 }):to_svg()
+print("svg starts with:", svg:sub(1, 30))
