@@ -6,6 +6,7 @@ require (
 	fyne.io/fyne/v2 v2.7.4
 	github.com/chzyer/readline v1.5.1
 	github.com/gdamore/tcell/v3 v3.4.0
+	github.com/google/go-cmp v0.7.0
 	github.com/lib/pq v1.12.3
 	github.com/mattn/go-runewidth v0.0.24
 )
@@ -25,7 +26,7 @@ require (
 	github.com/fyne-io/oksvg v0.2.0 // indirect
 	github.com/gdamore/encoding v1.0.1 // indirect
 	github.com/go-gl/gl v0.0.0-20260331235117-4566fea9a276 // indirect
-	github.com/go-gl/glfw/v3.3/glfw v0.0.0-20260406072232-3ac4aa2bb164 // indirect
+	github.com/go-gl/glfw/v3.3/glfw v0.0.0-20260628091122-0bd588dc30cf // indirect
 	github.com/go-gl/glfw/v3.4/glfw v0.1.0-pre.1 // indirect
 	github.com/go-text/render v0.2.1 // indirect
 	github.com/go-text/typesetting v0.3.4 // indirect
