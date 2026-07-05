@@ -49,6 +49,9 @@ func run(argv []string) int {
 	if len(argv) >= 1 && argv[0] == "pkg" {
 		return runPkg(argv[1:])
 	}
+	if len(argv) >= 1 && argv[0] == "lsp" {
+		return runLSP(argv[1:])
+	}
 
 	fs := flag.NewFlagSet("luascript", flag.ContinueOnError)
 	interactive := fs.Bool("i", false, "start the interactive REPL even if a script is given")
