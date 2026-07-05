@@ -59,13 +59,45 @@ type Parser struct {
 	// Function bodies save and zero this — break does not escape into
 	// the enclosing loop across a function boundary, matching Lua.
 	loopDepth int
+
+	// depth tracks nesting of the recursive parse funnels (expressions,
+	// types, blocks). Without a bound, pathologically nested input — e.g. a
+	// megabyte of `(((…)))` — drives the recursive-descent parser past the Go
+	// goroutine stack limit, a fatal error that ParseProgram's recover() cannot
+	// catch. Exceeding maxParseDepth records an ordinary syntax error instead.
+	depth int
 }
+
+// maxParseDepth bounds recursive parse nesting. Set well above any realistic
+// hand-written nesting (Lua's own LUAI_MAXCCALLS is 200) yet orders of
+// magnitude below where the Go stack actually overflows (~hundreds of
+// thousands of levels), so it turns a fatal crash into a clean parse error
+// without rejecting legitimate deeply-chained code.
+const maxParseDepth = 4000
 
 // New constructs a parser ready to consume the supplied lexer's tokens.
 // Call ParseProgram to drive it.
 func New(l *lexer.Lexer) *Parser {
 	return &Parser{Lexer: l, Mode: NormalMode}
 }
+
+// enterDepth bumps the recursion counter, returning true (and recording a
+// syntax error) when nesting is pathologically deep. A caller that gets true
+// must stop recursing (return nil) and must NOT call leaveDepth; a caller that
+// gets false must pair the call with `defer p.leaveDepth()`.
+func (p *Parser) enterDepth(construct string) bool {
+	if p.depth >= maxParseDepth {
+		if p.error == nil {
+			p.errorAt(p.curToken, errors.SyntaxError, construct,
+				"input nests too deeply", "reduce the nesting depth of this "+construct)
+		}
+		return true
+	}
+	p.depth++
+	return false
+}
+
+func (p *Parser) leaveDepth() { p.depth-- }
 
 // ParseProgram drives the top-level block until EOF and returns the AST.
 // Returns the partial AST and an error if one occurred. The parser is
@@ -112,6 +144,10 @@ func (p *Parser) parseBlock() *ast.Block {
 		BaseNode:   ast.BaseNode{Token: p.curToken},
 		Statements: []ast.Statement{},
 	}
+	if p.enterDepth("block") {
+		return block
+	}
+	defer p.leaveDepth()
 	for !p.endOfBlock() {
 		if p.curTokenIs(token.Return) {
 			block.Return = p.parseReturnStatement()

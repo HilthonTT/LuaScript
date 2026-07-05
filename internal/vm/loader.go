@@ -115,10 +115,26 @@ func builtinRequire(v *VM, args []Value) []Value {
 		pkg.Set("loaded", loaded)
 	}
 
-	// 1. Cache hit — return without re-running.
+	// 1. Cache hit — return without re-running. A sentinel means this module is
+	// already mid-load higher up the stack: a require cycle. Report it cleanly
+	// instead of recursing until the call-depth guard trips.
 	if cached := loaded.Get(name); cached != nil {
+		if cached == requireSentinel {
+			panic(LuaError(fmt.Sprintf("loop or previous error loading module '%s'", name)))
+		}
 		return []Value{cached}
 	}
+
+	// Mark the module in-progress so a re-entrant require of the same name is
+	// detected as a loop. Cleared on failure (so a later require can retry)
+	// and overwritten with the real value on success.
+	loaded.Set(name, requireSentinel)
+	completed := false
+	defer func() {
+		if !completed && loaded.Get(name) == requireSentinel {
+			loaded.Set(name, nil)
+		}
+	}()
 
 	// 2. preload[name] — a function the host registered before requireing.
 	if preload, ok := pkg.Get("preload").(*Table); ok {
@@ -126,6 +142,7 @@ func builtinRequire(v *VM, args []Value) []Value {
 			results := v.CallValue(loader, []Value{name}, 1)
 			ret := pickRet(results)
 			loaded.Set(name, ret)
+			completed = true
 			return []Value{ret}
 		}
 	}
@@ -151,8 +168,14 @@ func builtinRequire(v *VM, args []Value) []Value {
 	results := v.CallValue(cl, []Value{name, fpath}, 1)
 	ret := pickRet(results)
 	loaded.Set(name, ret)
+	completed = true
 	return []Value{ret}
 }
+
+// requireSentinel is a unique marker stored in package.loaded[name] while a
+// module is being loaded, so a re-entrant require of the same module (a cycle)
+// is detected immediately rather than recursing until the call-depth guard.
+var requireSentinel Value = NewTable(0, 0)
 
 // pickRet implements Lua's "module return value" rule: if the chunk
 // returned a non-nil value, use that; otherwise the cache stores `true` so

@@ -145,23 +145,59 @@ func (g *Generator) compileAssign(is *InstructionSet, s *ast.AssignStatement) {
 		is.define(SetLocal, s.Line(), tempSlots[i])
 	}
 
-	// 2) For each target, emit the appropriate store, fetching the value
-	//    from its temp slot.
+	// 2) Evaluate every target's object/key sub-expressions into temp slots
+	//    BEFORE performing any store. Lua evaluates all expressions before the
+	//    assignments run, so a later target's index must not observe an earlier
+	//    target's write (`i, t[i] = 2, 10` stores into t[old i], not t[2]).
+	type storePlan struct {
+		ident   string // non-empty => plain name target
+		objSlot int    // temp holding the table (index targets)
+		field   string // non-empty => dot field: SetField with this key
+		keySlot int    // temp holding the key (bracket index targets)
+	}
+	plans := make([]storePlan, n)
 	for i, t := range s.Targets {
 		switch tgt := t.(type) {
 		case *ast.Identifier:
-			is.define(GetLocal, s.Line(), tempSlots[i])
-			g.compileStoreName(is, tgt.Name, s.Line())
+			plans[i] = storePlan{ident: tgt.Name}
 		case *ast.IndexExpression:
-			useField, key := g.compileIndexStorePrep(is, tgt)
-			is.define(GetLocal, s.Line(), tempSlots[i])
-			if useField {
-				is.define(SetField, s.Line(), key)
-			} else {
-				is.define(SetTable, s.Line())
+			g.compileExpression(is, tgt.Object)
+			objSlot := g.current.locals.define("(assign obj)")
+			is.define(SetLocal, s.Line(), objSlot)
+			p := storePlan{objSlot: objSlot}
+			if tgt.IsDot {
+				if sl, ok := tgt.Index.(*ast.StringLiteral); ok {
+					p.field = sl.Value
+				}
 			}
+			if p.field == "" {
+				g.compileExpression(is, tgt.Index)
+				p.keySlot = g.current.locals.define("(assign key)")
+				is.define(SetLocal, s.Line(), p.keySlot)
+			}
+			plans[i] = p
 		default:
 			panic(fmt.Sprintf("bytecode: invalid assignment target %T", t))
+		}
+	}
+
+	// 3) Perform the stores now that every sub-expression has been evaluated,
+	//    fetching table/key/value from their temp slots.
+	for i := range s.Targets {
+		p := plans[i]
+		switch {
+		case p.ident != "":
+			is.define(GetLocal, s.Line(), tempSlots[i])
+			g.compileStoreName(is, p.ident, s.Line())
+		case p.field != "":
+			is.define(GetLocal, s.Line(), p.objSlot)    // table
+			is.define(GetLocal, s.Line(), tempSlots[i]) // value
+			is.define(SetField, s.Line(), p.field)
+		default:
+			is.define(GetLocal, s.Line(), p.objSlot)    // table
+			is.define(GetLocal, s.Line(), p.keySlot)    // key
+			is.define(GetLocal, s.Line(), tempSlots[i]) // value
+			is.define(SetTable, s.Line())
 		}
 	}
 
@@ -297,6 +333,17 @@ func (g *Generator) compileIf(is *InstructionSet, s *ast.IfStatement) {
 	endAnchor.line = is.count
 }
 
+// emitLoopClose closes upvalues captured over loop-body locals at slot >=
+// baseSlot, but only when the body actually created a closure (its proto count
+// grew). This gives each iteration its own fresh variables — Lua 5.4 semantics
+// — without imposing per-iteration overhead on the common closure-free loop.
+// protosBefore is len(is.Protos) captured immediately before compiling the body.
+func (g *Generator) emitLoopClose(is *InstructionSet, baseSlot, protosBefore, line int) {
+	if len(is.Protos) > protosBefore {
+		is.define(CloseUpvalues, line, baseSlot)
+	}
+}
+
 func (g *Generator) compileWhile(is *InstructionSet, s *ast.WhileStatement) {
 	topAnchor := &anchor{line: is.count}
 	g.compileExpression(is, s.Condition)
@@ -304,9 +351,12 @@ func (g *Generator) compileWhile(is *InstructionSet, s *ast.WhileStatement) {
 	jf := is.define(JumpIfFalse, s.Line(), exitAnchor)
 	g.current.recordPending(jf)
 
+	closeBase := g.current.locals.maxSlot
+	protos := len(is.Protos)
 	g.current.loops = append(g.current.loops, &loopFrame{breakAnchor: exitAnchor})
 	g.compileBlock(is, s.Body)
 	g.current.loops = g.current.loops[:len(g.current.loops)-1]
+	g.emitLoopClose(is, closeBase, protos, s.Line())
 
 	jb := is.define(Jump, s.Line(), topAnchor)
 	g.current.recordPending(jb)
@@ -322,6 +372,8 @@ func (g *Generator) compileRepeat(is *InstructionSet, s *ast.RepeatStatement) {
 	// Repeat's `until` condition is evaluated in the scope of locals declared
 	// in the body. We open the scope manually so the condition can see them.
 	g.current.locals.openScope()
+	closeBase := g.current.locals.maxSlot
+	protos := len(is.Protos)
 	if s.Body != nil {
 		for _, st := range s.Body.Statements {
 			g.compileStatement(is, st)
@@ -335,6 +387,7 @@ func (g *Generator) compileRepeat(is *InstructionSet, s *ast.RepeatStatement) {
 
 	g.current.loops = g.current.loops[:len(g.current.loops)-1]
 
+	g.emitLoopClose(is, closeBase, protos, s.Line())
 	// Falsy condition → jump back; truthy → fall through and exit.
 	jb := is.define(JumpIfFalse, s.Line(), topAnchor)
 	g.current.recordPending(jb)
@@ -365,9 +418,13 @@ func (g *Generator) compileNumericFor(is *InstructionSet, s *ast.NumericForState
 	g.current.recordPending(fp)
 
 	bodyTop := &anchor{line: is.count}
+	protos := len(is.Protos)
 	g.current.loops = append(g.current.loops, &loopFrame{breakAnchor: exitAnchor})
 	g.compileBlock(is, s.Body)
 	g.current.loops = g.current.loops[:len(g.current.loops)-1]
+	// Close upvalues over the loop variable (indexSlot) and any captured body
+	// locals so each iteration captures a fresh `i`.
+	g.emitLoopClose(is, indexSlot, protos, s.Line())
 
 	fl := is.define(ForLoop, s.Line(), indexSlot, bodyTop)
 	g.current.recordPending(fl)
@@ -389,6 +446,7 @@ func (g *Generator) compileGenericFor(is *InstructionSet, s *ast.GenericForState
 	is.define(SetLocal, s.Line(), hiddenBase+1)
 	is.define(SetLocal, s.Line(), hiddenBase)
 
+	firstVarSlot := g.current.locals.maxSlot
 	for _, n := range s.Names {
 		g.current.locals.define(n)
 	}
@@ -399,9 +457,13 @@ func (g *Generator) compileGenericFor(is *InstructionSet, s *ast.GenericForState
 	g.current.recordPending(jp)
 
 	bodyTop := &anchor{line: is.count}
+	protos := len(is.Protos)
 	g.current.loops = append(g.current.loops, &loopFrame{breakAnchor: exitAnchor})
 	g.compileBlock(is, s.Body)
 	g.current.loops = g.current.loops[:len(g.current.loops)-1]
+	// Close upvalues over the visible loop variables (and captured body locals)
+	// so each iteration's `k, v` are captured independently.
+	g.emitLoopClose(is, firstVarSlot, protos, s.Line())
 
 	tforAnchor.line = is.count
 	tcall := is.define(TForCall, s.Line(), hiddenBase, len(s.Names))

@@ -351,10 +351,21 @@ func (v *VM) indexMM(obj, key Value) Value {
 	return v.indexViaMetamethod(obj, key, mm)
 }
 
+// maxMetaChain bounds how many links a __index / __newindex table chain may
+// have before we assume a cycle. A self-referential chain (m.__index = m) would
+// otherwise recurse forever and blow the Go stack with a fatal, pcall-uncatchable
+// overflow. Matches Lua 5.4's MAXTAGLOOP; hitting it raises a catchable error.
+const maxMetaChain = 2000
+
 func (v *VM) indexViaMetamethod(obj, key, mm Value) Value {
-	switch m := mm.(type) {
-	case *Table:
-		// Recursive table chain — terminate if no further __index appears.
+	// Walk the __index table chain iteratively so a cyclic chain is caught by
+	// the depth bound instead of overflowing the Go stack.
+	for depth := 0; ; depth++ {
+		m, ok := mm.(*Table)
+		if !ok {
+			// Function __index: call mm(obj, key); take first result.
+			return v.callMM(mm, obj, key)
+		}
 		raw := m.Get(key)
 		if raw != nil {
 			return raw
@@ -363,10 +374,10 @@ func (v *VM) indexViaMetamethod(obj, key, mm Value) Value {
 		if next == nil {
 			return nil
 		}
-		return v.indexViaMetamethod(m, key, next)
-	default:
-		// Function __index: call mm(obj, key); take first result.
-		return v.callMM(mm, obj, key)
+		if depth >= maxMetaChain {
+			panic(LuaError("'__index' chain too long; possible loop"))
+		}
+		obj, mm = m, next
 	}
 }
 
@@ -375,29 +386,36 @@ func (v *VM) indexViaMetamethod(obj, key, mm Value) Value {
 // and the raw write does NOT happen (Lua spec). If the key was already
 // present, the raw write happens directly.
 func (v *VM) newIndexMM(obj, key, val Value) {
-	t, ok := obj.(*Table)
-	if !ok {
+	// Walk the __newindex table chain iteratively; a cyclic chain is caught by
+	// the depth bound rather than overflowing the Go stack.
+	for depth := 0; ; depth++ {
+		if depth >= maxMetaChain {
+			panic(LuaError("'__newindex' chain too long; possible loop"))
+		}
+		t, ok := obj.(*Table)
+		if !ok {
+			mm := v.getMetamethod(obj, metaNewIndex)
+			if mm == nil {
+				panic(Errorf("attempt to index a %s value", TypeName(obj)))
+			}
+			v.callMM(mm, obj, key, val)
+			return
+		}
+		if t.Get(key) != nil {
+			t.Set(key, val)
+			return
+		}
 		mm := v.getMetamethod(obj, metaNewIndex)
 		if mm == nil {
-			panic(Errorf("attempt to index a %s value", TypeName(obj)))
+			t.Set(key, val)
+			return
+		}
+		if m, isTable := mm.(*Table); isTable {
+			obj = m
+			continue
 		}
 		v.callMM(mm, obj, key, val)
 		return
-	}
-	if t.Get(key) != nil {
-		t.Set(key, val)
-		return
-	}
-	mm := v.getMetamethod(obj, metaNewIndex)
-	if mm == nil {
-		t.Set(key, val)
-		return
-	}
-	switch m := mm.(type) {
-	case *Table:
-		v.newIndexMM(m, key, val)
-	default:
-		v.callMM(mm, obj, key, val)
 	}
 }
 

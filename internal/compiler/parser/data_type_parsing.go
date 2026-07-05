@@ -111,6 +111,13 @@ func (p *Parser) parseStringLiteral() ast.Expression {
 }
 
 func (p *Parser) buildInterpolation(tok token.Token, raw string) ast.Expression {
+	// Consume the interpolated-string token up front so EVERY exit path — the
+	// happy path and each error path — leaves the cursor past it. Otherwise a
+	// mid-parse error would return with the cursor still on this token, and the
+	// postfix-call rule (which treats an InterpString as a call argument) would
+	// re-enter buildInterpolation on the same token forever.
+	p.nextToken()
+
 	type part struct {
 		text   string
 		isExpr bool
@@ -162,8 +169,20 @@ func (p *Parser) buildInterpolation(tok token.Token, raw string) ast.Expression 
 			sub.nextToken()
 			sub.nextToken()
 			inner := sub.parseExpression()
-			if inner == nil {
-				continue
+			// Propagate a malformed interpolation as a real syntax error rather
+			// than silently dropping the segment: a failed sub-parse, or leftover
+			// tokens after the expression (e.g. `{1 2 3}`), must not compile.
+			if inner == nil || sub.error != nil {
+				if sub.error != nil {
+					p.error = sub.error
+				} else {
+					p.error = errors.NewTypeParsingError(raw, "InterpolatedString", tok.Line)
+				}
+				return &ast.StringLiteral{BaseNode: baseAt(tok), Value: raw}
+			}
+			if !sub.curTokenIs(token.EOF) {
+				p.error = errors.NewTypeParsingError(raw, "InterpolatedString", tok.Line)
+				return &ast.StringLiteral{BaseNode: baseAt(tok), Value: raw}
 			}
 			// Wrap in tostring(...) so non-string values concat without panic.
 			expr = &ast.CallExpression{
@@ -188,6 +207,5 @@ func (p *Parser) buildInterpolation(tok token.Token, raw string) ast.Expression 
 	if result == nil {
 		return &ast.StringLiteral{BaseNode: baseAt(tok), Value: ""}
 	}
-	p.nextToken()
 	return result
 }

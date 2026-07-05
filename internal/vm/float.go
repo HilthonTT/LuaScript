@@ -83,8 +83,16 @@ func floatArith(a, b float64, op string) Value {
 	case "*":
 		return a * b
 	case "%":
-		// Lua: a - floor(a/b)*b. Matches the sign of b.
-		return a - math.Floor(a/b)*b
+		// Lua float modulo is fmod with a sign correction so the result takes
+		// the sign of the divisor (floored modulo). Using math.Mod (fmod) rather
+		// than the algebraic a-floor(a/b)*b is essential for infinite divisors:
+		// math.Mod(x, ±Inf) == x, so `5 % math.huge` yields 5, whereas the old
+		// formula computed 5 - 0*Inf = NaN.
+		m := math.Mod(a, b)
+		if m != 0 && (m < 0) != (b < 0) {
+			m += b
+		}
+		return m
 	}
 	panic("internal: floatArith op " + op)
 }

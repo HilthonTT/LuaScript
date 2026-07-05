@@ -134,7 +134,7 @@ func foldLogical(be *ast.BinaryExpression) ast.Expression {
 	leftTruthy := isTruthy(be.Left)
 	if be.Op == "and" {
 		if leftTruthy {
-			return be.Right
+			return clampToSingle(be, be.Right)
 		}
 		return be.Left
 	}
@@ -142,7 +142,22 @@ func foldLogical(be *ast.BinaryExpression) ast.Expression {
 	if leftTruthy {
 		return be.Left
 	}
-	return be.Right
+	return clampToSingle(be, be.Right)
+}
+
+// clampToSingle preserves the single-value semantics of `and`/`or` when the
+// folded result is the RHS. `a and f()` / `a or f()` yield exactly one value,
+// but returning a multi-valued RHS (call/vararg) verbatim would let all its
+// values leak out in a multi-value position (return, call arg, table field).
+// Wrapping it in a ParenExpression re-imposes the one-value adjustment; a RHS
+// that is already single-valued is returned unchanged so later folding is not
+// blocked.
+func clampToSingle(be *ast.BinaryExpression, e ast.Expression) ast.Expression {
+	switch e.(type) {
+	case *ast.CallExpression, *ast.MethodCallExpression, *ast.VarargExpression:
+		return &ast.ParenExpression{BaseNode: be.BaseNode, Inner: e}
+	}
+	return e
 }
 
 // foldArith handles + - * // % where at least one operand may be an integer.
@@ -159,8 +174,13 @@ func foldArith(be *ast.BinaryExpression, l, r num) ast.Expression {
 		case "//":
 			return mkFloat(be.BaseNode, math.Floor(lf/rf))
 		case "%":
-			// Lua: a % b == a - floor(a/b)*b.
-			return mkFloat(be.BaseNode, lf-math.Floor(lf/rf)*rf)
+			// Lua float modulo is fmod with a sign correction (see vm/float.go).
+			// math.Mod(x, ±Inf) == x, so `x % math.huge` folds to x, not NaN.
+			m := math.Mod(lf, rf)
+			if m != 0 && (m < 0) != (rf < 0) {
+				m += rf
+			}
+			return mkFloat(be.BaseNode, m)
 		}
 		return nil
 	}

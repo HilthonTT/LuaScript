@@ -129,6 +129,9 @@ func (v *VM) recoverToError(err *error) {
 // frame returns. Results are placed on the stack starting at the saved top
 // before the call. nresults is the caller's expected count (-1 = all).
 func (v *VM) callClosure(cl *Closure, args []Value, nresults int) {
+	if len(v.frames) >= maxCallDepth {
+		panic(LuaError("stack overflow"))
+	}
 	base := len(v.Stack)
 	// Place declared parameters; surplus args are folded into varargs.
 	nparams := cl.Proto.NumParams
@@ -262,6 +265,15 @@ func (v *VM) localAt(f *CallFrame, i int) *Value {
 // always appended) — frames beyond this count are dropped on the floor
 // and let GC reclaim them. 256 covers normal recursion depths cheaply.
 const framePoolMax = 256
+
+// maxCallDepth bounds the number of nested Lua call frames. Every LuaScript
+// call consumes real Go stack (there is no tail-call elimination), so runaway
+// or infinite recursion would otherwise blow the goroutine stack and trigger a
+// fatal, pcall-uncatchable `stack overflow`. Empirically the Go stack overflows
+// somewhere past ~400k frames on the reference build; 200k leaves a comfortable
+// margin while sitting far above any legitimate non-tail recursion. Hitting it
+// raises an ordinary (catchable) LuaError, matching Lua 5.4's "stack overflow".
+const maxCallDepth = 200_000
 
 // acquireFrame returns a CallFrame for a new activation, drawing from the
 // recycle pool when one is available. Every field is overwritten so a
@@ -450,7 +462,19 @@ func (v *VM) dispatch(f *CallFrame, ins *bytecode.Instruction) {
 		count := int(ins.A)
 		offset := int(ins.B)
 		// Stack layout: [..., table, v1, v2, ..., vCount]
-		valuesStart := len(v.Stack) - count
+		var valuesStart int
+		if count < 0 {
+			// Variadic tail (e.g. {f()} / {...}): codegen emitted MarkArgs
+			// before the spread values so their base is recoverable now.
+			if len(v.callMarks) == 0 {
+				panic("vm: SetList with count=-1 but no MarkArgs mark on stack")
+			}
+			valuesStart = v.callMarks[len(v.callMarks)-1]
+			v.callMarks = v.callMarks[:len(v.callMarks)-1]
+			count = len(v.Stack) - valuesStart
+		} else {
+			valuesStart = len(v.Stack) - count
+		}
 		t := v.Stack[valuesStart-1].(*Table)
 		for i := 0; i < count; i++ {
 			t.Set(int64(offset+i+1), v.Stack[valuesStart+i])
@@ -724,6 +748,9 @@ func (v *VM) dispatch(f *CallFrame, ins *bytecode.Instruction) {
 	// ----- calls / returns -----
 	case bytecode.MarkArgs:
 		v.callMarks = append(v.callMarks, len(v.Stack))
+	case bytecode.CloseUpvalues:
+		// End-of-iteration close so each loop turn captures fresh variables.
+		v.closeUpvaluesAbove(f.Base + int(ins.A))
 	case bytecode.Call:
 		v.doCall(int(ins.A), int(ins.B))
 	case bytecode.Return:

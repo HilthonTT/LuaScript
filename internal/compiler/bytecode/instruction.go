@@ -118,6 +118,13 @@ const (
 	// fall-off-end, or an error caught by pcall). No params.
 	Defer
 
+	// CloseUpvalues closes every open upvalue whose slot is at or above the
+	// local slot in param A (relative to the current frame base). Emitted at
+	// the end of a loop iteration whose body captured a local in a closure, so
+	// each iteration's variables are captured independently (Lua 5.4 gives
+	// every iteration a fresh loop variable). No stack effect.
+	CloseUpvalues
+
 	InstructionCount
 )
 
@@ -182,6 +189,7 @@ var InstructionNameTable = []string{
 	Dup:             "dup",
 	Leave:           "leave",
 	MarkArgs:        "markargs",
+	CloseUpvalues:   "closeupvalues",
 	Defer:           "defer",
 }
 

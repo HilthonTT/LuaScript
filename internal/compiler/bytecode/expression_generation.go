@@ -153,22 +153,6 @@ func (g *Generator) compileIndexLoad(is *InstructionSet, e *ast.IndexExpression)
 	is.define(GetTable, e.Line())
 }
 
-// compileIndexStorePrep pushes Object (and Index, if bracketed) so the caller
-// can then push the value and emit the matching SetField/SetTable. Returns
-// true if SetField may be used (dot form with literal string key) along with
-// the field name.
-func (g *Generator) compileIndexStorePrep(is *InstructionSet, e *ast.IndexExpression) (useField bool, fieldKey string) {
-	if e.IsDot {
-		if s, ok := e.Index.(*ast.StringLiteral); ok {
-			g.compileExpression(is, e.Object)
-			return true, s.Value
-		}
-	}
-	g.compileExpression(is, e.Object)
-	g.compileExpression(is, e.Index)
-	return false, ""
-}
-
 func (g *Generator) compileCall(is *InstructionSet, e *ast.CallExpression, nresults int) {
 	g.compileExpression(is, e.Func)
 	// When the last argument is multi-value (call/methodcall/vararg) we
@@ -248,8 +232,19 @@ func (g *Generator) compileTableConstructor(is *InstructionSet, t *ast.TableCons
 	}
 	is.define(NewTable, t.Line(), arrayHint, hashHint)
 
+	lastIdx := len(t.Fields) - 1
 	arrayIdx := 1
-	for _, f := range t.Fields {
+	for i, f := range t.Fields {
+		// A trailing array-positional call/vararg expands to ALL its values
+		// (`{f()}`, `{1, 2, f()}`, `{...}`). Mark the stack, push every result,
+		// then bulk-fill the array part via a variadic SetList (count -1). The
+		// table is left on top for the next field / the constructor result.
+		if i == lastIdx && f.Key == nil && isMultiValue(f.Value) {
+			is.define(MarkArgs, t.Line())
+			g.compileExpressionMulti(is, f.Value, -1)
+			is.define(SetList, t.Line(), -1, arrayIdx-1)
+			continue
+		}
 		// Each field needs the table to remain on top after the field is
 		// stored; SetTable/SetField consume the table, so we Dup first.
 		is.define(Dup, t.Line())

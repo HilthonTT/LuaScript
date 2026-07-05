@@ -27,6 +27,10 @@ func (p *Parser) parseExpression() ast.Expression {
 }
 
 func (p *Parser) parseExpressionPrec(minPrec int) ast.Expression {
+	if p.enterDepth("expression") {
+		return nil
+	}
+	defer p.leaveDepth()
 	left := p.parsePrefix()
 	if left == nil {
 		return nil

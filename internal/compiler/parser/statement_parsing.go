@@ -535,15 +535,18 @@ func (p *Parser) parseExprOrAssignStatement() ast.Statement {
 	return nil
 }
 
-// parseCompoundAssignStatement desugars `target op= rhs` into a regular
-// AssignStatement of the form `target = target op rhs`. The cursor on
-// entry is on the compound operator token; `binOp` is the binary operator
-// string (e.g. "+", "<<") to use in the synthesised BinaryExpression.
+// parseCompoundAssignStatement desugars `target op= rhs` into `target =
+// target op rhs`. The cursor on entry is on the compound operator token;
+// `binOp` is the binary operator string (e.g. "+", "<<").
 //
-// Caveat: for IndexExpression targets, this duplicates the object and
-// key expressions. If those have side effects (e.g. `t[f()] += 1`),
-// they will be evaluated twice. Acceptable for v1 — matches Luau's
-// own initial implementation.
+// For an index target `t[k] op= rhs`, a naive desugar duplicates the object
+// and key subtrees, so side effects in them (`t[f()] += 1`) would run twice.
+// To evaluate them exactly once, an index target is hoisted into fresh locals
+// inside a scoping `do` block:
+//
+//	do local __caobj_N = t; local __cakey_N = f(); __caobj_N[__cakey_N] = __caobj_N[__cakey_N] op rhs end
+//
+// The dot form `t.x` keeps its constant string key un-hoisted (no side effect).
 func (p *Parser) parseCompoundAssignStatement(tok token.Token, target ast.Expression, binOp string) ast.Statement {
 	if !isAssignTarget(target) {
 		p.errorAt(tok, errors.InvalidAssignmentError, "",
@@ -557,17 +560,60 @@ func (p *Parser) parseCompoundAssignStatement(tok token.Token, target ast.Expres
 	if rhs == nil {
 		return nil
 	}
-	combined := &ast.BinaryExpression{
-		BaseNode: baseAt(opTok),
-		Op:       binOp,
-		Left:     target,
-		Right:    rhs,
+
+	// mkAssign builds `lhsTarget = lhsRead op rhs`. lhsTarget and lhsRead must
+	// be independent AST nodes (they land in different positions of the tree).
+	mkAssign := func(lhsTarget, lhsRead ast.Expression) ast.Statement {
+		return &ast.AssignStatement{
+			BaseNode: baseAt(tok),
+			Targets:  []ast.Expression{lhsTarget},
+			Values: []ast.Expression{&ast.BinaryExpression{
+				BaseNode: baseAt(opTok),
+				Op:       binOp,
+				Left:     lhsRead,
+				Right:    rhs,
+			}},
+		}
 	}
-	return &ast.AssignStatement{
+
+	idx, ok := target.(*ast.IndexExpression)
+	if !ok {
+		// Name target: nothing to duplicate, reuse the node on both sides.
+		return mkAssign(target, target)
+	}
+
+	// Index target: hoist object (and key, unless it's a constant dot field).
+	p.compoundCounter++
+	objName := fmt.Sprintf("__caobj_%d", p.compoundCounter)
+	body := &ast.Block{
 		BaseNode: baseAt(tok),
-		Targets:  []ast.Expression{target},
-		Values:   []ast.Expression{combined},
+		Statements: []ast.Statement{&ast.LocalStatement{
+			BaseNode: baseAt(tok),
+			Names:    []ast.LocalName{{Name: objName}},
+			Values:   []ast.Expression{idx.Object},
+		}},
 	}
+	newIndex := func() ast.Expression {
+		key := idx.Index
+		if !idx.IsDot {
+			key = &ast.Identifier{BaseNode: baseAt(tok), Name: fmt.Sprintf("__cakey_%d", p.compoundCounter)}
+		}
+		return &ast.IndexExpression{
+			BaseNode: baseAt(tok),
+			Object:   &ast.Identifier{BaseNode: baseAt(tok), Name: objName},
+			Index:    key,
+			IsDot:    idx.IsDot,
+		}
+	}
+	if !idx.IsDot {
+		body.Statements = append(body.Statements, &ast.LocalStatement{
+			BaseNode: baseAt(tok),
+			Names:    []ast.LocalName{{Name: fmt.Sprintf("__cakey_%d", p.compoundCounter)}},
+			Values:   []ast.Expression{idx.Index},
+		})
+	}
+	body.Statements = append(body.Statements, mkAssign(newIndex(), newIndex()))
+	return &ast.DoStatement{BaseNode: baseAt(tok), Body: body}
 }
 
 func (p *Parser) parseAssignmentStatement(tok token.Token, first ast.Expression) ast.Statement {

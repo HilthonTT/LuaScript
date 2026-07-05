@@ -582,11 +582,18 @@ func buildTableLibrary() *Table {
 			return []Value{nil}
 		}
 		pos := OptInt("table.remove", 2, args, n)
+		// Lua 5.4 validates pos unless it equals the default (n); an out-of-range
+		// pos must error, not silently drive a multi-billion-iteration shift loop.
+		if pos != n && (pos < 1 || pos > n+1) {
+			panic(LuaError("bad argument #2 to 'remove' (position out of bounds)"))
+		}
 		removed := tbl.Get(pos)
 		for i := pos; i < n; i++ {
 			tbl.Set(i, tbl.Get(i+1))
 		}
-		tbl.Set(n, nil)
+		if pos <= n {
+			tbl.Set(n, nil)
+		}
 		return []Value{removed}
 	})
 	add("concat", func(_ *VM, args []Value) []Value {
@@ -618,7 +625,12 @@ func buildTableLibrary() *Table {
 		if hi < lo {
 			return nil
 		}
-		if hi-lo+1 > 1<<24 {
+		// The element count is hi-lo+1, but that expression overflows int64 for a
+		// wide (lo,hi) span (e.g. mininteger..maxinteger), wrapping negative/small
+		// and bypassing the guard while the loop counter itself wraps and never
+		// terminates. Compute the span in uint64, which is exact here because
+		// hi>=lo: uint64(hi)-uint64(lo) == the true non-negative difference.
+		if uint64(hi)-uint64(lo) >= 1<<24 {
 			panic(LuaError("too many results to unpack"))
 		}
 		out := make([]Value, 0, hi-lo+1)

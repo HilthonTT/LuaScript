@@ -39,6 +39,11 @@ func (p *Parser) parseType() ast.TypeNode {
 // parseTypeAtom parses one atomic type, then wraps it in TypeOptional for
 // each trailing `?`.
 func (p *Parser) parseTypeAtom() ast.TypeNode {
+	if p.enterDepth("type") {
+		return nil
+	}
+	defer p.leaveDepth()
+
 	var t ast.TypeNode
 
 	switch {
