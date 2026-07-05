@@ -10,7 +10,7 @@
 
 # ---- configuration ---------------------------------------------------------
 
-PKG        := ./cmd
+PKG        := ./cmd/luascript
 BINARY     := luascript
 # Windows produces a .exe; detect it so `make run`/`make clean` line up.
 ifeq ($(OS),Windows_NT)
@@ -26,7 +26,7 @@ PKGS       ?= ./...
 RUN        ?=
 # FUZZ selects which fuzz target `make fuzz` exercises (FuzzLexer / FuzzParser).
 FUZZ       ?= FuzzParser
-FUZZPKG    ?= ./compiler/parser/
+FUZZPKG    ?= ./internal/compiler/parser/
 FUZZTIME   ?= 30s
 
 .DEFAULT_GOAL := build
@@ -70,7 +70,7 @@ test-v:
 test-race:
 	$(GO) test -race $(PKGS)
 
-## test-one: run one package/test (make test-one PKGS=./vm/ RUN=TestFoo)
+## test-one: run one package/test (make test-one PKGS=./internal/vm/ RUN=TestFoo)
 .PHONY: test-one
 test-one:
 	$(GO) test -v $(PKGS) $(if $(RUN),-run $(RUN),)
@@ -86,12 +86,12 @@ cover:
 cover-html: cover
 	$(GO) tool cover -html=coverage.out
 
-## bench: run benchmarks (the *_bench_test.go files live under ./vm)
+## bench: run benchmarks (the *_bench_test.go files live under ./internal/vm)
 .PHONY: bench
 bench:
-	$(GO) test -bench=. -benchmem $(if $(filter ./...,$(PKGS)),./vm/,$(PKGS))
+	$(GO) test -bench=. -benchmem $(if $(filter ./...,$(PKGS)),./internal/vm/,$(PKGS))
 
-## fuzz: run a fuzz target (make fuzz FUZZ=FuzzLexer FUZZPKG=./compiler/lexer/)
+## fuzz: run a fuzz target (make fuzz FUZZ=FuzzLexer FUZZPKG=./internal/compiler/lexer/)
 .PHONY: fuzz
 fuzz:
 	$(GO) test -fuzz=$(FUZZ) -fuzztime=$(FUZZTIME) $(FUZZPKG)

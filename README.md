@@ -44,33 +44,33 @@ The implementation is a clean-room rewrite focused on being readable end-to-end:
 
 ## Quick start
 
-The `main` package lives in `./cmd`, so run the interpreter with `go run ./cmd`:
+The `main` package lives in `./cmd/luascript`, so run the interpreter with `go run ./cmd/luascript`:
 
 ```sh
 # Run the REPL
-go run ./cmd
+go run ./cmd/luascript
 
 # Run a script
-go run ./cmd examples/05_types.lsc
+go run ./cmd/luascript examples/05_types.lsc
 
 # Force the REPL even when a script is supplied
-go run ./cmd -i examples/05_types.lsc
+go run ./cmd/luascript -i examples/05_types.lsc
 
 # Print version
-go run ./cmd -v
+go run ./cmd/luascript -v
 
 # Disassemble a script (bytecode dump)
-go run ./cmd -dis examples/01_basics.lsc
+go run ./cmd/luascript -dis examples/01_basics.lsc
 
 # Time the run, or re-run on every save
-go run ./cmd -time  examples/02_functions.lsc
-go run ./cmd -watch examples/02_functions.lsc
+go run ./cmd/luascript -time  examples/02_functions.lsc
+go run ./cmd/luascript -watch examples/02_functions.lsc
 ```
 
 Build a binary:
 
 ```sh
-go build -o luascript ./cmd
+go build -o luascript ./cmd/luascript
 ./luascript examples/01_basics.lsc
 ```
 
@@ -91,7 +91,7 @@ The CLI dispatches a few subcommands before flag parsing:
 
 ```sh
 # Build luascript first, then have it bundle your script:
-go build -o luascript ./cmd
+go build -o luascript ./cmd/luascript
 ./luascript build -o hello.exe examples/01_basics.lsc
 ./hello.exe                # runs the embedded script
 ```
@@ -110,16 +110,16 @@ Limitations (v1):
 
 ## Desktop UI module (opt-in)
 
-The `ui` native module is a thin Lua binding over [Fyne v2](https://fyne.io) for building desktop windows and widgets. Because Fyne drags in OpenGL via **cgo**, it is **not compiled by default** — a plain `go run ./cmd` stays pure-Go and needs no C toolchain. `require("ui")` still resolves in a default build; it only errors if a script actually constructs a widget, telling you to rebuild with the tag.
+The `ui` native module is a thin Lua binding over [Fyne v2](https://fyne.io) for building desktop windows and widgets. Because Fyne drags in OpenGL via **cgo**, it is **not compiled by default** — a plain `go run ./cmd/luascript` stays pure-Go and needs no C toolchain. `require("ui")` still resolves in a default build; it only errors if a script actually constructs a widget, telling you to rebuild with the tag.
 
 To enable the real GUI, build or run with the `luascript_ui` build tag:
 
 ```sh
 # Run a UI script with the Fyne backend compiled in
-go run -tags luascript_ui ./cmd examples/31_ui_module.lsc
+go run -tags luascript_ui ./cmd/luascript examples/31_ui_module.lsc
 
 # Build a GUI-capable binary
-go build -tags luascript_ui -o luascript ./cmd
+go build -tags luascript_ui -o luascript ./cmd/luascript
 ./luascript examples/31_ui_module.lsc
 ```
 
@@ -163,7 +163,7 @@ For a break from the language work, `luascript` ships with a small ASCII-bonsai 
 ## Examples
 
 A walk-through set lives in `examples/`. Most are runnable straight from the
-repo root with `go run ./cmd examples/<file>`:
+repo root with `go run ./cmd/luascript examples/<file>`:
 
 | File                           | What it shows                                                                                                                         |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
@@ -175,8 +175,8 @@ repo root with `go run ./cmd examples/<file>`:
 | `06_strict_mode.lsc`           | `--!strict` enforcement and what it rejects                                                                                           |
 | `07_modules.lsc`               | `require`, `package.path`, `package.loaded`, `searchpath` — imports `mathx.lsc` next to it                                            |
 | `08_stdlib.lsc`                | a bundled-library set loaded via `LUASCRIPT_LIB` — flat modules, dotted submodules, package `init` files                              |
-| `09_native_module.lsc`         | importing a host-provided native module (`native/db`)                                                                                 |
-| `10_os_module.lsc`             | importing a host-provided native module (`native/os`)                                                                                 |
+| `09_native_module.lsc`         | importing a host-provided native module (`internal/native/stdlib/db`)                                                                                 |
+| `10_os_module.lsc`             | importing a host-provided native module (`internal/native/stdlib/os`)                                                                                 |
 | `11_compounds.lsc`             | compound assignment operators (`x op= e`)                                                                                             |
 | `12_math_module.lsc`           | the `math` native module                                                                                                              |
 | `13_json_module.lsc`           | the `json` native module                                                                                                              |
@@ -223,23 +223,23 @@ that matter for these examples, searched in this order:
    directory you launched from. This is why `07_modules.lsc` just works:
 
    ```sh
-   go run ./cmd examples/07_modules.lsc     # mathx.lsc is found next to it
+   go run ./cmd/luascript examples/07_modules.lsc     # mathx.lsc is found next to it
    ```
 
 2. **`LUASCRIPT_LIB`** — a bundled-library root, read once at startup. It
    is _not_ on the path unless you set it. `08_stdlib.lsc` is the demo for
    exactly this: its modules live under `examples/stdlib/` (not next to the
    script). For convenience the example self-bootstraps `package.path` so
-   `go run ./cmd examples/08_stdlib.lsc` works without setting the env
+   `go run ./cmd/luascript examples/08_stdlib.lsc` works without setting the env
    var, but the canonical invocation is still:
 
    ```sh
    # bash
-   LUASCRIPT_LIB=./examples/stdlib go run ./cmd examples/08_stdlib.lsc
+   LUASCRIPT_LIB=./examples/stdlib go run ./cmd/luascript examples/08_stdlib.lsc
    # PowerShell
-   $env:LUASCRIPT_LIB="./examples/stdlib"; go run ./cmd examples/08_stdlib.lsc
+   $env:LUASCRIPT_LIB="./examples/stdlib"; go run ./cmd/luascript examples/08_stdlib.lsc
    # cmd.exe
-   set LUASCRIPT_LIB=./examples/stdlib && go run ./cmd examples/08_stdlib.lsc
+   set LUASCRIPT_LIB=./examples/stdlib && go run ./cmd/luascript examples/08_stdlib.lsc
    ```
 
    `LUASCRIPT_LIB` is resolved relative to your current working directory —
@@ -455,7 +455,7 @@ Generics **are** supported now (parametric functions, type aliases, and structs 
 
 ## REPL
 
-Launch with `go run ./cmd` (no arguments). Built-in commands:
+Launch with `go run ./cmd/luascript` (no arguments). Built-in commands:
 
 | Command        | Effect                                             |
 | -------------- | -------------------------------------------------- |
@@ -506,26 +506,34 @@ type-error: Type "string" could not be converted into "number" at line 1
 
 ```
 .
-├── compiler/
-│   ├── lexer/         token stream from source text
-│   ├── token/         token types and keyword table
-│   ├── parser/        recursive-descent parser, Pratt-style for expressions
-│   ├── ast/           AST node definitions (statements, expressions, types)
-│   ├── typecheck/     gradual type system — Type representation, env, pass
-│   ├── optimize/      AST constant-folding pass (Lua-5.4-safe subset)
-│   ├── analyze/       pass-registry static analyzer (`luascript analyze`)
-│   ├── debug/         pprof Start/Stop wrappers used by `luascript profile`
-│   ├── bytecode/      AST → instruction-set generator
-│   └── compiler.go    top-level pipeline (lex → parse → typecheck → optimize → bytecode)
-├── vm/                stack VM, closures, metatables, coroutines, stdlib
-├── native/            bundled native modules (db, os, http, std, log, …)
-├── formatter/         `luascript fmt` — trivia-preserving formatter
-├── bonsai/            ASCII bonsai tree side mode (cbonsai/gobonsai fork)
-├── repl/              interactive REPL (readline + engine wrapper)
+├── cmd/
+│   └── luascript/     CLI entrypoint (main.go) + `luascript build` bundler
+├── internal/          implementation packages (not a public API)
+│   ├── compiler/
+│   │   ├── lexer/     token stream from source text
+│   │   ├── token/     token types and keyword table
+│   │   ├── parser/    recursive-descent parser, Pratt-style for expressions
+│   │   ├── ast/       AST node definitions (statements, expressions, types)
+│   │   ├── typecheck/ gradual type system — Type representation, env, pass
+│   │   ├── optimize/  AST constant-folding pass (Lua-5.4-safe subset)
+│   │   ├── analyze/   pass-registry static analyzer (`luascript analyze`)
+│   │   ├── debug/     pprof Start/Stop wrappers used by `luascript profile`
+│   │   ├── bytecode/  AST → instruction-set generator
+│   │   └── compiler.go  top-level pipeline (lex → parse → typecheck → optimize → bytecode)
+│   ├── vm/            stack VM, closures, metatables, coroutines, stdlib
+│   ├── native/        bundled native modules
+│   │   ├── stdlib/    runtime modules (db, os, http, json, std, log, …)
+│   │   └── datascience/  ndarray, dataframe, stats, linalg, ml, plot, …
+│   ├── lsp/           language server (protocol, jsonrpc2, uri + server/)
+│   ├── formatter/     `luascript fmt` — trivia-preserving formatter
+│   ├── bonsai/        ASCII bonsai tree side mode (cbonsai/gobonsai fork)
+│   ├── repl/          interactive REPL (readline + engine wrapper)
+│   ├── pkgmanager/    package manifest / lockfile / fetch
+│   ├── gctune/        GC tuning helpers
+│   └── version/       version string
 ├── examples/          runnable .lsc programs that double as tutorials
-├── scripts/           helper scripts (`build-pgo.sh`)
-├── version/           version string
-└── cmd/               CLI entrypoint (main.go) + `luascript build` bundler
+├── scripts/           helper scripts (`build-pgo.sh`, `benchmark.rb`)
+└── assets/            logo and static assets
 ```
 
 The compiler is designed so each stage is independently testable and the AST is the only contract between parser, type checker, and bytecode generator. The VM never sees source text or types; the parser never sees instructions.
@@ -538,7 +546,7 @@ Run the full test suite before sending a change:
 go test ./...
 ```
 
-Tests live next to the code they cover (`*_test.go`). The bytecode tests in particular are useful: they assert exact opcode sequences for representative source snippets, which catches accidental codegen drift early. The type checker has its own focused suite under `compiler/typecheck/checker_test.go`.
+Tests live next to the code they cover (`*_test.go`). The bytecode tests in particular are useful: they assert exact opcode sequences for representative source snippets, which catches accidental codegen drift early. The type checker has its own focused suite under `internal/compiler/typecheck/checker_test.go`.
 
 ## Inspirations
 

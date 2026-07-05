@@ -1,0 +1,362 @@
+// Package classification is a require()-able host module exposing
+// supervised classifiers to .lsc code: a Naive Bayesian text classifier,
+// k-nearest-neighbours, a perceptron, logistic regression, and a
+// kernel SVM.
+//
+// Each constructor returns an object (a table whose methods close over the
+// underlying Go model), so usage reads as `clf:learn(...)`, `clf:fit(...)`,
+// `clf:predict(...)`, etc.
+package classification
+
+import "github.com/hilthontt/luascript/internal/vm"
+
+// RegisterClassificationPreload installs the loader under package.preload;
+// the module table is built lazily on the first require("classification").
+func RegisterClassificationPreload(v *vm.VM) {
+	vm.RegisterPreload(v, "classification", classificationLoader)
+}
+
+func classificationLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
+	mod := vm.NewTable(0, 6)
+	mod.Set("VERSION", "0.1.0")
+	mod.Set("naivebayes", &vm.GoFunc{Name: "classification.naivebayes", Fn: newNaiveBayes})
+	mod.Set("knn", &vm.GoFunc{Name: "classification.knn", Fn: newKNNObject})
+	mod.Set("perceptron", &vm.GoFunc{Name: "classification.perceptron", Fn: newPerceptronObject})
+	mod.Set("logistic", &vm.GoFunc{Name: "classification.logistic", Fn: newLogisticObject})
+	mod.Set("svm", &vm.GoFunc{Name: "classification.svm", Fn: newSVMObject})
+	return []vm.Value{mod}
+}
+
+// ---------------------------------------------------------------------------
+// Naive Bayes (text)
+// ---------------------------------------------------------------------------
+
+// newNaiveBayes: classification.naivebayes(class1, class2 [, ...]) -> object
+// Optionally pass { tfidf = true } as the final argument to build a TF-IDF
+// classifier instead of a plain multinomial one.
+func newNaiveBayes(_ *vm.VM, args []vm.Value) []vm.Value {
+	tfidf := false
+	end := len(args)
+	if end > 0 {
+		if t, ok := args[end-1].(*vm.Table); ok {
+			if b, ok := t.Get("tfidf").(bool); ok {
+				tfidf = b
+			}
+			end-- // the options table is not a class name
+		}
+	}
+
+	classes := make([]Class, 0, end)
+	for i := 0; i < end; i++ {
+		classes = append(classes, Class(vm.StringArg("classification.naivebayes", i+1, args)))
+	}
+	if len(classes) < 2 {
+		panic(vm.Errorf("classification.naivebayes: provide at least two class names"))
+	}
+
+	var clf *Classifier
+	if tfidf {
+		clf = NewClassifierTfIdf(classes...)
+	} else {
+		clf = NewClassifier(classes...)
+	}
+	return []vm.Value{newBayesObject(clf)}
+}
+
+func newBayesObject(clf *Classifier) *vm.Table {
+	methods := vm.NewTable(0, 6)
+
+	methods.Set("learn", &vm.GoFunc{Name: "naivebayes:learn", Fn: func(_ *vm.VM, a []vm.Value) []vm.Value {
+		doc := stringList("naivebayes:learn", 2, a)
+		class := Class(vm.StringArg("naivebayes:learn", 3, a))
+		clf.Learn(doc, class)
+		return nil
+	}})
+
+	methods.Set("convert", &vm.GoFunc{Name: "naivebayes:convert", Fn: func(_ *vm.VM, _ []vm.Value) []vm.Value {
+		clf.ConvertTermsFreqToTfIdf()
+		return nil
+	}})
+
+	// classify(doc) -> class, logScores, strict
+	methods.Set("classify", &vm.GoFunc{Name: "naivebayes:classify", Fn: func(_ *vm.VM, a []vm.Value) []vm.Value {
+		doc := stringList("naivebayes:classify", 2, a)
+		cls, scores, strict := clf.Classify(doc)
+		return []vm.Value{string(cls), floatsToTable(scores), strict}
+	}})
+
+	// classifyProb(doc) -> class, probabilities, strict
+	methods.Set("classifyProb", &vm.GoFunc{Name: "naivebayes:classifyProb", Fn: func(_ *vm.VM, a []vm.Value) []vm.Value {
+		doc := stringList("naivebayes:classifyProb", 2, a)
+		cls, probs, strict := clf.ClassifyProb(doc)
+		return []vm.Value{string(cls), floatsToTable(probs), strict}
+	}})
+
+	methods.Set("classes", &vm.GoFunc{Name: "naivebayes:classes", Fn: func(_ *vm.VM, _ []vm.Value) []vm.Value {
+		out := vm.NewTable(len(clf.Classes), 0)
+		for i, c := range clf.Classes {
+			out.Set(int64(i+1), string(c))
+		}
+		return []vm.Value{out}
+	}})
+
+	methods.Set("learned", &vm.GoFunc{Name: "naivebayes:learned", Fn: func(_ *vm.VM, _ []vm.Value) []vm.Value {
+		return []vm.Value{int64(clf.Learned())}
+	}})
+
+	return withMethods(methods)
+}
+
+// ---------------------------------------------------------------------------
+// K-nearest neighbours
+// ---------------------------------------------------------------------------
+
+// newKNNObject: classification.knn([k=3]) -> object
+func newKNNObject(_ *vm.VM, args []vm.Value) []vm.Value {
+	k := int(vm.OptInt("classification.knn", 1, args, 3))
+	model := NewKNN(k)
+	return []vm.Value{newNumericObject("knn", model.Fit, model.Predict, nil)}
+}
+
+// ---------------------------------------------------------------------------
+// Perceptron
+// ---------------------------------------------------------------------------
+
+// newPerceptronObject: classification.perceptron([opts]) -> object
+// opts: { lr = 0.1, epochs = 50 }
+func newPerceptronObject(_ *vm.VM, args []vm.Value) []vm.Value {
+	opts := optTable(args, 1)
+	lr := optFloat(opts, "lr", 0.1)
+	epochs := int(optInt(opts, "epochs", 50))
+	model := NewPerceptron(lr, epochs)
+	return []vm.Value{newNumericObject("perceptron", model.Fit, model.Predict, nil)}
+}
+
+// ---------------------------------------------------------------------------
+// Logistic regression
+// ---------------------------------------------------------------------------
+
+// newLogisticObject: classification.logistic([opts]) -> object
+// opts: { lr = 0.1, epochs = 200 }
+func newLogisticObject(_ *vm.VM, args []vm.Value) []vm.Value {
+	opts := optTable(args, 1)
+	lr := optFloat(opts, "lr", 0.1)
+	epochs := int(optInt(opts, "epochs", 200))
+	model := NewLogisticRegression(lr, epochs)
+	return []vm.Value{newNumericObject("logistic", model.Fit, model.Predict, model.PredictProba)}
+}
+
+// ---------------------------------------------------------------------------
+// Support Vector Machine
+// ---------------------------------------------------------------------------
+
+// newSVMObject: classification.svm([opts]) -> object.
+// opts keys: kernel ("rbf"|"linear"|"poly"), C, gamma, coef0, degree,
+// tol, maxIter, seed.
+func newSVMObject(_ *vm.VM, args []vm.Value) []vm.Value {
+	opts := optTable(args, 1)
+	model := NewSVM(SVMConfig{
+		Kernel:  ParseKernel(optString(opts, "kernel", "rbf")),
+		C:       optFloat(opts, "C", 1.0),
+		Gamma:   optFloat(opts, "gamma", 0.5),
+		Coef0:   optFloat(opts, "coef0", 0),
+		Degree:  int(optInt(opts, "degree", 3)),
+		Tol:     optFloat(opts, "tol", 1e-3),
+		MaxIter: int(optInt(opts, "maxIter", 100)),
+		Seed:    optInt(opts, "seed", 1),
+	})
+
+	methods := vm.NewTable(0, 4)
+
+	methods.Set("fit", &vm.GoFunc{Name: "svm:fit", Fn: func(_ *vm.VM, a []vm.Value) []vm.Value {
+		features := tableToMatrix("svm:fit", vm.TableArg("svm:fit", 2, a))
+		labels := stringList("svm:fit", 3, a)
+		if len(features) != len(labels) {
+			panic(vm.Errorf("svm:fit: #features (%d) must equal #labels (%d)", len(features), len(labels)))
+		}
+		if len(features) == 0 {
+			panic(vm.Errorf("svm:fit: training set is empty"))
+		}
+		model.Fit(features, labels)
+		return nil
+	}})
+
+	methods.Set("predict", &vm.GoFunc{Name: "svm:predict", Fn: func(_ *vm.VM, a []vm.Value) []vm.Value {
+		return []vm.Value{model.Predict(floatList("svm:predict", 2, a))}
+	}})
+
+	methods.Set("decision_function", &vm.GoFunc{Name: "svm:decision_function", Fn: func(_ *vm.VM, a []vm.Value) []vm.Value {
+		return []vm.Value{model.DecisionFunction(floatList("svm:decision_function", 2, a))}
+	}})
+
+	methods.Set("support_vectors", &vm.GoFunc{Name: "svm:support_vectors", Fn: func(_ *vm.VM, _ []vm.Value) []vm.Value {
+		return []vm.Value{int64(model.SupportVectorCount())}
+	}})
+
+	return []vm.Value{withMethods(methods)}
+}
+
+// newNumericObject builds the shared object surface for the numeric
+// classifiers: fit(features, labels), predict(x), and (optionally)
+// predict_proba(x). The closures bridge the Lua tables to []float64.
+func newNumericObject(
+	name string,
+	fit func([][]float64, []string),
+	predict func([]float64) string,
+	predictProba func([]float64) float64,
+) *vm.Table {
+	methods := vm.NewTable(0, 3)
+
+	methods.Set("fit", &vm.GoFunc{Name: name + ":fit", Fn: func(_ *vm.VM, a []vm.Value) []vm.Value {
+		features := tableToMatrix(name+":fit", vm.TableArg(name+":fit", 2, a))
+		labels := stringList(name+":fit", 3, a)
+		if len(features) != len(labels) {
+			panic(vm.Errorf("%s:fit: #features (%d) must equal #labels (%d)", name, len(features), len(labels)))
+		}
+		if len(features) == 0 {
+			panic(vm.Errorf("%s:fit: training set is empty", name))
+		}
+		fit(features, labels)
+		return nil
+	}})
+
+	methods.Set("predict", &vm.GoFunc{Name: name + ":predict", Fn: func(_ *vm.VM, a []vm.Value) []vm.Value {
+		x := floatList(name+":predict", 2, a)
+		return []vm.Value{predict(x)}
+	}})
+
+	if predictProba != nil {
+		methods.Set("predict_proba", &vm.GoFunc{Name: name + ":predict_proba", Fn: func(_ *vm.VM, a []vm.Value) []vm.Value {
+			x := floatList(name+":predict_proba", 2, a)
+			return []vm.Value{predictProba(x)}
+		}})
+	}
+
+	return withMethods(methods)
+}
+
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
+
+// withMethods wraps a methods table in a fresh object table whose
+// metatable routes lookups through __index, mirroring the db/http modules.
+func withMethods(methods *vm.Table) *vm.Table {
+	obj := vm.NewTable(0, 1)
+	mt := vm.NewTable(0, 1)
+	mt.Set("__index", methods)
+	obj.SetMetatable(mt)
+	return obj
+}
+
+// stringList reads a Lua array of strings into []string.
+func stringList(name string, n int, args []vm.Value) []string {
+	t := vm.TableArg(name, n, args)
+	count := int(t.Len())
+	out := make([]string, 0, count)
+	for i := 1; i <= count; i++ {
+		s, ok := t.Get(int64(i)).(string)
+		if !ok {
+			panic(vm.Errorf("%s: element #%d must be a string", name, i))
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+// floatList reads a Lua array of numbers into []float64.
+func floatList(name string, n int, args []vm.Value) []float64 {
+	t := vm.TableArg(name, n, args)
+	count := int(t.Len())
+	out := make([]float64, 0, count)
+	for i := 1; i <= count; i++ {
+		f, ok := vm.ToFloat(t.Get(int64(i)))
+		if !ok {
+			panic(vm.Errorf("%s: element #%d must be a number", name, i))
+		}
+		out = append(out, f)
+	}
+	return out
+}
+
+// tableToMatrix reads an array-of-arrays Lua table into [][]float64,
+// enforcing a uniform row width.
+func tableToMatrix(name string, t *vm.Table) [][]float64 {
+	rows := int(t.Len())
+	out := make([][]float64, 0, rows)
+	width := -1
+	for i := 1; i <= rows; i++ {
+		row, ok := t.Get(int64(i)).(*vm.Table)
+		if !ok {
+			panic(vm.Errorf("%s: row #%d must be an array of numbers", name, i))
+		}
+		m := int(row.Len())
+		if width == -1 {
+			width = m
+		} else if m != width {
+			panic(vm.Errorf("%s: every row must have the same width (row 1 has %d, row %d has %d)", name, width, i, m))
+		}
+		vals := make([]float64, m)
+		for j := 1; j <= m; j++ {
+			f, ok := vm.ToFloat(row.Get(int64(j)))
+			if !ok {
+				panic(vm.Errorf("%s: element [%d][%d] must be a number", name, i, j))
+			}
+			vals[j-1] = f
+		}
+		out = append(out, vals)
+	}
+	return out
+}
+
+func floatsToTable(xs []float64) *vm.Table {
+	out := vm.NewTable(len(xs), 0)
+	for i, x := range xs {
+		out.Set(int64(i+1), x)
+	}
+	return out
+}
+
+// ---------------------------------------------------------------------------
+// Option-table helpers
+// ---------------------------------------------------------------------------
+
+func optTable(args []vm.Value, n int) *vm.Table {
+	if n < 1 || n > len(args) || args[n-1] == nil {
+		return nil
+	}
+	if t, ok := args[n-1].(*vm.Table); ok {
+		return t
+	}
+	return nil
+}
+
+func optFloat(opts *vm.Table, key string, dflt float64) float64 {
+	if opts == nil {
+		return dflt
+	}
+	if f, ok := vm.ToFloat(opts.Get(key)); ok {
+		return f
+	}
+	return dflt
+}
+
+func optInt(opts *vm.Table, key string, dflt int64) int64 {
+	if opts == nil {
+		return dflt
+	}
+	if i, ok := vm.ToInteger(opts.Get(key)); ok {
+		return i
+	}
+	return dflt
+}
+
+func optString(opts *vm.Table, key, dflt string) string {
+	if opts == nil {
+		return dflt
+	}
+	if s, ok := opts.Get(key).(string); ok {
+		return s
+	}
+	return dflt
+}

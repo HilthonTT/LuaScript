@@ -32,7 +32,7 @@ if [[ ! -f "$WORKLOAD" ]]; then
 fi
 
 echo "==> stage 1: building non-PGO interpreter"
-go build -o "$STAGE1_BIN" ./cmd
+go build -o "$STAGE1_BIN" ./cmd/luascript
 
 echo "==> stage 2: profiling against $WORKLOAD"
 # -count 50 keeps the profile sample count high enough that the resulting
@@ -46,7 +46,7 @@ if [[ ! -s "$CPU_PROFILE" ]]; then
 fi
 
 echo "==> stage 3: PGO-guided rebuild"
-go build -pgo="$CPU_PROFILE" -o "$FINAL_BIN" ./cmd
+go build -pgo="$CPU_PROFILE" -o "$FINAL_BIN" ./cmd/luascript
 
 echo
 echo "PGO build complete:"
