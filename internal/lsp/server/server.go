@@ -148,7 +148,15 @@ func (s *Server) Hover(_ context.Context, params *protocol.HoverParams) (*protoc
 	if word == "" {
 		return nil, nil
 	}
+	// Prefer a qualified lookup (`math.floor`) when the word is the member of a
+	// known namespace; fall back to the bare name (globals, keywords, the
+	// namespace itself).
 	doc, ok := hoverDocs[word]
+	if ns := namespaceBefore(text, start); ns != "" {
+		if qdoc, qok := hoverDocs[ns+"."+word]; qok {
+			doc, ok = qdoc, true
+		}
+	}
 	if !ok {
 		return nil, nil
 	}
@@ -162,9 +170,24 @@ func (s *Server) Hover(_ context.Context, params *protocol.HoverParams) (*protoc
 	}, nil
 }
 
-// Completion returns the static keyword / global / module completion set. It
-// ignores context for v1 — the client filters by prefix.
-func (s *Server) Completion(_ context.Context, _ *protocol.CompletionParams) (*protocol.CompletionList, error) {
+// Completion returns member completions after `namespace.` (e.g. `math.` ->
+// floor, ceil, ...), otherwise the static keyword / global / module set. In the
+// bare case it ignores finer context — the client filters by prefix.
+func (s *Server) Completion(_ context.Context, params *protocol.CompletionParams) (*protocol.CompletionList, error) {
+	if text, _, ok := s.docs.get(string(params.TextDocument.URI)); ok {
+		offset := positionToOffset(text, params.Position)
+		// The member word may already be partially typed (`math.fl|`); rewind
+		// over it to find the separator and qualifier.
+		wordStart := offset
+		for wordStart > 0 && isIdentByte(text[wordStart-1]) {
+			wordStart--
+		}
+		if ns := namespaceBefore(text, wordStart); ns != "" {
+			if items := memberCompletionItems(ns); items != nil {
+				return &protocol.CompletionList{IsIncomplete: false, Items: items}, nil
+			}
+		}
+	}
 	return &protocol.CompletionList{
 		IsIncomplete: false,
 		Items:        completionItems(),

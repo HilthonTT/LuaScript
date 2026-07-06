@@ -95,3 +95,41 @@ func wordAt(src string, offset int) (word string, start, end int) {
 	}
 	return src[start:end], start, end
 }
+
+func isIdentByte(b byte) bool {
+	return b == '_' ||
+		(b >= 'a' && b <= 'z') ||
+		(b >= 'A' && b <= 'Z') ||
+		(b >= '0' && b <= '9')
+}
+
+// namespaceBefore returns the qualifier identifier of a `qualifier.` (or
+// `qualifier:`) expression whose member starts at src[at]. It walks back over
+// an optional `.`/`:` separator immediately preceding `at`, then reads the
+// identifier before it. Returns "" when there is no qualified access — e.g. a
+// bare word, a numeric prefix, or a chained `a.b.c` where the qualifier is
+// itself dotted (we only model single-level namespaces). Used by both dotted
+// completion and qualified hover.
+func namespaceBefore(src string, at int) string {
+	if at <= 0 || at > len(src) {
+		return ""
+	}
+	sep := at - 1
+	if src[sep] != '.' && src[sep] != ':' {
+		return ""
+	}
+	end := sep
+	begin := end
+	for begin > 0 && isIdentByte(src[begin-1]) {
+		begin--
+	}
+	if begin == end || (src[begin] >= '0' && src[begin] <= '9') {
+		return ""
+	}
+	// Reject chained access (a.b.c): if the qualifier is itself preceded by a
+	// separator, we don't know the type of the inner field.
+	if begin > 0 && (src[begin-1] == '.' || src[begin-1] == ':') {
+		return ""
+	}
+	return src[begin:end]
+}

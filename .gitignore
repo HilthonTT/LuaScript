@@ -41,3 +41,5 @@ go.work.sum
 # .idea/
 # .vscode/
 CLAUDE.md
+
+client/node_modules/

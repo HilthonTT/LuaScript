@@ -1,0 +1,95 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "LuaScript",
+  "scopeName": "source.luascript",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#keywords" },
+    { "include": "#constants" },
+    { "include": "#functions" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.block.luascript",
+          "begin": "--\\[\\[",
+          "end": "\\]\\]"
+        },
+        {
+          "name": "comment.line.double-dash.luascript",
+          "match": "--.*$"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.luascript",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [{ "name": "constant.character.escape.luascript", "match": "\\\\." }]
+        },
+        {
+          "name": "string.quoted.single.luascript",
+          "begin": "'",
+          "end": "'",
+          "patterns": [{ "name": "constant.character.escape.luascript", "match": "\\\\." }]
+        },
+        {
+          "name": "string.quoted.other.multiline.luascript",
+          "begin": "\\[\\[",
+          "end": "\\]\\]"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        { "name": "constant.numeric.hex.luascript", "match": "\\b0[xX][0-9a-fA-F]+\\b" },
+        { "name": "constant.numeric.luascript", "match": "\\b\\d+(\\.\\d+)?([eE][-+]?\\d+)?\\b" }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.luascript",
+          "match": "\\b(if|then|else|elseif|end|for|while|do|repeat|until|return|break|in|goto|defer|match)\\b"
+        },
+        {
+          "name": "keyword.other.luascript",
+          "match": "\\b(local|function|enum|struct|type)\\b"
+        },
+        {
+          "name": "keyword.operator.logical.luascript",
+          "match": "\\b(and|or|not)\\b"
+        }
+      ]
+    },
+    "constants": {
+      "name": "constant.language.luascript",
+      "match": "\\b(true|false|nil)\\b"
+    },
+    "functions": {
+      "patterns": [
+        {
+          "match": "\\b(function)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.other.luascript" },
+            "2": { "name": "entity.name.function.luascript" }
+          }
+        },
+        {
+          "name": "entity.name.function.call.luascript",
+          "match": "\\b([A-Za-z_][A-Za-z0-9_]*)(?=\\s*\\()"
+        }
+      ]
+    },
+    "operators": {
+      "name": "keyword.operator.luascript",
+      "match": "(\\+|-|\\*|/|//|%|\\^|==|~=|<=|>=|<|>|=|\\.\\.|#|:)"
+    }
+  }
+}

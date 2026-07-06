@@ -1,0 +1,68 @@
+{
+  "name": "luascript",
+  "displayName": "LuaScript",
+  "description": "Language support for LuaScript (.lsc) — diagnostics, hover, completion, formatting via the LuaScript language server.",
+  "version": "0.1.0",
+  "publisher": "hilthontt",
+  "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hilthontt/luascript"
+  },
+  "engines": {
+    "vscode": "^1.105.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onLanguage:luascript"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "luascript",
+        "aliases": [
+          "LuaScript",
+          "luascript"
+        ],
+        "extensions": [
+          ".lsc"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "luascript",
+        "scopeName": "source.luascript",
+        "path": "./syntaxes/luascript.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "title": "LuaScript",
+      "properties": {
+        "luascript.server.path": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to the `luascript` executable used as the language server. Leave empty to use the binary bundled with the extension (./bin)."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build:server": "go build -o bin/luascript.exe ../cmd/luascript",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "vscode:prepublish": "bun run build:server && bun run compile"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^10.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/vscode": "^1.105.0",
+    "typescript": "^5.6.0"
+  }
+}
