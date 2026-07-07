@@ -110,6 +110,52 @@ func TestExtractLineCol(t *testing.T) {
 	}
 }
 
+func TestNamespaceBefore(t *testing.T) {
+	cases := []struct {
+		src  string
+		at   int
+		want string
+	}{
+		{"math.", 5, "math"},   // cursor right after the dot
+		{"math.fl", 5, "math"}, // member start (before the partial word)
+		{"str:", 4, "str"},     // colon (method) access
+		{"print", 0, ""},       // no separator
+		{"a.b.c", 4, ""},       // chained access: qualifier is dotted
+		{"1.5", 2, ""},         // numeric, not an identifier
+	}
+	for _, c := range cases {
+		if got := namespaceBefore(c.src, c.at); got != c.want {
+			t.Errorf("namespaceBefore(%q, %d) = %q, want %q", c.src, c.at, got, c.want)
+		}
+	}
+}
+
+func TestMemberCompletion(t *testing.T) {
+	items := memberCompletionItems("math")
+	labels := map[string]bool{}
+	for _, it := range items {
+		labels[it.Label] = true
+	}
+	for _, want := range []string{"floor", "ceil", "sqrt", "random", "pi"} {
+		if !labels[want] {
+			t.Errorf("math member completion missing %q", want)
+		}
+	}
+	// A bare global is not a member namespace.
+	if memberCompletionItems("print") != nil {
+		t.Error("expected nil member completion for non-namespace 'print'")
+	}
+}
+
+func TestQualifiedHoverDocs(t *testing.T) {
+	if !strings.Contains(hoverDocs["math.floor"], "Largest integer") {
+		t.Errorf("qualified hover for math.floor missing, got %q", hoverDocs["math.floor"])
+	}
+	if !strings.Contains(hoverDocs["string.format"], "printf") {
+		t.Errorf("qualified hover for string.format missing, got %q", hoverDocs["string.format"])
+	}
+}
+
 func TestHoverDocsCoverGlobals(t *testing.T) {
 	if !strings.Contains(hoverDocs["print"], "stdout") {
 		t.Errorf("hover doc for print missing, got %q", hoverDocs["print"])
