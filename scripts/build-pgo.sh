@@ -23,8 +23,8 @@ cd "$REPO_ROOT"
 
 WORKLOAD="${1:-examples/02_functions.lsc}"
 CPU_PROFILE="${REPO_ROOT}/cpu.pgo"
-STAGE1_BIN="${REPO_ROOT}.lsc-stage1"
-FINAL_BIN="${REPO_ROOT}.lsc"
+STAGE1_BIN="${REPO_ROOT}/.lsc-stage1"
+FINAL_BIN="${REPO_ROOT}/.lsc"
 
 if [[ ! -f "$WORKLOAD" ]]; then
     echo "build-pgo: workload not found: $WORKLOAD" >&2

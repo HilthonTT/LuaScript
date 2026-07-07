@@ -380,7 +380,7 @@ func encodeParams(i *Instruction, op uint8, params []any) {
 
 	// --- A only: single int param (or *anchor for jumps, resolved later)
 	case LoadNil, LoadVararg, Pop, Concat, Return,
-		Closure, GetLocal, SetLocal, GetUpvalue, SetUpvalue:
+		Closure, GetLocal, SetLocal, GetUpvalue, SetUpvalue, CloseUpvalues:
 		if len(params) >= 1 {
 			i.A = asInt32(params[0])
 		}

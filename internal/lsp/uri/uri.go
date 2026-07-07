@@ -142,7 +142,11 @@ func URIFromPath(path string) URI {
 // File parses and creates a new filesystem URI from path.
 func File(path string) URI {
 	if !isWindowsDrivePath(path) {
-		if abs, err := filepath.Abs(path); err == nil {
+		if strings.HasPrefix(path, "/") {
+			// Already rooted: clean it but keep it verbatim so a Unix-style
+			// absolute path is not prefixed with the current drive on Windows.
+			path = filepath.Clean(path)
+		} else if abs, err := filepath.Abs(path); err == nil {
 			path = abs
 		}
 	}
@@ -223,7 +227,7 @@ func From(scheme, authority, path, query, fragment string) URI {
 //
 // We check if the path begins with a drive letter, followed by a ":".
 func isWindowsDrivePath(path string) bool {
-	if len(path) < 4 {
+	if len(path) < 3 {
 		return false
 	}
 	return unicode.IsLetter(rune(path[0])) && path[1] == ':'
@@ -241,13 +245,15 @@ func isWindowsDriveURI(uri string) bool {
 }
 
 func absOrCleanRooted(path string) string {
-	if !isWindowsDrivePath(path) {
+	if !isWindowsDrivePath(path) && !strings.HasPrefix(path, "/") {
 		if abs, err := filepath.Abs(path); err == nil {
 			return abs
 		}
 	}
-	// Abs failed (e.g. Getwd error) or this is a Windows drive path.
-	if filepath.IsAbs(path) || isWindowsDrivePath(path) {
+	// Abs failed (e.g. Getwd error), the path is a Windows drive path, or the
+	// path is already rooted (kept verbatim so a Unix-style absolute path is
+	// not silently prefixed with the current drive on Windows).
+	if filepath.IsAbs(path) || isWindowsDrivePath(path) || strings.HasPrefix(path, "/") {
 		return filepath.Clean(path)
 	}
 	return path

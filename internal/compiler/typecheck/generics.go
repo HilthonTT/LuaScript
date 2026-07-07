@@ -41,7 +41,20 @@ func (c *checker) pushTypeParams(names []string) func() {
 // arguments and resolving the template body under those bindings. Unknown
 // names, or arity mismatches, degrade to `any` with a diagnostic rather than
 // crashing — keeping the checker gradual.
+// maxInstantiationDepth bounds nested generic expansion. Legitimate nesting
+// (`Box<Box<Box<number>>>`) stays tiny; anything deeper is a recursive
+// template that would otherwise expand until the Go stack overflows.
+const maxInstantiationDepth = 64
+
 func (c *checker) resolveTypeApplication(app *ast.TypeApplication) *Type {
+	if c.instDepth >= maxInstantiationDepth {
+		c.errf(app.Line(), "recursive-generic",
+			"generic type %q expands recursively — self-referential generic types are not supported", app.Name)
+		return anyT
+	}
+	c.instDepth++
+	defer func() { c.instDepth-- }()
+
 	g, ok := c.env.generics[app.Name]
 	if !ok {
 		// Not a known generic. If it names a plain (non-generic) alias the

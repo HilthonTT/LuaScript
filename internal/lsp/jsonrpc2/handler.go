@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 )
 
 // Handler is invoked to handle incoming requests.
@@ -103,13 +104,28 @@ func AsyncHandler(handler Handler) (h Handler) {
 		waitForPrevious := nextRequest
 		nextRequest = make(chan struct{})
 		unlockNext := nextRequest
+		var unlockOnce sync.Once
+		var replied atomic.Bool
 		innerReply := reply
 		reply = func(ctx context.Context, result any, err error) error {
-			close(unlockNext)
+			replied.Store(true)
+			unlockOnce.Do(func() { close(unlockNext) })
 			return innerReply(ctx, result, err)
 		}
 
 		go func() {
+			// A panicking handler must not take down the whole server: turn
+			// the panic into an internal-error reply for this request only.
+			// The gate channel is always released so later requests don't
+			// stall behind the crashed one.
+			defer func() {
+				if r := recover(); r != nil {
+					unlockOnce.Do(func() { close(unlockNext) })
+					if !replied.Load() {
+						_ = reply(ctx, nil, fmt.Errorf("%w: panic handling %q: %v", ErrInternal, req.Method(), r))
+					}
+				}
+			}()
 			<-waitForPrevious
 			_ = handler(ctx, reply, req)
 		}()

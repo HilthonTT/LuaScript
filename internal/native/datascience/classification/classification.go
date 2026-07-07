@@ -168,6 +168,19 @@ func newSVMObject(_ *vm.VM, args []vm.Value) []vm.Value {
 
 	methods := vm.NewTable(0, 4)
 
+	// Trained feature width — see newNumericObject for why queries must be
+	// validated before reaching the kernel loops.
+	width := -1
+
+	checkQuery := func(fn string, x []float64) {
+		if width < 0 {
+			panic(vm.Errorf("%s: model is not fitted yet", fn))
+		}
+		if len(x) != width {
+			panic(vm.Errorf("%s: expected %d features, got %d", fn, width, len(x)))
+		}
+	}
+
 	methods.Set("fit", &vm.GoFunc{Name: "svm:fit", Fn: func(_ *vm.VM, a []vm.Value) []vm.Value {
 		features := tableToMatrix("svm:fit", vm.TableArg("svm:fit", 2, a))
 		labels := stringList("svm:fit", 3, a)
@@ -178,15 +191,20 @@ func newSVMObject(_ *vm.VM, args []vm.Value) []vm.Value {
 			panic(vm.Errorf("svm:fit: training set is empty"))
 		}
 		model.Fit(features, labels)
+		width = len(features[0])
 		return nil
 	}})
 
 	methods.Set("predict", &vm.GoFunc{Name: "svm:predict", Fn: func(_ *vm.VM, a []vm.Value) []vm.Value {
-		return []vm.Value{model.Predict(floatList("svm:predict", 2, a))}
+		x := floatList("svm:predict", 2, a)
+		checkQuery("svm:predict", x)
+		return []vm.Value{model.Predict(x)}
 	}})
 
 	methods.Set("decision_function", &vm.GoFunc{Name: "svm:decision_function", Fn: func(_ *vm.VM, a []vm.Value) []vm.Value {
-		return []vm.Value{model.DecisionFunction(floatList("svm:decision_function", 2, a))}
+		x := floatList("svm:decision_function", 2, a)
+		checkQuery("svm:decision_function", x)
+		return []vm.Value{model.DecisionFunction(x)}
 	}})
 
 	methods.Set("support_vectors", &vm.GoFunc{Name: "svm:support_vectors", Fn: func(_ *vm.VM, _ []vm.Value) []vm.Value {
@@ -207,6 +225,20 @@ func newNumericObject(
 ) *vm.Table {
 	methods := vm.NewTable(0, 3)
 
+	// Trained feature width; the numeric cores index the query vector by the
+	// training width, so a mismatched query must be rejected here instead of
+	// panicking with an index-out-of-range deep in the model.
+	width := -1
+
+	checkQuery := func(fn string, x []float64) {
+		if width < 0 {
+			panic(vm.Errorf("%s: model is not fitted yet", fn))
+		}
+		if len(x) != width {
+			panic(vm.Errorf("%s: expected %d features, got %d", fn, width, len(x)))
+		}
+	}
+
 	methods.Set("fit", &vm.GoFunc{Name: name + ":fit", Fn: func(_ *vm.VM, a []vm.Value) []vm.Value {
 		features := tableToMatrix(name+":fit", vm.TableArg(name+":fit", 2, a))
 		labels := stringList(name+":fit", 3, a)
@@ -217,17 +249,20 @@ func newNumericObject(
 			panic(vm.Errorf("%s:fit: training set is empty", name))
 		}
 		fit(features, labels)
+		width = len(features[0])
 		return nil
 	}})
 
 	methods.Set("predict", &vm.GoFunc{Name: name + ":predict", Fn: func(_ *vm.VM, a []vm.Value) []vm.Value {
 		x := floatList(name+":predict", 2, a)
+		checkQuery(name+":predict", x)
 		return []vm.Value{predict(x)}
 	}})
 
 	if predictProba != nil {
 		methods.Set("predict_proba", &vm.GoFunc{Name: name + ":predict_proba", Fn: func(_ *vm.VM, a []vm.Value) []vm.Value {
 			x := floatList(name+":predict_proba", 2, a)
+			checkQuery(name+":predict_proba", x)
 			return []vm.Value{predictProba(x)}
 		}})
 	}

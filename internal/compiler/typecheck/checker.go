@@ -40,6 +40,11 @@ type checker struct {
 	// "no return type declared" — return statements in such functions
 	// flow no constraints.
 	returnsStack [][]*Type
+
+	// instDepth counts nested generic instantiations. Self-referential
+	// generics (`type L<T> = { next: L<T> }`) would otherwise expand
+	// forever and blow the Go stack — a fatal, unrecoverable crash.
+	instDepth int
 }
 
 // expandRHS evaluates an explist of length m against an N-target slot list

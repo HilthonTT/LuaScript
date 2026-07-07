@@ -138,7 +138,10 @@ func instanceMetatable(enum, variant string) *vm.Table {
 	mt.Set("__tostring", &vm.GoFunc{
 		Name: enum + "." + variant + ".__tostring",
 		Fn: func(_ *vm.VM, a []vm.Value) []vm.Value {
-			self, _ := a[0].(*vm.Table)
+			var self *vm.Table
+			if len(a) > 0 {
+				self, _ = a[0].(*vm.Table)
+			}
 			var b strings.Builder
 			b.WriteString(enum)
 			b.WriteString(".")

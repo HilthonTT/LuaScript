@@ -62,7 +62,9 @@ func (l *Lexer) nextToken() token.Token {
 		return l.singleToken(token.Plus, "+")
 	case '-':
 		if l.peekChar() == '-' {
-			l.absorbComment()
+			if errTok, ok := l.absorbComment(line); !ok {
+				return errTok
+			}
 			return l.nextToken()
 		}
 		if l.peekChar() == '=' {
@@ -188,13 +190,19 @@ func (l *Lexer) nextToken() token.Token {
 	case '[':
 		if lvl := l.longOpenLevel(); lvl >= 0 {
 			l.consumeLongOpen(lvl)
-			lit := l.readLongString(lvl)
+			lit, ok := l.readLongString(lvl)
+			if !ok {
+				return token.Token{Type: token.Illegal, Literal: "unfinished long string", Line: line, Column: l.tokenCol}
+			}
 			return token.Token{Type: token.String, Literal: lit, Line: line, Column: l.tokenCol}
 		}
 		return l.singleToken(token.LBracket, "[")
 	case '"', '\'', '`':
 		quote := l.ch
-		lit := l.readString(quote)
+		lit, ok := l.readString(quote)
+		if !ok {
+			return token.Token{Type: token.Illegal, Literal: "unfinished string", Line: line, Column: l.tokenCol}
+		}
 		typ := token.String
 		if quote == '`' {
 			typ = token.InterpString
@@ -308,14 +316,19 @@ func (l *Lexer) readExponent() {
 // A Luau-style mode directive (`--!strict`, `--!nonstrict`, `--!nocheck`)
 // appearing in a comment that comes BEFORE any real token has been emitted
 // is captured into l.ModeDirective. First directive wins.
-func (l *Lexer) absorbComment() {
+// absorbComment skips a comment. ok is false when a long comment hit EOF
+// before its closing bracket; the caller should surface errTok instead of
+// silently treating the swallowed remainder of the file as comment text.
+func (l *Lexer) absorbComment(line int) (errTok token.Token, ok bool) {
 	l.readChar() // consume second '-'
 	l.readChar() // move past --
 
 	if lvl := l.longOpenLevel(); lvl >= 0 {
 		l.consumeLongOpen(lvl)
-		l.readLongString(lvl)
-		return
+		if _, terminated := l.readLongString(lvl); !terminated {
+			return token.Token{Type: token.Illegal, Literal: "unfinished long comment", Line: line, Column: l.tokenCol}, false
+		}
+		return token.Token{}, true
 	}
 
 	// Mode-directive recognition: only valid in leading comments before any
@@ -332,13 +345,14 @@ func (l *Lexer) absorbComment() {
 		case "strict", "nonstrict", "nocheck":
 			l.ModeDirective = word
 		}
-		return
+		return token.Token{}, true
 	}
 
 	// Short comment: skip to end of line
 	for l.ch != '\n' && l.ch != 0 {
 		l.readChar()
 	}
+	return token.Token{}, true
 }
 
 // longOpenLevel reports the level of a long-bracket opener at the current '['
@@ -394,12 +408,15 @@ func (l *Lexer) matchLongClose(level int) bool {
 // readLongString reads a long-bracket string of the given level. Called after
 // the opener has been consumed; stops at the matching `]=*level]` so inner
 // brackets of a different level are kept as content.
-func (l *Lexer) readLongString(level int) string {
+func (l *Lexer) readLongString(level int) (lit string, terminated bool) {
 	var b strings.Builder
 
-	for l.ch != 0 {
+	for {
+		if l.ch == 0 {
+			return b.String(), false
+		}
 		if l.ch == ']' && l.matchLongClose(level) {
-			break
+			return b.String(), true
 		}
 
 		if l.ch == '\n' {
@@ -408,8 +425,6 @@ func (l *Lexer) readLongString(level int) string {
 		b.WriteRune(l.ch)
 		l.readChar()
 	}
-
-	return b.String()
 }
 
 func (l *Lexer) readIdentifier() []rune {
@@ -420,23 +435,32 @@ func (l *Lexer) readIdentifier() []rune {
 	return l.input[position:l.position]
 }
 
-func (l *Lexer) readString(ch rune) string {
+// readString reads a quoted string. terminated is false when EOF arrived
+// before the closing quote — silently accepting that would swallow the rest
+// of the file into the literal and compile a truncated program.
+func (l *Lexer) readString(ch rune) (lit string, terminated bool) {
 	l.readChar() // skip opening quote
 
 	var b strings.Builder
-	for l.ch != ch && l.ch != 0 {
+	for l.ch != ch {
+		if l.ch == 0 {
+			return b.String(), false
+		}
 		if l.ch == '\\' {
 			l.readChar() // consume the backslash
 			l.readEscape(&b)
 			continue
 		}
+		if l.ch == '\n' {
+			l.line++ // keep diagnostics' line numbers honest across multi-line literals
+		}
 		b.WriteRune(l.ch)
 		l.readChar()
 	}
 
-	l.readChar() // move past closing quote (or EOF on an unterminated string)
+	l.readChar() // move past closing quote
 
-	return b.String()
+	return b.String(), true
 }
 
 // readEscape consumes one escape sequence (the cursor is on the char after the

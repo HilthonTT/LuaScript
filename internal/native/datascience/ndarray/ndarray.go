@@ -56,11 +56,19 @@ type ndarray struct {
 // Core numeric layer (VM-independent; exercised directly in the tests)
 // ---------------------------------------------------------------------------
 
+// maxNDElems bounds the element count of any single array. Script-supplied
+// shapes must not be able to force an unrecoverable OOM (fatal, not
+// pcall-catchable) or overflow the element-count product.
+const maxNDElems = 1 << 26 // 64M elements ≈ 512 MiB of float64
+
 func newND(shape []int) *ndarray {
 	n := 1
 	for _, d := range shape {
 		if d < 0 {
 			panic(vm.Errorf("ndarray: negative dimension %d", d))
+		}
+		if d > 0 && n > maxNDElems/d {
+			panic(vm.Errorf("ndarray: shape exceeds %d elements", maxNDElems))
 		}
 		n *= d
 	}

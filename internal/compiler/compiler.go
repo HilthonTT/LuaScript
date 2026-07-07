@@ -69,5 +69,9 @@ func CompileToInstructionsWith(g *bytecode.Generator, input string, pm parser.Mo
 		spliced[len(stmts)] = program.Block.Return
 		stmts = spliced
 	}
-	return g.GenerateInstructions(stmts), nil
+	chunks := g.GenerateInstructions(stmts)
+	if err := g.Err(); err != nil {
+		return nil, err
+	}
+	return chunks, nil
 }

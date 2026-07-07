@@ -27,7 +27,7 @@ func (r *REPL) WatchFile(filePath string) error {
 	defer stop()
 
 	fmt.Fprintf(
-		os.Stdin,
+		os.Stderr,
 		"\033[2m  watching %s — press Ctrl+C to stop\033[0m\n\n",
 		filepath.Base(filePath),
 	)

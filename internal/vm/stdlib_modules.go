@@ -261,6 +261,18 @@ func buildStringLibrary() *Table {
 		if len(args) >= 3 {
 			sep = StringArg("string.rep", 3, args)
 		}
+		// Bound the result so a script-chosen count can't demand an
+		// allocation big enough to OOM the process (fatal, not
+		// pcall-catchable). Mirrors reference Lua's "resulting string too
+		// large" error.
+		const maxRepLen = 256 * 1024 * 1024
+		unit := int64(len(s) + len(sep))
+		if unit == 0 {
+			return []Value{""}
+		}
+		if n > maxRepLen/unit {
+			panic(Errorf("string.rep: resulting string too large"))
+		}
 		if sep == "" {
 			return []Value{strings.Repeat(s, int(n))}
 		}
@@ -607,10 +619,15 @@ func buildTableLibrary() *Table {
 				b.WriteString(sep)
 			}
 			el := tbl.Get(i)
-			if s, ok := el.(string); ok {
-				b.WriteString(s)
-			} else {
+			switch e := el.(type) {
+			case string:
+				b.WriteString(e)
+			case int64, float64:
 				b.WriteString(ToString(el))
+			default:
+				// Reference Lua errors here; silently rendering "nil" or
+				// "table: 0x…" into the result masks caller bugs.
+				panic(Errorf("invalid value (%s) at index %d in table for 'concat'", TypeName(el), i))
 			}
 		}
 		return []Value{b.String()}
