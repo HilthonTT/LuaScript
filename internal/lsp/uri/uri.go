@@ -126,11 +126,7 @@ func URIFromPath(path string) URI {
 	if path == "" {
 		return ""
 	}
-	if !isWindowsDrivePath(path) {
-		if abs, err := filepath.Abs(path); err == nil {
-			path = abs
-		}
-	}
+	path = absOrCleanRooted(path)
 	// Check the file path again, in case it became absolute.
 	if isWindowsDrivePath(path) {
 		path = "/" + strings.ToUpper(string(path[0])) + path[1:]
@@ -242,4 +238,17 @@ func isWindowsDriveURI(uri string) bool {
 		return false
 	}
 	return uri[0] == '/' && unicode.IsLetter(rune(uri[1])) && uri[2] == ':'
+}
+
+func absOrCleanRooted(path string) string {
+	if !isWindowsDrivePath(path) {
+		if abs, err := filepath.Abs(path); err == nil {
+			return abs
+		}
+	}
+	// Abs failed (e.g. Getwd error) or this is a Windows drive path.
+	if filepath.IsAbs(path) || isWindowsDrivePath(path) {
+		return filepath.Clean(path)
+	}
+	return path
 }
