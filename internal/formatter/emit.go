@@ -172,6 +172,8 @@ func (e *emitter) statement(stmt ast.Statement, opts Options) Doc {
 		return e.doStmt(s, opts)
 	case *ast.BreakStatement:
 		return text("break")
+	case *ast.ContinueStatement:
+		return text("continue")
 	case *ast.GotoStatement:
 		return concat(text("goto "), text(s.Label))
 	case *ast.LabelStatement:
@@ -246,11 +248,14 @@ func (e *emitter) funcDecl(s *ast.FunctionDeclaration, opts Options) Doc {
 func (e *emitter) funcSig(fe *ast.FunctionExpression, opts Options) Doc {
 	var ps []Doc
 	for _, p := range fe.Params {
+		d := text(p.Name.Name)
 		if p.Type != nil {
-			ps = append(ps, concat(text(p.Name.Name), text(": "), e.typeNode(p.Type, opts)))
-		} else {
-			ps = append(ps, text(p.Name.Name))
+			d = concat(d, text(": "), e.typeNode(p.Type, opts))
 		}
+		if p.Default != nil {
+			d = concat(d, text(" = "), e.expr(p.Default, opts))
+		}
+		ps = append(ps, d)
 	}
 	if fe.IsVararg {
 		if fe.VarargType != nil {
@@ -475,8 +480,29 @@ func (e *emitter) expr(x ast.Expression, opts Options) Doc {
 		return concat(text("function"), e.funcSig(v, opts), e.funcBody(v, opts))
 	case *ast.TypeAssertionExpression:
 		return concat(e.expr(v.Expr, opts), text(" :: "), e.typeNode(v.Type, opts))
+	case *ast.IfExpression:
+		return e.ifExpr(v, opts)
 	}
 	return text(x.String())
+}
+
+// ifExpr renders the Luau-style conditional expression, breaking before
+// `elseif`/`else` when the whole expression overflows the line.
+func (e *emitter) ifExpr(ie *ast.IfExpression, opts Options) Doc {
+	var parts []Doc
+	for i, c := range ie.Clauses {
+		kw := "if "
+		if i > 0 {
+			parts = append(parts, line(), text("elseif "))
+			kw = ""
+		}
+		if kw != "" {
+			parts = append(parts, text(kw))
+		}
+		parts = append(parts, e.expr(c.Condition, opts), text(" then "), e.expr(c.Value, opts))
+	}
+	parts = append(parts, line(), text("else "), e.expr(ie.Else, opts))
+	return group(concat(parts[0], nest(opts.indent(), concat(parts[1:]...))))
 }
 
 func (e *emitter) unary(u *ast.UnaryExpression, opts Options) Doc {

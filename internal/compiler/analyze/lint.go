@@ -82,13 +82,13 @@ func (p lintPass) lintStmts(stmts []ast.Statement, sc *scope, rep *Report) {
 				Rule:     "unreachable-code",
 				Severity: SeverityWarning,
 				Line:     s.Line(),
-				Message:  "unreachable code after break/goto",
+				Message:  "unreachable code after break/continue/goto",
 			})
 			deadReported = true
 		}
 		p.lintStmt(s, sc, rep)
 		switch s.(type) {
-		case *ast.BreakStatement, *ast.GotoStatement:
+		case *ast.BreakStatement, *ast.ContinueStatement, *ast.GotoStatement:
 			afterJump = true
 		}
 	}
@@ -178,6 +178,12 @@ func (p lintPass) lintFunc(fe *ast.FunctionExpression, parent *scope, rep *Repor
 	}
 	params := make([]string, 0, len(fe.Params))
 	for _, pr := range fe.Params {
+		// Defaults are evaluated in the enclosing scope (earlier params are
+		// visible, but the walker's scope model is per-block; close enough
+		// to mark reads in the parent chain).
+		if pr.Default != nil {
+			p.lintExpr(pr.Default, parent, rep)
+		}
 		params = append(params, pr.Name.Name)
 	}
 	p.lintBlockWith(fe.Body, parent, params, rep)

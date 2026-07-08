@@ -1,0 +1,39 @@
+-- Lua 5.4 local attributes: `local x <const>` declares a binding that can
+-- never be reassigned. Violations are *compile* errors (they run before the
+-- program starts, and unlike type checking they are NOT disabled by
+-- `--!nocheck`). `<close>` gets the same no-reassignment protection; its
+-- runtime to-be-closed behaviour (`__close` at scope exit) is not implemented.
+--
+-- Unknown attributes are rejected at parse time:
+--   local x <frozen> = 1   -->  local: unknown attribute 'frozen'
+
+-- --- const bindings ----------------------------------------------------------
+print("=== const ===")
+local MAX_RETRIES <const> = 3
+local GREETING <const> = "hi"
+print("MAX_RETRIES:", MAX_RETRIES)
+print("GREETING:   ", GREETING)
+
+-- All of these are compile errors — uncomment one and re-run:
+-- MAX_RETRIES = 4                        -- cannot assign to const variable
+-- MAX_RETRIES += 1                       -- compound assignment counts too
+-- local f = function() GREETING = "x" end -- ...even from a nested closure
+print()
+
+-- --- the BINDING is const, not the value ---------------------------------------
+print("=== const tables stay mutable ===")
+local config <const> = { retries = 3 }
+config.retries = 5          -- fine: field write, not a rebind
+print("config.retries:", config.retries)
+-- config = {}              -- compile error: that would rebind the name
+print()
+
+-- --- shadowing is a new binding --------------------------------------------------
+print("=== shadowing ===")
+local level <const> = 1
+do
+    local level = 2          -- a fresh, plain local that shadows the const
+    level = level + 1        -- assignable: this is the inner binding
+    print("inner level:", level)  -- 3
+end
+print("outer level:", level)      -- still 1

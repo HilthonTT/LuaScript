@@ -9,6 +9,7 @@ import (
 
 	"github.com/chzyer/readline"
 	"github.com/hilthontt/luascript/internal/compiler"
+	"github.com/hilthontt/luascript/internal/compiler/bccache"
 	"github.com/hilthontt/luascript/internal/compiler/bytecode"
 	"github.com/hilthontt/luascript/internal/compiler/parser"
 	parserrors "github.com/hilthontt/luascript/internal/compiler/parser/errors"
@@ -69,7 +70,11 @@ func (r *REPL) RunFile(path string) {
 		fmt.Fprintln(os.Stderr, "luascript:", err)
 		os.Exit(1)
 	}
-	chunks, err := compiler.CompileToInstructions(string(src), parser.NormalMode)
+	// Compile through the bytecode cache: an unchanged script skips the
+	// whole front-end (lex → parse → typecheck → fold → codegen) on
+	// re-runs. Disable with LUASCRIPT_NOCACHE=1. The returned main chunk
+	// reaches nested function protos through its Protos table at runtime.
+	main, err := bccache.CompileCached(string(src))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "luascript:", err)
 		os.Exit(1)
@@ -81,9 +86,7 @@ func (r *REPL) RunFile(path string) {
 		v.AddScriptDir(filepath.Dir(abs))
 	}
 	r.runPostInits(v)
-	// chunks[0] is the main chunk; nested function protos follow and are
-	// reached through the main chunk's Protos table at runtime.
-	if err := v.Run(chunks[0]); err != nil {
+	if err := v.Run(main); err != nil {
 		fmt.Fprintln(os.Stderr, "luascript:", err)
 		os.Exit(1)
 	}

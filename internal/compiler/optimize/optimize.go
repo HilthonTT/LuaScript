@@ -34,13 +34,9 @@ func foldStmt(s ast.Statement) {
 	case *ast.LocalStatement:
 		foldExprSlice(n.Values)
 	case *ast.LocalFunctionStatement:
-		if n.Func != nil {
-			foldBlock(n.Func.Body)
-		}
+		foldFunc(n.Func)
 	case *ast.FunctionDeclaration:
-		if n.Func != nil {
-			foldBlock(n.Func.Body)
-		}
+		foldFunc(n.Func)
 	case *ast.IfStatement:
 		for i := range n.Clauses {
 			n.Clauses[i].Condition = foldExpr(n.Clauses[i].Condition)
@@ -78,8 +74,21 @@ func foldStmt(s ast.Statement) {
 	case *ast.Block:
 		foldBlock(n)
 	}
-	// BreakStatement, GotoStatement, LabelStatement, TypeAliasStatement carry
-	// no foldable expressions.
+	// BreakStatement, ContinueStatement, GotoStatement, LabelStatement,
+	// TypeAliasStatement carry no foldable expressions.
+}
+
+// foldFunc folds a function literal's parameter defaults and body.
+func foldFunc(fe *ast.FunctionExpression) {
+	if fe == nil {
+		return
+	}
+	for i := range fe.Params {
+		if fe.Params[i].Default != nil {
+			fe.Params[i].Default = foldExpr(fe.Params[i].Default)
+		}
+	}
+	foldBlock(fe.Body)
 }
 
 func foldExprSlice(es []ast.Expression) {
@@ -134,8 +143,10 @@ func foldExpr(e ast.Expression) ast.Expression {
 		}
 		return n
 	case *ast.FunctionExpression:
-		foldBlock(n.Body)
+		foldFunc(n)
 		return n
+	case *ast.IfExpression:
+		return foldIfExpr(n)
 	case *ast.MatchExpression:
 		n.Subject = foldExpr(n.Subject)
 		for i := range n.Arms {

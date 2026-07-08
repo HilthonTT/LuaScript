@@ -117,7 +117,18 @@ func (w *walker) walkExpr(e ast.Expression) {
 		}
 	case *ast.TypeAssertionExpression:
 		w.walkExpr(n.Expr)
+	case *ast.IfExpression:
+		for _, c := range n.Clauses {
+			w.walkExpr(c.Condition)
+			w.walkExpr(c.Value)
+		}
+		w.walkExpr(n.Else)
 	case *ast.FunctionExpression:
+		for _, p := range n.Params {
+			if p.Default != nil {
+				w.walkExpr(p.Default)
+			}
+		}
 		if !w.stopAtFunc {
 			w.walkBlock(n.Body)
 		}

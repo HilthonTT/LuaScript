@@ -25,6 +25,7 @@ import (
 	"strings"
 
 	"github.com/hilthontt/luascript/internal/compiler"
+	"github.com/hilthontt/luascript/internal/compiler/bccache"
 	"github.com/hilthontt/luascript/internal/compiler/parser"
 )
 
@@ -154,17 +155,17 @@ func builtinRequire(v *VM, args []Value) []Value {
 		panic(LuaError(fmt.Sprintf("module '%s' not found:%s", name, tried)))
 	}
 
-	// 4. Read, compile, run. The chunk receives (modname, filepath) as `...`
-	// — Lua's standard convention.
+	// 4. Read, compile (through the bytecode cache), run. The chunk receives
+	// (modname, filepath) as `...` — Lua's standard convention.
 	src, err := os.ReadFile(fpath)
 	if err != nil {
 		panic(Errorf("cannot open '%s': %s", fpath, err.Error()))
 	}
-	chunks, cerr := compiler.CompileToInstructions(string(src), parser.NormalMode)
+	main, cerr := bccache.CompileCached(string(src))
 	if cerr != nil {
 		panic(Errorf("error loading module '%s' from file '%s':\n\t%s", name, fpath, cerr.Error()))
 	}
-	cl := &Closure{Proto: chunks[0]}
+	cl := &Closure{Proto: main}
 	results := v.CallValue(cl, []Value{name, fpath}, 1)
 	ret := pickRet(results)
 	loaded.Set(name, ret)
@@ -238,11 +239,11 @@ func builtinLoadfile(_ *VM, args []Value) []Value {
 	if err != nil {
 		return []Value{nil, err.Error()}
 	}
-	chunks, cerr := compiler.CompileToInstructions(string(src), parser.NormalMode)
+	main, cerr := bccache.CompileCached(string(src))
 	if cerr != nil {
 		return []Value{nil, cerr.Error()}
 	}
-	return []Value{&Closure{Proto: chunks[0]}}
+	return []Value{&Closure{Proto: main}}
 }
 
 // builtinDofile loads + runs a file, returning everything the chunk

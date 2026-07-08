@@ -88,10 +88,14 @@ func (i *Identifier) String() string       { return i.Name }
 
 // TypedParam is one entry in a FunctionExpression's parameter list. Type is
 // nil for unannotated parameters; the type checker treats those as `any` in
-// gradual mode and as an implicit-any error in strict mode.
+// gradual mode and as an implicit-any error in strict mode. Default is the
+// optional `= expr` default value (nil when absent): at runtime the function
+// prologue fills the parameter with Default when the caller passed nil (or
+// nothing) for it. Earlier parameters are in scope inside Default.
 type TypedParam struct {
-	Name *Identifier
-	Type TypeNode
+	Name    *Identifier
+	Type    TypeNode
+	Default Expression
 }
 
 // FunctionExpression is `function(params) body end`. IsVararg is true when
@@ -115,11 +119,14 @@ func (fe *FunctionExpression) String() string {
 	out.WriteString("function(")
 	parts := make([]string, 0, len(fe.Params)+1)
 	for _, p := range fe.Params {
+		s := p.Name.String()
 		if p.Type != nil {
-			parts = append(parts, p.Name.String()+": "+p.Type.String())
-		} else {
-			parts = append(parts, p.Name.String())
+			s += ": " + p.Type.String()
 		}
+		if p.Default != nil {
+			s += " = " + p.Default.String()
+		}
+		parts = append(parts, s)
 	}
 	if fe.IsVararg {
 		if fe.VarargType != nil {
@@ -312,6 +319,46 @@ func (ue *UnaryExpression) String() string {
 	}
 	out.WriteString(ue.Operand.String())
 	out.WriteString(")")
+	return out.String()
+}
+
+// IfExprClause is one `if`/`elseif` branch of an IfExpression: a condition
+// and the single value the expression yields when the condition is truthy.
+type IfExprClause struct {
+	Condition Expression
+	Value     Expression
+}
+
+// IfExpression is the Luau-style conditional expression
+//
+//	if c1 then v1 [elseif c2 then v2 ...] else v3
+//
+// Unlike the if *statement* there is no terminating `end`, the branches are
+// single expressions rather than blocks, and the `else` arm is mandatory
+// (the expression must always produce a value). Every branch is adjusted to
+// exactly one value.
+type IfExpression struct {
+	BaseNode
+	Clauses []IfExprClause // at least one; first is `if`, rest are `elseif`
+	Else    Expression
+}
+
+func (*IfExpression) expressionNode()         {}
+func (ie *IfExpression) TokenLiteral() string { return ie.Token.Literal }
+func (ie *IfExpression) String() string {
+	var out bytes.Buffer
+	for i, c := range ie.Clauses {
+		if i == 0 {
+			out.WriteString("if ")
+		} else {
+			out.WriteString(" elseif ")
+		}
+		out.WriteString(c.Condition.String())
+		out.WriteString(" then ")
+		out.WriteString(c.Value.String())
+	}
+	out.WriteString(" else ")
+	out.WriteString(ie.Else.String())
 	return out.String()
 }
 

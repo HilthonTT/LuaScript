@@ -1,0 +1,66 @@
+-- continue: skip to the next iteration of the innermost enclosing loop.
+-- Like `type` and `struct`, `continue` is a *contextual* keyword (matching
+-- Luau): it is only special in statement position when nothing follows that
+-- could extend it into an expression, so existing code using `continue` as a
+-- variable name keeps working.
+
+-- --- numeric for -----------------------------------------------------------
+print("=== numeric for ===")
+local odds = {}
+for i = 1, 10 do
+    if i % 2 == 0 then continue end
+    odds[#odds + 1] = i
+end
+print("odd numbers:", table.concat(odds, ", "))   -- 1, 3, 5, 7, 9
+print()
+
+-- --- generic for -----------------------------------------------------------
+print("=== generic for ===")
+local words = { "keep", "skip", "keep", "skip", "keep" }
+local kept = {}
+for i, w in ipairs(words) do
+    if w == "skip" then continue end
+    kept[#kept + 1] = i
+end
+print("kept indices:", table.concat(kept, ", "))  -- 1, 3, 5
+print()
+
+-- --- while -----------------------------------------------------------------
+print("=== while ===")
+local i, multiples = 0, 0
+while i < 20 do
+    i = i + 1
+    if i % 5 ~= 0 then continue end
+    multiples = multiples + 1
+end
+print("multiples of 5 up to 20:", multiples)      -- 4
+print()
+
+-- --- repeat ----------------------------------------------------------------
+-- In a repeat loop, `continue` jumps straight to the `until` check.
+print("=== repeat ===")
+local c, sum = 0, 0
+repeat
+    c = c + 1
+    if c % 2 == 0 then continue end
+    sum = sum + c
+until c >= 5
+print("sum of odd 1..5:", sum)                    -- 1 + 3 + 5 = 9
+print()
+
+-- --- continue targets the INNERMOST loop -----------------------------------
+print("=== nesting ===")
+local visited = 0
+for row = 1, 3 do
+    for col = 1, 3 do
+        if col == 2 then continue end             -- skips only the inner loop
+        visited = visited + 1
+    end
+end
+print("cells visited:", visited)                  -- 3 rows * 2 cols = 6
+print()
+
+-- --- still a valid identifier ------------------------------------------------
+print("=== contextual keyword ===")
+local continue = "just a variable"
+print("continue as a name:", continue)

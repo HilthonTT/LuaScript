@@ -134,7 +134,7 @@ func foldLogical(be *ast.BinaryExpression) ast.Expression {
 	leftTruthy := isTruthy(be.Left)
 	if be.Op == "and" {
 		if leftTruthy {
-			return clampToSingle(be, be.Right)
+			return clampToSingle(be.BaseNode, be.Right)
 		}
 		return be.Left
 	}
@@ -142,22 +142,56 @@ func foldLogical(be *ast.BinaryExpression) ast.Expression {
 	if leftTruthy {
 		return be.Left
 	}
-	return clampToSingle(be, be.Right)
+	return clampToSingle(be.BaseNode, be.Right)
 }
 
-// clampToSingle preserves the single-value semantics of `and`/`or` when the
-// folded result is the RHS. `a and f()` / `a or f()` yield exactly one value,
-// but returning a multi-valued RHS (call/vararg) verbatim would let all its
-// values leak out in a multi-value position (return, call arg, table field).
-// Wrapping it in a ParenExpression re-imposes the one-value adjustment; a RHS
-// that is already single-valued is returned unchanged so later folding is not
-// blocked.
-func clampToSingle(be *ast.BinaryExpression, e ast.Expression) ast.Expression {
+// clampToSingle preserves single-value semantics when folding replaces a
+// larger expression with one of its sub-expressions. `a and f()`, or an if
+// expression arm, yields exactly one value — but returning a multi-valued
+// node (call/vararg) verbatim would let all its values leak out in a
+// multi-value position (return, call arg, table field). Wrapping it in a
+// ParenExpression re-imposes the one-value adjustment; an already
+// single-valued node is returned unchanged so later folding is not blocked.
+func clampToSingle(b ast.BaseNode, e ast.Expression) ast.Expression {
 	switch e.(type) {
 	case *ast.CallExpression, *ast.MethodCallExpression, *ast.VarargExpression:
-		return &ast.ParenExpression{BaseNode: be.BaseNode, Inner: e}
+		return &ast.ParenExpression{BaseNode: b, Inner: e}
 	}
 	return e
+}
+
+// foldIfExpr folds an if expression's arms and prunes statically-known
+// branches: a falsy-literal condition drops its clause, a truthy-literal
+// condition truncates everything after it (its value becomes the `else`).
+// When no clauses survive, the whole expression folds to its else-value.
+// Dropping a condition is safe for the same reason foldLogical is: Lua
+// evaluates conditions in order and never evaluates a dropped branch.
+func foldIfExpr(n *ast.IfExpression) ast.Expression {
+	kept := n.Clauses[:0]
+	for _, cl := range n.Clauses {
+		cl.Condition = foldExpr(cl.Condition)
+		cl.Value = foldExpr(cl.Value)
+		if isLiteral(cl.Condition) {
+			if isTruthy(cl.Condition) {
+				// This arm always wins over everything after it: it becomes
+				// the else-value and the remaining clauses are dead.
+				n.Clauses = kept
+				n.Else = cl.Value
+				if len(n.Clauses) == 0 {
+					return clampToSingle(n.BaseNode, n.Else)
+				}
+				return n
+			}
+			continue // falsy literal: this arm can never be taken
+		}
+		kept = append(kept, cl)
+	}
+	n.Clauses = kept
+	n.Else = foldExpr(n.Else)
+	if len(n.Clauses) == 0 {
+		return clampToSingle(n.BaseNode, n.Else)
+	}
+	return n
 }
 
 // foldArith handles + - * // % where at least one operand may be an integer.

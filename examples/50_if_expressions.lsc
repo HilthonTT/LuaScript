@@ -1,0 +1,49 @@
+-- if expressions: a Luau-style conditional that IS a value.
+--
+--   if <cond> then <value> [elseif <cond> then <value>]... else <value>
+--
+-- Three differences from the if *statement*: there is no terminating `end`,
+-- each arm is a single expression rather than a block, and the `else` arm is
+-- mandatory (the expression must always produce a value). Only the taken arm
+-- is evaluated, and every arm is adjusted to exactly one value.
+
+-- --- the basics --------------------------------------------------------------
+print("=== basics ===")
+local x = 7
+local sign = if x > 0 then "positive" elseif x < 0 then "negative" else "zero"
+print("sign of", x, "is", sign)
+
+-- Replaces the classic-but-buggy `cond and a or b` idiom, which breaks when
+-- `a` is false or nil. The if expression has no such trap:
+local verbose = true
+local quiet_flag = if verbose then false else "quiet"
+local buggy_flag = verbose and false or "quiet"   -- oops: false is falsy!
+print("if-expr:", quiet_flag, "| and/or:", buggy_flag)
+print()
+
+-- --- anywhere an expression goes ---------------------------------------------
+print("=== expression position ===")
+local n = 3
+print("plural:", "item" .. (if n == 1 then "" else "s"))
+local t = { label = if n > 2 then "many" else "few" }
+print("table field:", t.label)
+
+local function describe(v)
+    return if type(v) == "number" then v * 2
+        elseif type(v) == "string" then v .. v
+        else "unsupported"
+end
+print("describe(21):   ", describe(21))
+print("describe('ab'): ", describe("ab"))
+print("describe(true): ", describe(true))
+print()
+
+-- --- lazy arms ----------------------------------------------------------------
+print("=== laziness ===")
+local calls = 0
+local function expensive()
+    calls = calls + 1
+    return "computed"
+end
+local cheap = if true then "cached" else expensive()
+print("value:", cheap, "| expensive() calls:", calls)  -- 0: untaken arm never ran

@@ -48,6 +48,8 @@ func (g *Generator) compileExpression(is *InstructionSet, exp ast.Expression) {
 		g.compileBinary(is, e)
 	case *ast.UnaryExpression:
 		g.compileUnary(is, e)
+	case *ast.IfExpression:
+		g.compileIfExpression(is, e)
 	case *ast.ParenExpression:
 		// `(...)` adjusts a multi-value to exactly one — clamp by routing
 		// through compileExpression (which already clamps).
@@ -212,13 +214,59 @@ func isMultiValue(e ast.Expression) bool {
 	return false
 }
 
+// compileIfExpression emits a branch chain where every arm pushes exactly
+// one value, so the whole expression has a net stack effect of +1 — the
+// expression analogue of compileIf.
+func (g *Generator) compileIfExpression(is *InstructionSet, e *ast.IfExpression) {
+	endAnchor := &anchor{}
+	for _, c := range e.Clauses {
+		g.compileExpression(is, c.Condition)
+		nextAnchor := &anchor{}
+		jf := is.define(JumpIfFalse, e.Line(), nextAnchor)
+		g.current.recordPending(jf)
+		g.compileExpression(is, c.Value)
+		j := is.define(Jump, e.Line(), endAnchor)
+		g.current.recordPending(j)
+		nextAnchor.line = is.count
+	}
+	g.compileExpression(is, e.Else)
+	endAnchor.line = is.count
+}
+
 func (g *Generator) compileFunctionExpression(is *InstructionSet, e *ast.FunctionExpression) {
 	parent := g.pushFunction(fmt.Sprintf("anon@%d", e.Line()), e.Params, e.IsVararg, e.Line())
+	g.compileParamDefaults(g.current.is, e.Params)
 	if e.Body != nil {
 		g.compileBlock(g.current.is, e.Body)
 	}
 	idx := g.popFunction(parent, e.Line())
 	is.define(Closure, e.Line(), idx)
+}
+
+// compileParamDefaults emits the function prologue that applies `= default`
+// parameter values: for each defaulted parameter p in slot s,
+//
+//	if p == nil then p = <default> end
+//
+// Only nil (absent argument or explicit nil) triggers the default — false
+// does not, unlike the `p = p or d` idiom. Defaults are applied left to
+// right, so a default may reference earlier parameters.
+func (g *Generator) compileParamDefaults(is *InstructionSet, params []ast.TypedParam) {
+	for slot, p := range params {
+		if p.Default == nil {
+			continue
+		}
+		line := p.Default.Line()
+		is.define(GetLocal, line, slot)
+		is.define(LoadNil, line, 1)
+		is.define(Eq, line)
+		skip := &anchor{}
+		jf := is.define(JumpIfFalse, line, skip)
+		g.current.recordPending(jf)
+		g.compileExpression(is, p.Default)
+		is.define(SetLocal, line, slot)
+		skip.line = is.count
+	}
 }
 
 func (g *Generator) compileTableConstructor(is *InstructionSet, t *ast.TableConstructor) {

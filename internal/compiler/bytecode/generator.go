@@ -20,10 +20,13 @@ type pendingGoto struct {
 	anchor *anchor
 }
 
-// loopFrame collects break-target patches and continue-target line for a
-// single active loop. Lua has no `continue`, so we only track break.
+// loopFrame collects the break and continue targets for a single active
+// loop. breakAnchor resolves past the whole loop; continueAnchor resolves to
+// the loop's "next iteration" point — the spot right after the body where
+// per-iteration upvalue closing and the condition/step re-check happen.
 type loopFrame struct {
-	breakAnchor *anchor
+	breakAnchor    *anchor
+	continueAnchor *anchor
 }
 
 // Generator drives bytecode emission for an entire program.

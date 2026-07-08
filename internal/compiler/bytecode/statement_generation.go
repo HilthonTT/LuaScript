@@ -61,6 +61,8 @@ func (g *Generator) compileStatement(is *InstructionSet, stmt ast.Statement) {
 		g.compileReturn(is, s)
 	case *ast.BreakStatement:
 		g.compileBreak(is, s)
+	case *ast.ContinueStatement:
+		g.compileContinue(is, s)
 	case *ast.GotoStatement:
 		g.compileGoto(is, s)
 	case *ast.LabelStatement:
@@ -353,9 +355,13 @@ func (g *Generator) compileWhile(is *InstructionSet, s *ast.WhileStatement) {
 
 	closeBase := g.current.locals.maxSlot
 	protos := len(is.Protos)
-	g.current.loops = append(g.current.loops, &loopFrame{breakAnchor: exitAnchor})
+	contAnchor := &anchor{}
+	g.current.loops = append(g.current.loops, &loopFrame{breakAnchor: exitAnchor, continueAnchor: contAnchor})
 	g.compileBlock(is, s.Body)
 	g.current.loops = g.current.loops[:len(g.current.loops)-1]
+	// `continue` lands here, so a skipped iteration still closes its
+	// captured upvalues before re-testing the condition.
+	contAnchor.line = is.count
 	g.emitLoopClose(is, closeBase, protos, s.Line())
 
 	jb := is.define(Jump, s.Line(), topAnchor)
@@ -367,7 +373,8 @@ func (g *Generator) compileRepeat(is *InstructionSet, s *ast.RepeatStatement) {
 	topAnchor := &anchor{line: is.count}
 	exitAnchor := &anchor{}
 
-	g.current.loops = append(g.current.loops, &loopFrame{breakAnchor: exitAnchor})
+	contAnchor := &anchor{}
+	g.current.loops = append(g.current.loops, &loopFrame{breakAnchor: exitAnchor, continueAnchor: contAnchor})
 
 	// Repeat's `until` condition is evaluated in the scope of locals declared
 	// in the body. We open the scope manually so the condition can see them.
@@ -382,6 +389,10 @@ func (g *Generator) compileRepeat(is *InstructionSet, s *ast.RepeatStatement) {
 			g.compileReturn(is, s.Body.Return)
 		}
 	}
+	// `continue` jumps straight to the `until` condition. Caveat (same as
+	// Luau): a local declared *after* the continue is still in scope for the
+	// condition but was never assigned on that iteration.
+	contAnchor.line = is.count
 	g.compileExpression(is, s.Condition)
 	g.current.locals.closeScope()
 
@@ -419,9 +430,12 @@ func (g *Generator) compileNumericFor(is *InstructionSet, s *ast.NumericForState
 
 	bodyTop := &anchor{line: is.count}
 	protos := len(is.Protos)
-	g.current.loops = append(g.current.loops, &loopFrame{breakAnchor: exitAnchor})
+	contAnchor := &anchor{}
+	g.current.loops = append(g.current.loops, &loopFrame{breakAnchor: exitAnchor, continueAnchor: contAnchor})
 	g.compileBlock(is, s.Body)
 	g.current.loops = g.current.loops[:len(g.current.loops)-1]
+	// `continue` lands just before the per-iteration upvalue close + ForLoop.
+	contAnchor.line = is.count
 	// Close upvalues over the loop variable (indexSlot) and any captured body
 	// locals so each iteration captures a fresh `i`.
 	g.emitLoopClose(is, indexSlot, protos, s.Line())
@@ -458,9 +472,12 @@ func (g *Generator) compileGenericFor(is *InstructionSet, s *ast.GenericForState
 
 	bodyTop := &anchor{line: is.count}
 	protos := len(is.Protos)
-	g.current.loops = append(g.current.loops, &loopFrame{breakAnchor: exitAnchor})
+	contAnchor := &anchor{}
+	g.current.loops = append(g.current.loops, &loopFrame{breakAnchor: exitAnchor, continueAnchor: contAnchor})
 	g.compileBlock(is, s.Body)
 	g.current.loops = g.current.loops[:len(g.current.loops)-1]
+	// `continue` lands just before the per-iteration upvalue close + TForCall.
+	contAnchor.line = is.count
 	// Close upvalues over the visible loop variables (and captured body locals)
 	// so each iteration's `k, v` are captured independently.
 	g.emitLoopClose(is, firstVarSlot, protos, s.Line())
@@ -507,6 +524,20 @@ func (g *Generator) compileBreak(is *InstructionSet, s *ast.BreakStatement) {
 	}
 	frame := g.current.loops[len(g.current.loops)-1]
 	j := is.define(Jump, s.Line(), frame.breakAnchor)
+	g.current.recordPending(j)
+}
+
+// compileContinue jumps to the innermost loop's continue anchor — the point
+// right after the body where the loop closes per-iteration upvalues and
+// re-tests its condition (while/repeat) or advances its control variable
+// (numeric/generic for).
+func (g *Generator) compileContinue(is *InstructionSet, s *ast.ContinueStatement) {
+	if len(g.current.loops) == 0 {
+		// Outside any loop; the parser should normally catch this.
+		return
+	}
+	frame := g.current.loops[len(g.current.loops)-1]
+	j := is.define(Jump, s.Line(), frame.continueAnchor)
 	g.current.recordPending(j)
 }
 

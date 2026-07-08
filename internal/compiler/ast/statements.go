@@ -323,6 +323,19 @@ func (*BreakStatement) statementNode()         {}
 func (b *BreakStatement) TokenLiteral() string { return b.Token.Literal }
 func (*BreakStatement) String() string         { return "break" }
 
+// ContinueStatement is `continue` — jump to the next iteration of the
+// innermost enclosing loop. `continue` is a *contextual* keyword (like
+// `type` and `struct`, matching Luau): it is only recognised in statement
+// position when the following token cannot extend it into an expression,
+// so existing code using `continue` as a variable name keeps compiling.
+type ContinueStatement struct {
+	BaseNode
+}
+
+func (*ContinueStatement) statementNode()         {}
+func (c *ContinueStatement) TokenLiteral() string { return c.Token.Literal }
+func (*ContinueStatement) String() string         { return "continue" }
+
 // GotoStatement is `goto Name` (Lua 5.2+).
 type GotoStatement struct {
 	BaseNode

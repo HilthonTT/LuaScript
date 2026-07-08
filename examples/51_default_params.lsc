@@ -1,0 +1,61 @@
+-- Default parameter values: `function f(x = expr)` fills `x` with `expr`
+-- whenever the caller passes nil for it (or nothing at all). The default is
+-- applied by a prologue equivalent to `if x == nil then x = expr end`, so:
+--
+--   * an explicit `false` does NOT trigger the default (unlike `x = x or d`),
+--   * defaults are evaluated per call, left to right,
+--   * a default may reference the parameters declared before it.
+--
+-- Defaults compose with type annotations: `greeting: string = "hello"`. A
+-- defaulted parameter is optional at every call site, and inside the body
+-- the checker knows the declared type holds (the default already applied).
+
+-- --- the basics --------------------------------------------------------------
+print("=== basics ===")
+local function greet(name: string, greeting: string = "hello")
+    return greeting .. ", " .. name .. "!"
+end
+print(greet("world"))              -- default used
+print(greet("world", nil))         -- explicit nil: default used too
+print(greet("world", "howdy"))     -- provided: default skipped
+print()
+
+-- --- false is a real value ----------------------------------------------------
+print("=== false is not nil ===")
+local function flag(enabled = true)
+    return enabled
+end
+print("flag():      ", flag())      -- true  (defaulted)
+print("flag(false): ", flag(false)) -- false (kept! `or` would lose this)
+print()
+
+-- --- defaults see earlier parameters -------------------------------------------
+print("=== dependent defaults ===")
+local function rectangle(width: number, height: number = width)
+    return width * height
+end
+print("rectangle(4):    ", rectangle(4))     -- a 4x4 square: 16
+print("rectangle(4, 2): ", rectangle(4, 2))  -- 8
+
+-- --- evaluated per call ----------------------------------------------------------
+print()
+print("=== fresh evaluation each call ===")
+local calls = 0
+local function counted(v = (function() calls = calls + 1 return calls end)())
+    return v
+end
+print("counted():  ", counted())    -- 1
+print("counted():  ", counted())    -- 2 (default re-evaluated)
+print("counted(99):", counted(99))  -- 99 (default skipped, counter untouched)
+print("defaults ran", calls, "times")
+print()
+
+-- --- methods too -----------------------------------------------------------------
+print("=== methods ===")
+local account = { balance = 100 }
+function account:deposit(amount: number = 10)
+    self.balance = self.balance + amount
+    return self.balance
+end
+print("deposit():   ", account:deposit())    -- 110
+print("deposit(40): ", account:deposit(40))  -- 150

@@ -89,6 +89,8 @@ func (p *Parser) parsePrefix() ast.Expression {
 		return p.parseTableConstructor()
 	case token.Function:
 		return p.parseFunctionExpression()
+	case token.If:
+		return p.parseIfExpression()
 	case token.Minus, token.Not, token.Hash, token.Tilde:
 		return p.parseUnaryExpression()
 	}
@@ -148,6 +150,57 @@ func (p *Parser) parseTypeAssertion(left ast.Expression) ast.Expression {
 		Expr:     left,
 		Type:     t,
 	}
+}
+
+// parseIfExpression handles the Luau-style conditional expression
+//
+//	if <cond> then <expr> [elseif <cond> then <expr>]... else <expr>
+//
+// The cursor is on `if` on entry. There is no terminating `end` — the
+// expression ends after the (mandatory) else-value. `if` can only start an
+// expression in expression position; at statement position the statement
+// dispatcher claims it first, so `if` statements are unaffected.
+func (p *Parser) parseIfExpression() ast.Expression {
+	tok := p.curToken
+	p.nextToken() // consume 'if'
+
+	expr := &ast.IfExpression{BaseNode: baseAt(tok)}
+	for {
+		cond := p.parseExpression()
+		if cond == nil {
+			return nil
+		}
+		if !p.curTokenIs(token.Then) {
+			p.errorAt(p.curToken, errors.UnexpectedTokenError, "if expression",
+				"expected 'then' after the condition, got "+describeToken(p.curToken),
+				"syntax: `if <cond> then <value> else <value>` (no `end`)")
+			return nil
+		}
+		p.nextToken() // consume 'then'
+		val := p.parseExpression()
+		if val == nil {
+			return nil
+		}
+		expr.Clauses = append(expr.Clauses, ast.IfExprClause{Condition: cond, Value: val})
+
+		if p.curTokenIs(token.ElseIf) {
+			p.nextToken() // consume 'elseif'
+			continue
+		}
+		break
+	}
+	if !p.curTokenIs(token.Else) {
+		p.errorAt(p.curToken, errors.UnexpectedTokenError, "if expression",
+			"expected 'else' to complete the if expression, got "+describeToken(p.curToken),
+			"an if expression must always produce a value, so the `else` arm is mandatory")
+		return nil
+	}
+	p.nextToken() // consume 'else'
+	expr.Else = p.parseExpression()
+	if expr.Else == nil {
+		return nil
+	}
+	return expr
 }
 
 // parseParenExpression handles `( exp )`. Lua uses parentheses to *adjust*
@@ -508,7 +561,17 @@ func (p *Parser) parseParamList() ([]ast.TypedParam, bool, ast.TypeNode) {
 		if p.error != nil {
 			return nil, false, nil
 		}
-		params = append(params, ast.TypedParam{Name: ident, Type: typ})
+		// Optional default value: `name [: Type] = expr`. The default is
+		// applied by the function prologue when the caller passes nil.
+		var def ast.Expression
+		if p.curTokenIs(token.Assign) {
+			p.nextToken() // consume '='
+			def = p.parseExpression()
+			if def == nil {
+				return nil, false, nil
+			}
+		}
+		params = append(params, ast.TypedParam{Name: ident, Type: typ, Default: def})
 		if !p.curTokenIs(token.Comma) {
 			break
 		}

@@ -287,7 +287,7 @@ func (c *checker) walkStatement(s ast.Statement) {
 	case *ast.ReturnStatement:
 		c.walkReturn(n)
 	case *ast.TypeAliasStatement, *ast.LabelStatement, *ast.BreakStatement,
-		*ast.GotoStatement:
+		*ast.ContinueStatement, *ast.GotoStatement:
 		// Type aliases were handled in the pre-pass; the others carry no
 		// type-relevant state.
 	case *ast.EnumStatement:
@@ -517,6 +517,18 @@ func (c *checker) functionShapeFromExpr(fe *ast.FunctionExpression) *Type {
 			}
 			params[i] = anyT
 		}
+		if p.Default != nil {
+			// The default must fit the declared type, and a defaulted
+			// parameter is optional at every call site: callers may omit it
+			// or pass nil, so the *signature* type is widened with nil.
+			// Inside the body the prologue has already applied the default,
+			// so walkFunctionBody binds the un-widened declared type.
+			got := c.typeOfExpression(p.Default)
+			if !assignable(got, params[i]) {
+				c.errAssign(p.Default.Line(), got, params[i])
+			}
+			params[i] = NewUnion(params[i], nilT)
+		}
 	}
 	returns := make([]*Type, len(fe.ReturnTypes))
 	for i, r := range fe.ReturnTypes {
@@ -545,7 +557,14 @@ func (c *checker) walkFunctionBody(fe *ast.FunctionExpression, shape *FunctionSh
 	c.env.push()
 	defer c.env.pop()
 	for i, p := range fe.Params {
-		c.env.define(p.Name.Name, shape.Params[i])
+		bound := shape.Params[i]
+		if p.Default != nil && p.Type != nil {
+			// The signature widened this parameter with nil for callers,
+			// but the prologue guarantees the default has been applied by
+			// the time the body runs — bind the declared type.
+			bound = c.resolveAST(p.Type)
+		}
+		c.env.define(p.Name.Name, bound)
 	}
 	// Push declared returns (nil if unannotated → permissive).
 	var declared []*Type
@@ -617,8 +636,33 @@ func (c *checker) typeOfExpression(e ast.Expression) *Type {
 		return c.typeOfBinary(n)
 	case *ast.UnaryExpression:
 		return c.typeOfUnary(n)
+	case *ast.IfExpression:
+		return c.typeOfIfExpression(n)
 	}
 	return anyT
+}
+
+// typeOfIfExpression types `if c then a else b`: each arm is typed with the
+// preceding conditions' refinements applied (mirroring walkIfStatement), and
+// the result is the union of every arm's type.
+func (c *checker) typeOfIfExpression(e *ast.IfExpression) *Type {
+	// Accumulator frame carries the negation of every earlier condition.
+	c.env.push()
+	defer c.env.pop()
+
+	arms := make([]*Type, 0, len(e.Clauses)+1)
+	for _, cl := range e.Clauses {
+		c.walkExpressionDiscard(cl.Condition)
+
+		c.env.push()
+		c.applyRefinement(c.refine(cl.Condition, true))
+		arms = append(arms, c.typeOfExpression(cl.Value))
+		c.env.pop()
+
+		c.applyRefinement(c.refine(cl.Condition, false))
+	}
+	arms = append(arms, c.typeOfExpression(e.Else))
+	return NewUnion(arms...)
 }
 
 func (c *checker) typeOfTableConstructor(t *ast.TableConstructor) *Type {

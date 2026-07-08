@@ -72,6 +72,14 @@ func (p *Parser) parseStatement() ast.Statement {
 		return p.parseStructStatement()
 	}
 
+	// `continue` — jump to the next loop iteration. Contextual keyword
+	// (matching Luau): only a statement when the next token cannot extend
+	// `continue` into an expression, so `continue = 1`, `continue()`,
+	// `continue.x`, etc. still treat it as an ordinary identifier.
+	if p.curTokenIs(token.Ident) && p.curToken.Literal == "continue" && !p.peekStartsSuffix() {
+		return p.parseContinueStatement()
+	}
+
 	// Otherwise: assignment or function-call statement.
 	return p.parseExprOrAssignStatement()
 }
@@ -142,6 +150,34 @@ func (p *Parser) parseBreakStatement() ast.Statement {
 	return &ast.BreakStatement{BaseNode: baseAt(tok)}
 }
 
+// peekStartsSuffix reports whether the peek token could extend the current
+// identifier into a larger expression or an assignment — a call (`(`, string,
+// `{`), an index (`.`, `[`), a method call (`:`), a type assertion (`::`), or
+// an (possibly compound / multi-target) assignment. Used to decide whether a
+// bare `continue` is the contextual continue-statement or a plain identifier.
+func (p *Parser) peekStartsSuffix() bool {
+	switch p.peekToken.Type {
+	case token.Assign, token.Comma, token.Dot, token.Colon, token.Label,
+		token.LParen, token.LBracket, token.LBrace,
+		token.String, token.InterpString:
+		return true
+	}
+	_, isCompound := compoundOps[p.peekToken.Type]
+	return isCompound
+}
+
+func (p *Parser) parseContinueStatement() ast.Statement {
+	tok := p.curToken
+	if p.loopDepth == 0 {
+		p.errorAt(tok, errors.SyntaxError, "continue",
+			"'continue' outside a loop",
+			"continue is only valid inside a for, while, or repeat loop")
+		return nil
+	}
+	p.nextToken()
+	return &ast.ContinueStatement{BaseNode: baseAt(tok)}
+}
+
 func (p *Parser) parseGotoStatement() ast.Statement {
 	tok := p.curToken
 	if !p.expectPeek(token.Ident) {
@@ -200,6 +236,12 @@ func (p *Parser) parseLocalStatement() ast.Statement {
 				return nil
 			}
 			ln.Attrib = p.curToken.Literal
+			if ln.Attrib != "const" && ln.Attrib != "close" {
+				p.errorAt(p.curToken, errors.SyntaxError, "local",
+					fmt.Sprintf("unknown attribute '%s'", ln.Attrib),
+					"Lua 5.4 supports `<const>` and `<close>`")
+				return nil
+			}
 			p.nextToken()
 			if !p.expectCur(token.GT) {
 				return nil

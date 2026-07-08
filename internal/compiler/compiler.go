@@ -3,6 +3,7 @@ package compiler
 import (
 	"github.com/hilthontt/luascript/internal/compiler/ast"
 	"github.com/hilthontt/luascript/internal/compiler/bytecode"
+	"github.com/hilthontt/luascript/internal/compiler/constcheck"
 	"github.com/hilthontt/luascript/internal/compiler/lexer"
 	"github.com/hilthontt/luascript/internal/compiler/optimize"
 	"github.com/hilthontt/luascript/internal/compiler/parser"
@@ -36,6 +37,13 @@ func CompileToInstructionsWith(g *bytecode.Generator, input string, pm parser.Mo
 	if err != nil {
 		// Return the typed parser error directly so REPL callers can
 		// inspect its category via err.IsEOF() etc.
+		return nil, err
+	}
+
+	// Attribute enforcement (`<const>`/`<close>` reassignment) always runs —
+	// unlike the type checker it is not gated by `--!nocheck`, matching PUC
+	// Lua where assigning to a const local is a compile error.
+	if err := constcheck.Check(program); err != nil {
 		return nil, err
 	}
 
