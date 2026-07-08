@@ -10,6 +10,7 @@ package parser
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/hilthontt/luascript/internal/compiler/ast"
 	"github.com/hilthontt/luascript/internal/compiler/lexer"
@@ -303,6 +304,11 @@ func describeToken(t token.Token) string {
 	case token.Ident:
 		return "identifier '" + t.Literal + "'"
 	case token.Illegal:
+		// Multi-rune literals are lexer-authored descriptions (e.g.
+		// "unfinished string"), not source characters — render them as-is.
+		if utf8.RuneCountInString(t.Literal) > 1 {
+			return t.Literal
+		}
 		if t.Literal != "" {
 			return "illegal character '" + t.Literal + "'"
 		}

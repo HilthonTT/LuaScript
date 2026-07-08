@@ -31,6 +31,11 @@ const (
 
 	// HeaderContentSeparator is the header and content part separator.
 	HdrContentSeparator = "\r\n\r\n"
+
+	// maxContentLength bounds the allocation a single message header can
+	// demand (the buffer is allocated before any body bytes arrive), so a
+	// bogus Content-Length can't OOM the server.
+	maxContentLength = 128 * 1024 * 1024 // 128 MiB
 )
 
 // Framer wraps a network connection up into a Stream.
@@ -169,7 +174,7 @@ func (s *stream) Read(ctx context.Context) (Message, int64, error) {
 			if length, err = strconv.ParseInt(value, 10, 32); err != nil {
 				return nil, total, fmt.Errorf("failed parsing %s: %v: %w", HdrContentLength, value, err)
 			}
-			if length <= 0 {
+			if length <= 0 || length > maxContentLength {
 				return nil, total, fmt.Errorf("invalid %s: %v", HdrContentLength, length)
 			}
 		default:

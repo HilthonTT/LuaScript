@@ -141,13 +141,25 @@ func (p *Parser) buildInterpolation(tok token.Token, raw string) ast.Expression 
 		s = s[idx+1:]
 		depth, end := 1, 0
 		for end < len(s) && depth > 0 {
-			if s[end] == '{' {
+			switch s[end] {
+			case '{':
 				depth++
-			} else if s[end] == '}' {
+			case '}':
 				depth--
-				if depth == 0 {
-					break
+			case '"', '\'':
+				// Skip a nested quoted literal wholesale — a brace inside it
+				// is string content, not interpolation structure.
+				q := s[end]
+				end++
+				for end < len(s) && s[end] != q {
+					if s[end] == '\\' && end+1 < len(s) {
+						end++
+					}
+					end++
 				}
+			}
+			if depth == 0 {
+				break
 			}
 			end++
 		}

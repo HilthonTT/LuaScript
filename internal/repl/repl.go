@@ -1,6 +1,7 @@
 package repl
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"os"
@@ -18,9 +19,41 @@ import (
 	"github.com/hilthontt/luascript/internal/vm"
 )
 
+// lineReader is the subset of *readline.Instance the REPL loop needs; a
+// plain buffered reader satisfies it when readline can't grab the terminal.
+type lineReader interface {
+	Readline() (string, error)
+	SetPrompt(prompt string)
+	Close() error
+}
+
+// plainLineReader is the degraded-mode input path used when readline fails
+// to initialize (no controlling tty, redirected stdin, exotic consoles).
+// No history or completion — just prompt + line.
+type plainLineReader struct {
+	sc     *bufio.Scanner
+	out    io.Writer
+	prompt string
+}
+
+func (p *plainLineReader) Readline() (string, error) {
+	fmt.Fprint(p.out, p.prompt)
+	if !p.sc.Scan() {
+		if err := p.sc.Err(); err != nil {
+			return "", err
+		}
+		return "", io.EOF
+	}
+	return p.sc.Text(), nil
+}
+
+func (p *plainLineReader) SetPrompt(prompt string) { p.prompt = prompt }
+
+func (p *plainLineReader) Close() error { return nil }
+
 type REPL struct {
 	engine *engine
-	rl     *readline.Instance
+	rl     lineReader
 	vm     *vm.VM
 
 	// postInits run, in order, against every VM the REPL creates (the
@@ -95,10 +128,16 @@ func (r *REPL) RunFile(path string) {
 // NewREPL builds a REPL bound to v. The `in` argument is accepted for API
 // stability but unused: input is read through the readline instance, which
 // drives its own terminal handle.
-func NewREPL(v *vm.VM, _ io.Reader, out io.Writer) *REPL {
-	rl, err := readline.NewEx(&readline.Config{
+func NewREPL(v *vm.VM, in io.Reader, out io.Writer) *REPL {
+	historyFile := ""
+	if home, err := os.UserHomeDir(); err == nil {
+		historyFile = filepath.Join(home, ".lsc_repl_history")
+	}
+
+	var rl lineReader
+	inst, err := readline.NewEx(&readline.Config{
 		Prompt:                 promptReady,
-		HistoryFile:            os.ExpandEnv("$HOME/.lsc_repl_history"),
+		HistoryFile:            historyFile,
 		AutoComplete:           newCompleter(),
 		InterruptPrompt:        "\nInterrupted (Ctrl+D to exit)",
 		EOFPrompt:              "exit",
@@ -106,8 +145,15 @@ func NewREPL(v *vm.VM, _ io.Reader, out io.Writer) *REPL {
 		DisableAutoSaveHistory: false,
 	})
 	if err != nil {
-		// fallback
+		// Degrade to a dumb line reader rather than crashing on the first
+		// Readline call — no history/completion, but the REPL still works.
 		fmt.Fprintf(os.Stderr, "Warning: failed to initialize readline: %v\n", err)
+		if in == nil {
+			in = os.Stdin
+		}
+		rl = &plainLineReader{sc: bufio.NewScanner(in), out: out, prompt: promptReady}
+	} else {
+		rl = inst
 	}
 
 	return &REPL{

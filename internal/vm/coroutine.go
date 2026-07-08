@@ -75,17 +75,32 @@ func (co *Coroutine) goroutineBody(v *VM) {
 }
 
 // saveActiveTo copies the VM's live thread fields into t.
+//
+// Open upvalues point at the stack they were created over via a *[]Value.
+// While a thread is live that must be &v.Stack (appends can change the
+// header), but once the thread is parked v.Stack will belong to some other
+// thread — so retarget its upvalues at the thread's own saved stack.
+// A closure that escaped the thread (e.g. yielded out of a coroutine) then
+// keeps reading the suspended thread's slots instead of whichever thread
+// happens to be running.
 func (v *VM) saveActiveTo(t *Thread) {
 	t.Stack = v.Stack
 	t.Frames = v.frames
 	t.OpenUpvs = v.openUpvs
+	for _, u := range t.OpenUpvs {
+		u.Stack = &t.Stack
+	}
 }
 
-// loadActiveFrom installs t's fields as the VM's live thread.
+// loadActiveFrom installs t's fields as the VM's live thread and points its
+// open upvalues back at the live stack (see saveActiveTo).
 func (v *VM) loadActiveFrom(t *Thread) {
 	v.Stack = t.Stack
 	v.frames = t.Frames
 	v.openUpvs = t.OpenUpvs
+	for _, u := range v.openUpvs {
+		u.Stack = &v.Stack
+	}
 }
 
 // ---------------------------------------------------------------------------

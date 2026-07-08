@@ -118,6 +118,9 @@ func stubOffsetFrom(r io.ReaderAt, size int64) (int64, error) {
 		return 0, err
 	}
 	scriptLen := binary.LittleEndian.Uint64(buf8)
+	if scriptLen > maxPayloadBytes {
+		return 0, fmt.Errorf("malformed trailer: script length %d exceeds limit", scriptLen)
+	}
 	buf2 := make([]byte, 2)
 	if _, err := r.ReadAt(buf2, size-int64(trailerMagicLen)-8-2); err != nil {
 		return 0, err

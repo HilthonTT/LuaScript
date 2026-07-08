@@ -353,7 +353,10 @@ func (g *Generator) compileWhile(is *InstructionSet, s *ast.WhileStatement) {
 	jf := is.define(JumpIfFalse, s.Line(), exitAnchor)
 	g.current.recordPending(jf)
 
-	closeBase := g.current.locals.maxSlot
+	// Loop-body locals start at the CURRENT live slot count, not maxSlot —
+	// the high-water mark can sit above them when an earlier sibling scope
+	// used more slots, which would leave body captures unclosed.
+	closeBase := g.current.locals.nextSlot
 	protos := len(is.Protos)
 	contAnchor := &anchor{}
 	g.current.loops = append(g.current.loops, &loopFrame{breakAnchor: exitAnchor, continueAnchor: contAnchor})
@@ -379,7 +382,8 @@ func (g *Generator) compileRepeat(is *InstructionSet, s *ast.RepeatStatement) {
 	// Repeat's `until` condition is evaluated in the scope of locals declared
 	// in the body. We open the scope manually so the condition can see them.
 	g.current.locals.openScope()
-	closeBase := g.current.locals.maxSlot
+	// See compileWhile: use the live slot count, not the high-water mark.
+	closeBase := g.current.locals.nextSlot
 	protos := len(is.Protos)
 	if s.Body != nil {
 		for _, st := range s.Body.Statements {
@@ -553,7 +557,7 @@ func (g *Generator) compileGoto(is *InstructionSet, s *ast.GotoStatement) {
 	a := &anchor{}
 	j := is.define(Jump, s.Line(), a)
 	g.current.recordPending(j)
-	g.current.pendingGotos = append(g.current.pendingGotos, pendingGoto{label: s.Label, anchor: a})
+	g.current.pendingGotos = append(g.current.pendingGotos, pendingGoto{label: s.Label, line: s.Line(), anchor: a})
 }
 
 // compileDefer lowers `defer <call>` by wrapping the call in a zero-arg

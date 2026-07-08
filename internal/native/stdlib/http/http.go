@@ -125,7 +125,9 @@ func addShortcut(methods *vm.Table, name, method string, hasBody bool) {
 // are captured in the closure so each method invocation merges them with
 // per-request opts.
 func newClient(opts *vm.Table) *vm.Table {
-	hc := &http.Client{}
+	// Same default as clientFromTimeout — without it a client built with no
+	// explicit timeout would wait forever on an unresponsive server.
+	hc := &http.Client{Timeout: defaultTimeout}
 	var baseURL string
 	var defaultHeaders *vm.Table
 	if opts != nil {

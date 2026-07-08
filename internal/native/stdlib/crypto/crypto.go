@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/sha1"
 	"crypto/sha256"
+	"crypto/sha3"
 	"crypto/sha512"
 	"crypto/subtle"
 	"encoding/base64"
@@ -43,6 +44,10 @@ func newCrypto() *vm.Table {
 	})
 	hashFn("sha1", func(b []byte) string {
 		h := sha1.Sum(b)
+		return hex.EncodeToString(h[:])
+	})
+	hashFn("sha3", func(b []byte) string {
+		h := sha3.Sum256(b)
 		return hex.EncodeToString(h[:])
 	})
 	hashFn("sha256", func(b []byte) string {
@@ -114,8 +119,11 @@ func newCrypto() *vm.Table {
 	// crypto.random_bytes(n) -> raw string of n crypto-random bytes.
 	methods.Set("random_bytes", &vm.GoFunc{Name: "crypto:random_bytes", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 		n := vm.IntArg("crypto.random_bytes", 1, args)
-		if n < 0 {
-			panic(vm.Errorf("crypto.random_bytes: count must be non-negative, got %d", n))
+		// Upper bound keeps a script-supplied count from forcing an
+		// unrecoverable OOM (Go OOM is fatal — pcall can't catch it).
+		const maxRandomBytes = 64 * 1024 * 1024
+		if n < 0 || n > maxRandomBytes {
+			panic(vm.Errorf("crypto.random_bytes: count must be between 0 and %d, got %d", int64(maxRandomBytes), n))
 		}
 		buf := make([]byte, n)
 		if _, err := rand.Read(buf); err != nil {

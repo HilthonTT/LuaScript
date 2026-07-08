@@ -112,7 +112,13 @@ func structMetatable(name string, fields []string) *vm.Table {
 	mt.Set("__tostring", &vm.GoFunc{
 		Name: name + ".__tostring",
 		Fn: func(_ *vm.VM, a []vm.Value) []vm.Value {
-			self, _ := a[0].(*vm.Table)
+			var self *vm.Table
+			if len(a) > 0 {
+				self, _ = a[0].(*vm.Table)
+			}
+			if self == nil {
+				return []vm.Value{name + "{}"}
+			}
 			var b strings.Builder
 			b.WriteString(name)
 			b.WriteString("{ ")

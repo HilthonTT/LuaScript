@@ -91,16 +91,19 @@ func linalgLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
 		if n < 1 {
 			panic(vm.Errorf("linalg.identity: size must be >= 1, got %d", n))
 		}
+		checkDims("linalg.identity", n, n)
 		return []vm.Value{matToTable(identity(n))}
 	})
 	set("zeros", func(_ *vm.VM, args []vm.Value) []vm.Value {
 		r := int(vm.IntArg("linalg.zeros", 1, args))
 		c := int(vm.IntArg("linalg.zeros", 2, args))
+		checkDims("linalg.zeros", r, c)
 		return []vm.Value{matToTable(filled(r, c, 0))}
 	})
 	set("ones", func(_ *vm.VM, args []vm.Value) []vm.Value {
 		r := int(vm.IntArg("linalg.ones", 1, args))
 		c := int(vm.IntArg("linalg.ones", 2, args))
+		checkDims("linalg.ones", r, c)
 		return []vm.Value{matToTable(filled(r, c, 1))}
 	})
 	set("trace", func(_ *vm.VM, args []vm.Value) []vm.Value {
@@ -218,6 +221,19 @@ func identity(n int) [][]float64 {
 		out[i][i] = 1
 	}
 	return out
+}
+
+// maxMatElems bounds script-supplied matrix dimensions so they can't force
+// an unrecoverable OOM (fatal, not pcall-catchable) via zeros/ones/identity.
+const maxMatElems = 1 << 26 // 64M elements ≈ 512 MiB of float64
+
+func checkDims(fn string, r, c int) {
+	if r < 0 || c < 0 {
+		panic(vm.Errorf("%s: dimensions must be non-negative, got %dx%d", fn, r, c))
+	}
+	if r > 0 && c > maxMatElems/r {
+		panic(vm.Errorf("%s: %dx%d exceeds %d elements", fn, r, c, maxMatElems))
+	}
 }
 
 func filled(r, c int, v float64) [][]float64 {

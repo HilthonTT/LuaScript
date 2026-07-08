@@ -1,6 +1,10 @@
 package bytecode
 
-import "github.com/hilthontt/luascript/internal/compiler/ast"
+import (
+	"fmt"
+
+	"github.com/hilthontt/luascript/internal/compiler/ast"
+)
 
 // funcCtx is the per-function emission state. The main chunk is itself a
 // vararg function with no parameters.
@@ -17,6 +21,7 @@ type funcCtx struct {
 
 type pendingGoto struct {
 	label  string
+	line   int
 	anchor *anchor
 }
 
@@ -34,6 +39,26 @@ type Generator struct {
 	REPL    bool
 	chunks  []*InstructionSet // every emitted instruction set, main chunk first
 	current *funcCtx
+	errs    []error // generation errors (e.g. goto to an undefined label)
+}
+
+// Err returns the first generation error, or nil. An unresolved forward
+// goto would otherwise keep its anchor at line 0 and silently compile into
+// a jump to the start of the function.
+func (g *Generator) Err() error {
+	if len(g.errs) == 0 {
+		return nil
+	}
+	return g.errs[0]
+}
+
+// checkPendingGotos records an error for every goto in ctx whose label never
+// appeared. Called when a function (or the main chunk) finishes emitting.
+func (g *Generator) checkPendingGotos(ctx *funcCtx) {
+	for _, p := range ctx.pendingGotos {
+		g.errs = append(g.errs, fmt.Errorf("line %d: no visible label '%s' for goto", p.line, p.label))
+	}
+	ctx.pendingGotos = nil
 }
 
 // NewGenerator creates a fresh generator.
@@ -62,6 +87,7 @@ func (g *Generator) InitTopLevelScope(_ *ast.Program) {
 func (g *Generator) GenerateInstructions(stmts []ast.Statement) []*InstructionSet {
 	g.compileStatements(stmts)
 	g.endInstructions(g.current.is, lastLine(stmts))
+	g.checkPendingGotos(g.current)
 
 	// Resolve every forward-jump anchor: every *anchor stored in any
 	// param position is replaced with its final target line, both in the
@@ -137,6 +163,7 @@ func (g *Generator) pushFunction(name string, params []ast.TypedParam, isVararg 
 // local-count, registers it on the parent's Protos, and returns its index.
 func (g *Generator) popFunction(parent *funcCtx, sourceLine int) int {
 	g.endInstructions(g.current.is, sourceLine)
+	g.checkPendingGotos(g.current)
 	g.current.is.NumLocals = g.current.locals.maxSlot
 	g.current.is.Upvalues = g.current.upvals
 

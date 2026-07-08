@@ -33,12 +33,15 @@ func (GitFetcher) Fetch(spec Spec, destDir string) (string, error) {
 	// clone + checkout when the ref is a commit hash (which --branch rejects)
 	// or the shallow clone otherwise fails.
 	if spec.Ref != "" {
+		if err := validateRef(spec.Ref); err != nil {
+			return "", err
+		}
 		if err := run("git", "clone", "--depth", "1", "--branch", spec.Ref, url, destDir); err != nil {
 			_ = os.RemoveAll(destDir)
 			if err := run("git", "clone", url, destDir); err != nil {
 				return "", fmt.Errorf("git clone %s: %w", url, err)
 			}
-			if err := run("git", "-C", destDir, "checkout", "--quiet", spec.Ref); err != nil {
+			if err := run("git", "-C", destDir, "checkout", "--quiet", spec.Ref, "--"); err != nil {
 				_ = os.RemoveAll(destDir)
 				return "", fmt.Errorf("git checkout %s: %w", spec.Ref, err)
 			}
@@ -62,6 +65,24 @@ func (GitFetcher) Fetch(spec Spec, destDir string) (string, error) {
 		return "", fmt.Errorf("removing .git from %s: %w", destDir, err)
 	}
 	return commit, nil
+}
+
+// validateRef rejects refs git would parse as command-line options (leading
+// '-') and characters outside the branch/tag/commit-hash grammar, so a
+// manifest entry can never smuggle flags into the git invocations above.
+func validateRef(ref string) error {
+	if strings.HasPrefix(ref, "-") {
+		return fmt.Errorf("invalid ref %q: must not begin with '-'", ref)
+	}
+	for _, r := range ref {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case r == '.', r == '_', r == '-', r == '/', r == '+', r == '~', r == '^', r == '@':
+		default:
+			return fmt.Errorf("invalid character %q in ref %q", r, ref)
+		}
+	}
+	return nil
 }
 
 // run executes a command, forwarding stderr so git's own diagnostics reach the
