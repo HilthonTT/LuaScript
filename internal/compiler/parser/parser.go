@@ -61,6 +61,18 @@ type Parser struct {
 	// the enclosing loop across a function boundary, matching Lua.
 	loopDepth int
 
+	// structNames records every `struct Name` declared so far in this
+	// chunk, and enumVariants every payload-carrying tagged-enum variant.
+	// The match-statement desugar uses them to disambiguate call-shaped
+	// patterns: `Circle(r)` positionally destructures (tests __tag) only
+	// when Circle is a known tagged-enum variant, and `Point{ x = a }`
+	// destructures by name only when Point is a known struct; otherwise
+	// the expression stays a value pattern (call the function, compare
+	// the result). Without the gate, any `f(x)` with identifier args
+	// silently flipped into a never-matching __tag probe.
+	structNames  map[string]bool
+	enumVariants map[string]bool
+
 	// depth tracks nesting of the recursive parse funnels (expressions,
 	// types, blocks). Without a bound, pathologically nested input — e.g. a
 	// megabyte of `(((…)))` — drives the recursive-descent parser past the Go

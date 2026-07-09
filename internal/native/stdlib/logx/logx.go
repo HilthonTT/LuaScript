@@ -234,13 +234,17 @@ func emitFunc(s *state, lvl Level) *vm.GoFunc {
 }
 
 // emit renders one record. Below-threshold calls are dropped before any
-// formatting work so a noisy log.debug loop in production is cheap. We
-// hold the mutex across the Write so two concurrent emits don't interleave
+// formatting work so a noisy log.debug loop in production is cheap. The
+// record is rendered fully BEFORE taking the mutex: renderArg can run a
+// user __tostring metamethod, and if that metamethod logs, a lock held
+// across it would deadlock the non-reentrant mutex on this goroutine. The
+// mutex only guards the final Write so concurrent emits don't interleave
 // partial lines.
 func (s *state) emit(vmRef *vm.VM, lvl Level, args []vm.Value) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if lvl < s.level {
+	level, prefix, out := s.level, s.prefix, s.out
+	s.mu.Unlock()
+	if lvl < level {
 		return
 	}
 
@@ -249,8 +253,8 @@ func (s *state) emit(vmRef *vm.VM, lvl Level, args []vm.Value) {
 	b.WriteString(" [")
 	b.WriteString(levelName[lvl])
 	b.WriteString("] ")
-	if s.prefix != "" {
-		b.WriteString(s.prefix)
+	if prefix != "" {
+		b.WriteString(prefix)
 		b.WriteByte(' ')
 	}
 	for i, a := range args {
@@ -260,7 +264,10 @@ func (s *state) emit(vmRef *vm.VM, lvl Level, args []vm.Value) {
 		b.WriteString(renderArg(vmRef, a))
 	}
 	b.WriteByte('\n')
-	_, _ = io.WriteString(s.out, b.String())
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, _ = io.WriteString(out, b.String())
 }
 
 // renderArg renders one log argument. Strings pass through verbatim;

@@ -138,7 +138,7 @@ func TestPatternGSubWithTable(t *testing.T) {
 }
 
 func TestPatternGMatchIter(t *testing.T) {
-	it := NewGMatchIter("the quick brown fox", "%a+")
+	it := NewGMatchIter("the quick brown fox", "%a+", 1)
 	want := []string{"the", "quick", "brown", "fox"}
 	for i := 0; ; i++ {
 		r := it.Next()

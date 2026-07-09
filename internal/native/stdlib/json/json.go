@@ -171,5 +171,20 @@ func isArrayTable(t *vm.Table) bool {
 			return false
 		}
 	}
-	return true
+	// A mixed table ({1,2,3, name="x"}) must NOT encode as an array — that
+	// would silently drop the hash keys. Count the total entries: exactly n
+	// means a pure 1..n array.
+	count := int64(0)
+	var key vm.Value
+	for {
+		key, _ = t.Next(key)
+		if key == nil {
+			break
+		}
+		count++
+		if count > n {
+			return false
+		}
+	}
+	return count == n
 }

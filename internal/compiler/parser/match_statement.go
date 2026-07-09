@@ -270,13 +270,13 @@ func (p *Parser) parseOnePattern() (mpattern, bool) {
 	}
 
 	// Otherwise parse a full expression and classify it. A call-shaped
-	// expression whose arguments are plain binders is a destructure; anything
-	// else is a value pattern compared with `==`.
+	// expression naming a declared struct whose arguments are plain binders
+	// is a destructure; anything else is a value pattern compared with `==`.
 	expr := p.parseExpression()
 	if expr == nil {
 		return mpattern{}, false
 	}
-	return classifyPattern(expr), true
+	return p.classifyPattern(expr), true
 }
 
 // parseTypedPattern reads the `Type` half of a `name : Type` pattern. The
@@ -304,8 +304,16 @@ func (p *Parser) parseTypedPattern(name string) (mpattern, bool) {
 
 // classifyPattern decides whether an already-parsed expression is a
 // destructure pattern (call-shaped with binder arguments) or a plain value
-// pattern.
-func classifyPattern(expr ast.Expression) mpattern {
+// pattern. Destructuring requires the callee to name a declaration from
+// this chunk — a payload-carrying tagged-enum variant for the positional
+// form (`Circle(r)` reads __tag + payload slots) or a struct for the named
+// form (`Point{ x = a }` reads typeof + named fields). Without that gate,
+// an ordinary value pattern like `double(a)` (call double, compare the
+// result) would silently flip into a never-matching `__tag` probe the
+// moment its argument is an identifier instead of a literal. Variants and
+// structs imported from other modules therefore match as value patterns;
+// use a guard for those.
+func (p *Parser) classifyPattern(expr ast.Expression) mpattern {
 	call, ok := expr.(*ast.CallExpression)
 	if !ok {
 		return mpattern{kind: mpValue, value: expr}
@@ -319,11 +327,15 @@ func classifyPattern(expr ast.Expression) mpattern {
 	// table-constructor argument).
 	if len(call.Args) == 1 {
 		if tc, ok := call.Args[0].(*ast.TableConstructor); ok {
-			if binders, ok := namedBinders(tc); ok {
+			if binders, ok := namedBinders(tc); ok && p.structNames[seg] {
 				return mpattern{kind: mpDestructureNamed, tag: seg, namedBind: binders}
 			}
 			return mpattern{kind: mpValue, value: expr}
 		}
+	}
+
+	if !p.enumVariants[seg] {
+		return mpattern{kind: mpValue, value: expr}
 	}
 
 	// Positional form: `Name(a, b, _)` — every argument must be a plain

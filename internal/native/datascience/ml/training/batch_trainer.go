@@ -69,6 +69,12 @@ func (t *BatchTrainer) Train(n *ml.Neural, examples, validation Examples, iterat
 	workCh := make(chan Example, t.parallelism)
 	nets := make([]*ml.Neural, t.parallelism)
 
+	// A panic on a worker goroutine is unrecoverable and would kill the
+	// whole process (and leave wg.Wait deadlocked). Capture the first one
+	// and re-raise it on the calling goroutine, where the VM's pcall
+	// machinery can handle it.
+	var panicMu sync.Mutex
+	var panicVal any
 	wg := sync.WaitGroup{}
 	for i := 0; i < t.parallelism; i++ {
 		nets[i] = ml.NewNeural(n.Config)
@@ -76,9 +82,20 @@ func (t *BatchTrainer) Train(n *ml.Neural, examples, validation Examples, iterat
 		go func(id int, workCh <-chan Example) {
 			n := nets[id]
 			for e := range workCh {
-				n.Forward(e.Input)
-				t.calculateDeltas(n, e.Response, id)
-				wg.Done()
+				func() {
+					defer wg.Done()
+					defer func() {
+						if r := recover(); r != nil {
+							panicMu.Lock()
+							if panicVal == nil {
+								panicVal = r
+							}
+							panicMu.Unlock()
+						}
+					}()
+					n.Forward(e.Input)
+					t.calculateDeltas(n, e.Response, id)
+				}()
 			}
 		}(i, workCh)
 	}
@@ -102,6 +119,12 @@ func (t *BatchTrainer) Train(n *ml.Neural, examples, validation Examples, iterat
 				workCh <- item
 			}
 			wg.Wait()
+			panicMu.Lock()
+			r := panicVal
+			panicMu.Unlock()
+			if r != nil {
+				panic(r)
+			}
 
 			for _, wPD := range t.partialDeltas {
 				for i, iPD := range wPD {

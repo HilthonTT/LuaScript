@@ -135,6 +135,12 @@ func newUTF8() *vm.Table {
 			if n < 0 {
 				return []vm.Value{nil}
 			}
+		default:
+			// n == 0 (Lua 5.4 special case): return the start of the
+			// character encoding that contains byte i.
+			for idx > 0 && idx < len(s) && (s[idx]&0xC0) == 0x80 {
+				idx--
+			}
 		}
 		return []vm.Value{int64(idx + 1)}
 	})

@@ -151,8 +151,10 @@ func newIO() *vm.Table {
 		for _, a := range args {
 			fmt.Fprint(defaultOut.f, vm.ToStringMM(v, a))
 		}
-		// Lua returns the default-output handle so io.write() chains.
-		return []vm.Value{stdoutT}
+		// Lua returns the CURRENT default-output handle so io.write() chains
+		// — after io.output(f), a chained :write must keep writing to f, not
+		// jump back to stdout.
+		return []vm.Value{newFileTable(defaultOut)}
 	})
 
 	add("close", func(_ *vm.VM, args []vm.Value) []vm.Value {
@@ -169,11 +171,10 @@ func newIO() *vm.Table {
 	})
 
 	add("flush", func(_ *vm.VM, _ []vm.Value) []vm.Value {
-		if defaultOut.closed || defaultOut.isStd {
-			return []vm.Value{stdoutT}
+		if !defaultOut.closed && !defaultOut.isStd {
+			_ = defaultOut.f.Sync()
 		}
-		_ = defaultOut.f.Sync()
-		return []vm.Value{stdoutT}
+		return []vm.Value{newFileTable(defaultOut)}
 	})
 
 	add("tmpfile", func(_ *vm.VM, _ []vm.Value) []vm.Value {

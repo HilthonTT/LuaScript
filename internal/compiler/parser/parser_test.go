@@ -515,7 +515,14 @@ return fib(10)
 //	end
 func matchArms(t *testing.T, src string) (*ast.LocalStatement, []*ast.IfStatement) {
 	t.Helper()
-	stmt := parseExpect1(t, src)
+	// src may open with enum/struct declarations (destructure patterns only
+	// engage for names declared in the chunk); the match desugar is the
+	// LAST statement.
+	prog := parse(t, src)
+	if len(prog.Block.Statements) == 0 {
+		t.Fatalf("no statements parsed for %q", src)
+	}
+	stmt := prog.Block.Statements[len(prog.Block.Statements)-1]
 	do, ok := stmt.(*ast.DoStatement)
 	if !ok {
 		t.Fatalf("match did not desugar to DoStatement, got %T", stmt)
@@ -862,7 +869,8 @@ end`)
 }
 
 func TestMatchPositionalDestructureDesugar(t *testing.T) {
-	_, arms := matchArms(t, `match s do
+	_, arms := matchArms(t, `enum Shape Circle(number), Rect(number, number) end
+match s do
 Shape.Circle(r) -> print(r)
 end`)
 	if got := armTest(arms[0]); !contains(got, `(type(__match_1) == "table")`) || !contains(got, `(__match_1.__tag == "Circle")`) {
@@ -876,7 +884,8 @@ end`)
 }
 
 func TestMatchNamedDestructureDesugar(t *testing.T) {
-	_, arms := matchArms(t, `match p do
+	_, arms := matchArms(t, `struct Point { x: number, y: number }
+match p do
 Point{ x = px, y = py } -> print(px, py)
 end`)
 	if got := armTest(arms[0]); !contains(got, `(typeof(__match_1) == "Point")`) {
@@ -900,7 +909,8 @@ end`)
 }
 
 func TestMatchUnderscoreSkipsBinding(t *testing.T) {
-	_, arms := matchArms(t, `match s do
+	_, arms := matchArms(t, `enum Shape Circle(number), Rect(number, number) end
+match s do
 Shape.Rect(_, h) -> print(h)
 end`)
 	// Only `h` is bound; the `_` position produces no local.

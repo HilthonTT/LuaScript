@@ -131,7 +131,7 @@ func buildCodes(msg string) (map[rune][]bool, error) {
 // so the greedy match is always correct; unmatched trailing bits mean
 // the input is truncated or doesn't belong to this codebook.
 func decodeBits(bits string, reverse map[string]rune) (string, error) {
-	var out []rune
+	var out []byte
 	var cur strings.Builder
 	for i := 0; i < len(bits); i++ {
 		c := bits[i]
@@ -140,7 +140,9 @@ func decodeBits(bits string, reverse map[string]rune) (string, error) {
 		}
 		cur.WriteByte(c)
 		if r, ok := reverse[cur.String()]; ok {
-			out = append(out, r)
+			// Symbols are single bytes; appending the rune via string(out)
+			// would UTF-8 encode bytes >= 128 and corrupt binary data.
+			out = append(out, byte(r))
 			cur.Reset()
 		}
 	}
@@ -179,7 +181,8 @@ func codesToTable(codes map[rune][]bool) *vm.Table {
 	t := vm.NewTable(len(runes), 0)
 	for i, r := range runes {
 		pair := vm.NewTable(2, 0)
-		pair.Set(int64(1), string(r))
+		// Symbols are single bytes — emit the raw byte, not its UTF-8 form.
+		pair.Set(int64(1), string([]byte{byte(r)}))
 		pair.Set(int64(2), bitsToString(codes[r]))
 		t.Set(int64(i+1), pair)
 	}
@@ -206,11 +209,10 @@ func tableToReverseMap(t *vm.Table) (map[string]rune, error) {
 		if !ok {
 			return nil, fmt.Errorf("codes[%d][2] is not a string code", i)
 		}
-		runes := []rune(sym)
-		if len(runes) != 1 {
-			return nil, fmt.Errorf("codes[%d][1] must be a single rune, got %q", i, sym)
+		if len(sym) != 1 {
+			return nil, fmt.Errorf("codes[%d][1] must be a single byte, got %q", i, sym)
 		}
-		rev[code] = runes[0]
+		rev[code] = rune(sym[0])
 	}
 	return rev, nil
 }

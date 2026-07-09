@@ -32,6 +32,19 @@ type pendingGoto struct {
 type loopFrame struct {
 	breakAnchor    *anchor
 	continueAnchor *anchor
+
+	// Repeat-only bookkeeping (isRepeat is false for the other loop forms).
+	// A `continue` in repeat jumps straight to the `until` condition, which
+	// is evaluated in the scope of body locals — so a local declared after
+	// the continue is in scope there but its initialization was skipped on
+	// that iteration, and its slot may hold a stale internal temporary.
+	// Like Luau, we reject such programs at compile time (see
+	// compileRepeat). repeatScopeIdx is the index of the repeat body's
+	// scope frame; minContinueBindings is the fewest bindings that scope
+	// held at any `continue` site (-1 = no continue seen).
+	isRepeat            bool
+	repeatScopeIdx      int
+	minContinueBindings int
 }
 
 // Generator drives bytecode emission for an entire program.

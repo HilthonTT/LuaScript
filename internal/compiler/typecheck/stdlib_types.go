@@ -176,7 +176,7 @@ func stringModule() *Type {
 			[]*Type{stringT, stringT, Optional(numberT)},
 			[]*Type{Optional(anyT)}, true, anyT)},
 		{Key: "gmatch", Type: NewFunction(
-			[]*Type{stringT, stringT},
+			[]*Type{stringT, stringT, Optional(numberT)},
 			[]*Type{anyT}, false, nil)},
 		{Key: "gsub", Type: NewFunction(
 			[]*Type{stringT, stringT, anyT, Optional(numberT)},
@@ -198,6 +198,11 @@ func tableModule() *Type {
 		{Key: "concat", Type: NewFunction(
 			[]*Type{anyT, Optional(stringT), Optional(numberT), Optional(numberT)},
 			[]*Type{stringT}, false, nil)},
+
+		// table.sort(t [, comp]) — comparator is (any, any) -> boolean
+		{Key: "sort", Type: NewFunction(
+			[]*Type{anyT, Optional(NewFunction([]*Type{anyT, anyT}, []*Type{booleanT}, false, nil))},
+			nil, false, nil)},
 
 		// table.unpack(t [, i [, j]]) -> ...any
 		{Key: "unpack", Type: NewFunction([]*Type{anyT, Optional(numberT), Optional(numberT)},

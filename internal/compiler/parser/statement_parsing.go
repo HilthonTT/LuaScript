@@ -772,6 +772,13 @@ func (p *Parser) parseEnumStatement() *ast.EnumStatement {
 				return nil
 			}
 			variant.Payload = payload
+			// Register the variant so match patterns can tell positional
+			// destructures (`Circle(r)`) apart from call-shaped value
+			// patterns (`f(x)`).
+			if p.enumVariants == nil {
+				p.enumVariants = make(map[string]bool)
+			}
+			p.enumVariants[name] = true
 		}
 		stmt.Variants = append(stmt.Variants, variant)
 	}

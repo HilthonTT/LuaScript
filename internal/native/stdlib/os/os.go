@@ -117,10 +117,12 @@ func newOS() *vm.Table {
 
 	methods.Set("remove", &vm.GoFunc{Name: "os:remove", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 		path := vm.StringArg("os:remove", 1, args)
+		// Lua contract (same as os.rename below): true on success,
+		// nil + message on failure — not an error the caller must pcall.
 		if err := osStd.Remove(path); err != nil {
-			panic(vm.Errorf("os:remove: %s", err.Error()))
+			return []vm.Value{nil, err.Error()}
 		}
-		return nil
+		return []vm.Value{true}
 	}})
 
 	methods.Set("mkdir", &vm.GoFunc{Name: "os:mkdir", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
@@ -429,10 +431,12 @@ func newOSFile(handle *osStd.File) *vm.Table {
 	// the contract obvious; scripts that want forgiving close
 	// behavior can wrap in pcall.
 	methods.Set("close", &vm.GoFunc{Name: "file:close", Fn: func(_ *vm.VM, _ []vm.Value) []vm.Value {
+		// Double-close is benign (the io module treats it the same way):
+		// report failure as nil + message rather than raising.
 		if err := handle.Close(); err != nil {
-			panic(vm.Errorf("file:close: %s", err.Error()))
+			return []vm.Value{nil, err.Error()}
 		}
-		return nil
+		return []vm.Value{true}
 	}})
 
 	mt := vm.NewTable(0, 1)

@@ -31,8 +31,16 @@ type Lexer struct {
 }
 
 func New(input string) *Lexer {
+	runes := []rune(input)
+	// Skip a leading UTF-8 BOM (U+FEFF) — editors (Windows Notepad in
+	// particular) prepend one, and Lua 5.4's loader skips it too. Doing it
+	// here covers every consumer: RunFile, load(), the REPL, -dis, fmt,
+	// and analyze.
+	if len(runes) > 0 && runes[0] == 0xFEFF {
+		runes = runes[1:]
+	}
 	l := &Lexer{
-		input: []rune(input),
+		input: runes,
 		line:  1,
 	}
 	l.readChar()

@@ -162,12 +162,39 @@ func trainNet(n *ml.Neural, opts *vm.Table) {
 		validation = parseExamples("net:train.validation", vt)
 	}
 
+	// Validate example shapes against the network before training starts:
+	// a short response would otherwise index out of range deep inside the
+	// trainer — on a worker goroutine for the batch trainer, where the panic
+	// is unrecoverable and kills the whole process.
+	inSize := n.Config.Inputs
+	outSize := n.Config.Layout[len(n.Config.Layout)-1]
+	checkShapes := func(site string, ex training.Examples) {
+		for i, e := range ex {
+			if len(e.Input) != inSize {
+				panic(vm.Errorf("%s: example %d input has %d values, network expects %d",
+					site, i+1, len(e.Input), inSize))
+			}
+			if len(e.Response) != outSize {
+				panic(vm.Errorf("%s: example %d response has %d values, network expects %d",
+					site, i+1, len(e.Response), outSize))
+			}
+		}
+	}
+	checkShapes("net:train.data", data)
+	checkShapes("net:train.validation", validation)
+
 	solver := parseSolver(opts.Get("solver"))
 
 	var trainer training.Trainer
 	if bt, ok := tableField(opts, "batch"); ok {
 		size := int(intField("net:train.batch", bt, "size", 16))
 		parallelism := int(intField("net:train.batch", bt, "parallelism", 1))
+		if size < 1 {
+			panic(vm.Errorf("net:train.batch: 'size' must be a positive integer, got %d", size))
+		}
+		if parallelism < 1 {
+			panic(vm.Errorf("net:train.batch: 'parallelism' must be a positive integer, got %d", parallelism))
+		}
 		trainer = training.NewBatchTrainer(solver, verbosity, size, parallelism)
 	} else {
 		trainer = training.NewTrainer(solver, verbosity)

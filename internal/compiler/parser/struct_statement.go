@@ -40,6 +40,12 @@ func (p *Parser) parseStructStatement() ast.Statement {
 		BaseNode: baseAt(structTok),
 		Name:     &ast.Identifier{BaseNode: baseAt(p.curToken), Name: p.curToken.Literal},
 	}
+	// Register the name so match patterns can tell struct destructures
+	// apart from ordinary call-shaped value patterns.
+	if p.structNames == nil {
+		p.structNames = make(map[string]bool)
+	}
+	p.structNames[stmt.Name.Name] = true
 	p.nextToken() // consume name
 
 	// Optional generic parameter list `<T, U>`.

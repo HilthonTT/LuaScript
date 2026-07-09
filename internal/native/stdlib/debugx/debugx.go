@@ -127,6 +127,11 @@ func formatTraceback(v *vm.VM, msg string, level int) string {
 	// entry shown. The traceback line itself was already pushed onto
 	// frames by the time we run, so level=1 hides this function's frame.
 	end := len(frames) - level
+	if level <= 0 || end > len(frames) {
+		// Negative or zero level lists every frame (and must not index
+		// past the slice).
+		end = len(frames)
+	}
 	if end < 0 {
 		end = 0
 	}

@@ -347,6 +347,7 @@ func safeCall(v *VM, fn Value, args []Value) (rs []Value, errVal Value, failed b
 	// pushed before bubbling the error back to the pcall caller.
 	frameDepth := len(v.frames)
 	stackTop := len(v.Stack)
+	markDepth := len(v.callMarks)
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -368,6 +369,10 @@ func safeCall(v *VM, fn Value, args []Value) (rs []Value, errVal Value, failed b
 			v.closeUpvaluesAbove(stackTop)
 			v.frames = v.frames[:frameDepth]
 			v.Stack = v.Stack[:stackTop]
+			// An error thrown between a MarkArgs and its matching Call
+			// leaves pending marks behind; drop them or the enclosing
+			// variadic call pops a stale mark and reads a bogus args base.
+			v.callMarks = v.callMarks[:markDepth]
 			failed = true
 			errVal = recoverValue(r)
 		}

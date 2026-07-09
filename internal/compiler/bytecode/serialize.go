@@ -93,7 +93,7 @@ func DeserializeChunk(r io.Reader) (*InstructionSet, error) {
 	if opCount != uint64(InstructionCount) {
 		return nil, fmt.Errorf("bytecode: chunk built with %d opcodes, this build has %d", opCount, InstructionCount)
 	}
-	return readInstructionSet(br)
+	return readInstructionSet(br, 0)
 }
 
 func writeInstructionSet(w *bufio.Writer, is *InstructionSet) error {
@@ -129,7 +129,17 @@ func writeInstructionSet(w *bufio.Writer, is *InstructionSet) error {
 	return err
 }
 
-func readInstructionSet(r *bufio.Reader) (*InstructionSet, error) {
+// maxSerialDepth bounds proto nesting during deserialization. Legitimate
+// chunks nest one level per lexically nested function — nowhere near this —
+// while a crafted/corrupt stream of single-child nesting levels would
+// otherwise recurse to an unrecoverable Go stack overflow instead of the
+// graceful decode-error fallback the bccache contract relies on.
+const maxSerialDepth = 200
+
+func readInstructionSet(r *bufio.Reader, depth int) (*InstructionSet, error) {
+	if depth > maxSerialDepth {
+		return nil, fmt.Errorf("bytecode chunk exceeds max proto nesting depth %d", maxSerialDepth)
+	}
 	is := &InstructionSet{}
 	var err error
 	if is.name, err = readString(r); err != nil {
@@ -189,7 +199,7 @@ func readInstructionSet(r *bufio.Reader) (*InstructionSet, error) {
 	if nProto > 0 {
 		is.Protos = make([]*InstructionSet, nProto)
 		for i := range is.Protos {
-			if is.Protos[i], err = readInstructionSet(r); err != nil {
+			if is.Protos[i], err = readInstructionSet(r, depth+1); err != nil {
 				return nil, err
 			}
 		}
@@ -291,7 +301,7 @@ func rebuildParams(ins *Instruction) []any {
 	case GetGlobal, SetGlobal, GetField, SetField, Self:
 		return []any{ins.StrA}
 	case LoadNil, LoadVararg, Pop, Concat, Return,
-		Closure, GetLocal, SetLocal, GetUpvalue, SetUpvalue,
+		Closure, GetLocal, SetLocal, GetUpvalue, SetUpvalue, CloseUpvalues,
 		Jump, JumpIfFalse, JumpIfTrue, JumpIfFalseKeep, JumpIfTrueKeep:
 		return []any{int(ins.A)}
 	case NewTable, SetList, Call, TForCall, ForPrep, ForLoop, TForLoop:

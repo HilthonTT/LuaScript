@@ -23,6 +23,12 @@ type Thread struct {
 	Stack    []Value
 	Frames   []*CallFrame
 	OpenUpvs []*Upvalue
+	// CallMarks is the pending MarkArgs stack. A thread can legitimately
+	// suspend between a MarkArgs and its matching Call (any
+	// `f(coroutine.yield())` shape), so the marks are per-thread state —
+	// leaving them on the VM would let another thread pop them against the
+	// wrong stack.
+	CallMarks []int
 }
 
 // Coroutine wraps a closure plus the channel handshake needed to drive it.
@@ -87,6 +93,7 @@ func (v *VM) saveActiveTo(t *Thread) {
 	t.Stack = v.Stack
 	t.Frames = v.frames
 	t.OpenUpvs = v.openUpvs
+	t.CallMarks = v.callMarks
 	for _, u := range t.OpenUpvs {
 		u.Stack = &t.Stack
 	}
@@ -98,6 +105,7 @@ func (v *VM) loadActiveFrom(t *Thread) {
 	v.Stack = t.Stack
 	v.frames = t.Frames
 	v.openUpvs = t.OpenUpvs
+	v.callMarks = t.CallMarks
 	for _, u := range v.openUpvs {
 		u.Stack = &v.Stack
 	}

@@ -187,8 +187,10 @@ func newSVMObject(_ *vm.VM, args []vm.Value) []vm.Value {
 		if len(features) != len(labels) {
 			panic(vm.Errorf("svm:fit: #features (%d) must equal #labels (%d)", len(features), len(labels)))
 		}
-		if len(features) == 0 {
-			panic(vm.Errorf("svm:fit: training set is empty"))
+		if len(features) < 2 {
+			// The SMO pair-selection loop assumes at least two samples; one
+			// sample would index out of range deep inside the solver.
+			panic(vm.Errorf("svm:fit: training set needs at least 2 samples, got %d", len(features)))
 		}
 		model.Fit(features, labels)
 		width = len(features[0])

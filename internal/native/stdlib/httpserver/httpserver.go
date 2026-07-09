@@ -18,6 +18,7 @@ package httpserver
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -267,7 +268,10 @@ func dispatch(machine *vm.VM, handler, notFound vm.Value, req *vm.Table) (out re
 
 // normalize turns a handler's return value into a resp. A string becomes
 // a 200 text/plain body; a table is read for status/body/headers; nil
-// (or no return) becomes an empty 200.
+// (or no return) becomes an empty 200. A wrong-typed return becomes a 500
+// for this request — it runs AFTER SafeCall has already returned, so a
+// panic here would escape the recovery above, unwind the :listen dispatch
+// loop, and leave every queued request goroutine blocked forever.
 func normalize(result vm.Value) resp {
 	switch v := result.(type) {
 	case nil:
@@ -300,7 +304,13 @@ func normalize(result vm.Value) resp {
 		}
 		return out
 	default:
-		panic(vm.Errorf("server handler must return a string or table, got %s", vm.TypeName(result)))
+		return resp{
+			status: http.StatusInternalServerError,
+			body:   fmt.Sprintf("server handler must return a string or table, got %s\n", vm.TypeName(result)),
+			headers: map[string]string{
+				"Content-Type": "text/plain; charset=utf-8",
+			},
+		}
 	}
 }
 

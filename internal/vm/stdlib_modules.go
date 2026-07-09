@@ -6,6 +6,7 @@ import (
 	"math"
 	"math/rand"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -164,8 +165,8 @@ func buildMathLibrary() *Table {
 			}
 			return []Value{int64(rng.Int63n(m)) + 1}
 		default:
-			lo := IntArg("math.random", 1, args[:1])
-			hi := IntArg("math.random", 2, args[1:2])
+			lo := IntArg("math.random", 1, args)
+			hi := IntArg("math.random", 2, args)
 			if hi < lo {
 				panic(LuaError("bad argument #2 to 'random' (interval is empty)"))
 			}
@@ -236,11 +237,14 @@ func buildStringLibrary() *Table {
 	})
 	add("upper", func(_ *VM, args []Value) []Value {
 		s := StringArg("string.upper", 1, args)
-		return []Value{strings.ToUpper(s)}
+		// Byte-wise ASCII case mapping, like Lua's C-locale toupper.
+		// Unicode-aware mapping would rewrite (and can resize) non-ASCII
+		// bytes, breaking byte-oriented string code.
+		return []Value{asciiMapCase(s, 'a', 'z', 'A'-'a')}
 	})
 	add("lower", func(_ *VM, args []Value) []Value {
 		s := StringArg("string.lower", 1, args)
-		return []Value{strings.ToLower(s)}
+		return []Value{asciiMapCase(s, 'A', 'Z', 'a'-'A')}
 	})
 	add("reverse", func(_ *VM, args []Value) []Value {
 		s := StringArg("string.reverse", 1, args)
@@ -276,12 +280,19 @@ func buildStringLibrary() *Table {
 		if sep == "" {
 			return []Value{strings.Repeat(s, int(n))}
 		}
-		// (s..sep) * (n-1) + s
-		parts := make([]string, n)
-		for i := range parts {
-			parts[i] = s
+		// (s..sep) * (n-1) + s. Built directly rather than via a []string +
+		// strings.Join: the slice would cost 16 bytes of header per element,
+		// letting string.rep("", huge, "x") amplify 16x past the byte guard
+		// above into a fatal OOM.
+		var b strings.Builder
+		b.Grow(int(unit*n) - len(sep))
+		for i := int64(0); i < n; i++ {
+			if i > 0 {
+				b.WriteString(sep)
+			}
+			b.WriteString(s)
 		}
-		return []Value{strings.Join(parts, sep)}
+		return []Value{b.String()}
 	})
 	add("sub", func(_ *VM, args []Value) []Value {
 		s := StringArg("string.sub", 1, args)
@@ -311,14 +322,31 @@ func buildStringLibrary() *Table {
 	})
 	add("byte", func(_ *VM, args []Value) []Value {
 		s := StringArg("string.byte", 1, args)
-		idx := int64(1)
-		if len(args) >= 2 {
-			idx = IntArg("string.byte", 2, args)
+		ln := int64(len(s))
+		i := OptInt("string.byte", 2, args, 1)
+		j := OptInt("string.byte", 3, args, i)
+		// Lua 5.4: negative indices count from the end; the range is then
+		// clamped to the string and an empty range yields no values.
+		if i < 0 {
+			i = ln + i + 1
 		}
-		if idx < 1 || idx > int64(len(s)) {
-			return []Value{nil}
+		if j < 0 {
+			j = ln + j + 1
 		}
-		return []Value{int64(s[idx-1])}
+		if i < 1 {
+			i = 1
+		}
+		if j > ln {
+			j = ln
+		}
+		if i > j {
+			return nil
+		}
+		out := make([]Value, 0, j-i+1)
+		for k := i; k <= j; k++ {
+			out = append(out, int64(s[k-1]))
+		}
+		return out
 	})
 	add("char", func(_ *VM, args []Value) []Value {
 		buf := make([]byte, len(args))
@@ -392,7 +420,8 @@ func buildStringLibrary() *Table {
 	add("gmatch", func(_ *VM, args []Value) []Value {
 		s := StringArg("string.gmatch", 1, args)
 		pat := StringArg("string.gmatch", 2, args)
-		it := NewGMatchIter(s, pat)
+		init := int(OptInt("string.gmatch", 3, args, 1))
+		it := NewGMatchIter(s, pat, init)
 		iter := &GoFunc{Name: "string:gmatch:iter", Fn: func(_ *VM, _ []Value) []Value {
 			r := it.Next()
 			if r == nil {
@@ -423,11 +452,28 @@ func buildStringLibrary() *Table {
 		})
 		return []Value{out, int64(count)}
 	})
-	add("format", func(_ *VM, args []Value) []Value {
+	add("format", func(v *VM, args []Value) []Value {
 		fmtStr := StringArg("string.format", 1, args)
-		return []Value{luaFormat(fmtStr, args[1:])}
+		return []Value{luaFormat(v, fmtStr, args[1:])}
 	})
 	return t
+}
+
+// asciiMapCase shifts bytes in [lo, hi] by delta, leaving every other byte
+// (including non-ASCII) untouched.
+func asciiMapCase(s string, lo, hi byte, delta int) string {
+	b := []byte(s)
+	changed := false
+	for i, c := range b {
+		if c >= lo && c <= hi {
+			b[i] = byte(int(c) + delta)
+			changed = true
+		}
+	}
+	if !changed {
+		return s
+	}
+	return string(b)
 }
 
 // luaFormat implements string.format per Lua 5.4: each %-directive is parsed,
@@ -435,7 +481,7 @@ func buildStringLibrary() *Table {
 // floats for aAeEfgG, strings via tostring for s), then rendered through Go's
 // fmt with an equivalent verb. This replaces the old thin fmt.Sprintf wrapper,
 // which leaked Go's stricter verb typing (e.g. %d rejecting a float 3.0).
-func luaFormat(format string, args []Value) string {
+func luaFormat(v *VM, format string, args []Value) string {
 	var b strings.Builder
 	argIdx := 0
 	nextArg := func() Value {
@@ -484,17 +530,28 @@ func luaFormat(format string, args []Value) string {
 		case 'd', 'i', 'u':
 			b.WriteString(fmt.Sprintf(replaceVerb(spec, 'd'), fmtArgInt(nextArg())))
 		case 'o', 'x', 'X':
-			b.WriteString(fmt.Sprintf(spec, fmtArgInt(nextArg())))
+			// C (and Lua) render these as the unsigned 64-bit bit pattern;
+			// Go would print a sign instead ("%x" of -1 → "-1", not "f…f").
+			b.WriteString(fmt.Sprintf(spec, uint64(fmtArgInt(nextArg()))))
 		case 'c':
-			b.WriteByte(byte(fmtArgInt(nextArg())))
-		case 'e', 'E', 'f', 'F', 'g', 'G':
+			// Render the byte through %s so width/flags apply ("%5c").
+			b.WriteString(fmt.Sprintf(replaceVerb(spec, 's'),
+				string(byte(fmtArgInt(nextArg())))))
+		case 'g', 'G':
+			// C's %g defaults to 6 significant digits; Go's default is
+			// "shortest unique", so make the Lua default explicit.
+			if !strings.Contains(spec, ".") {
+				spec = spec[:len(spec)-1] + ".6" + string(verb)
+			}
+			b.WriteString(fmt.Sprintf(spec, fmtArgFloat(nextArg())))
+		case 'e', 'E', 'f', 'F':
 			b.WriteString(fmt.Sprintf(spec, fmtArgFloat(nextArg())))
 		case 'a':
 			b.WriteString(fmt.Sprintf(replaceVerb(spec, 'x'), fmtArgFloat(nextArg())))
 		case 'A':
 			b.WriteString(fmt.Sprintf(replaceVerb(spec, 'X'), fmtArgFloat(nextArg())))
 		case 's':
-			b.WriteString(fmt.Sprintf(spec, ToString(nextArg())))
+			b.WriteString(fmt.Sprintf(spec, ToStringMM(v, nextArg())))
 		case 'q':
 			b.WriteString(formatQ(nextArg()))
 		default:
@@ -531,15 +588,56 @@ func fmtArgFloat(v Value) float64 {
 	panic(Errorf("bad argument to 'format' (number expected, got %s)", TypeName(v)))
 }
 
-// formatQ renders a value as a reusable literal for %q.
+// formatQ renders a value as a literal that reads back losslessly, per
+// Lua 5.4: strings get byte-level \ddd escapes (never Go's \uXXXX, which
+// isn't Lua syntax), floats print as hex floats to preserve both value and
+// float-ness, mininteger prints in hex (its decimal form reads back as a
+// float), and inf/nan use the conventional 1e9999 / (0/0) spellings.
 func formatQ(v Value) string {
 	switch x := v.(type) {
 	case string:
-		return strconv.Quote(x)
+		var b strings.Builder
+		b.Grow(len(x) + 2)
+		b.WriteByte('"')
+		for i := 0; i < len(x); i++ {
+			c := x[i]
+			switch {
+			case c == '"' || c == '\\' || c == '\n':
+				b.WriteByte('\\')
+				b.WriteByte(c)
+			case c < 32 || c >= 127:
+				// \ddd, zero-padded only when the next byte is a digit
+				// (so the escape isn't extended by it). Bytes >= 128 are
+				// escaped too (PUC Lua passes them raw): our lexer decodes
+				// source as UTF-8 runes, so a raw non-UTF-8 byte would be
+				// mangled to U+FFFD on load. Escaping keeps %q ASCII-safe.
+				if i+1 < len(x) && x[i+1] >= '0' && x[i+1] <= '9' {
+					fmt.Fprintf(&b, "\\%03d", c)
+				} else {
+					fmt.Fprintf(&b, "\\%d", c)
+				}
+			default:
+				b.WriteByte(c)
+			}
+		}
+		b.WriteByte('"')
+		return b.String()
 	case int64:
+		if x == math.MinInt64 {
+			return "0x8000000000000000"
+		}
 		return strconv.FormatInt(x, 10)
 	case float64:
-		return strconv.FormatFloat(x, 'g', -1, 64)
+		if math.IsInf(x, 1) {
+			return "1e9999"
+		}
+		if math.IsInf(x, -1) {
+			return "-1e9999"
+		}
+		if math.IsNaN(x) {
+			return "(0/0)"
+		}
+		return strconv.FormatFloat(x, 'x', -1, 64)
 	case bool:
 		if x {
 			return "true"
@@ -631,6 +729,34 @@ func buildTableLibrary() *Table {
 			}
 		}
 		return []Value{b.String()}
+	})
+	add("sort", func(v *VM, args []Value) []Value {
+		tbl := TableArg("sort", 1, args)
+		var less func(a, b Value) bool
+		if len(args) >= 2 && args[1] != nil {
+			cmp := args[1]
+			if _, ok := cmp.(*Closure); !ok {
+				if _, ok := cmp.(*GoFunc); !ok {
+					panic(Errorf("bad argument #2 to 'sort' (function expected, got %s)", TypeName(cmp)))
+				}
+			}
+			less = func(a, b Value) bool {
+				rs := v.CallValue(cmp, []Value{a, b}, 1)
+				return len(rs) > 0 && IsTruthy(rs[0])
+			}
+		} else {
+			less = v.lessMM
+		}
+		n := tbl.Len()
+		elems := make([]Value, n)
+		for i := int64(0); i < n; i++ {
+			elems[i] = tbl.Get(i + 1)
+		}
+		sort.SliceStable(elems, func(i, j int) bool { return less(elems[i], elems[j]) })
+		for i, e := range elems {
+			tbl.Set(int64(i)+1, e)
+		}
+		return nil
 	})
 	add("unpack", func(_ *VM, args []Value) []Value {
 		if len(args) == 0 {

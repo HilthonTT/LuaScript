@@ -147,6 +147,15 @@ func assignableFunction(from, to *FunctionShape) bool {
 	// that's fine (extra results are discarded by Lua's calling
 	// convention). The reverse is unsafe: callers expecting N results
 	// from `to` can't be fed by a `from` that returns fewer.
+	//
+	// An empty return list means "no declared returns", which for
+	// unannotated functions is "unknown", not "returns nothing" —
+	// typeOfCall already treats their call results as `any`. Mirror that
+	// gradual stance so `function(a, b) return a > b end` flows into a
+	// slot typed `(any, any) -> boolean`.
+	if len(from.Returns) == 0 {
+		return true
+	}
 	if len(from.Returns) < len(to.Returns) {
 		return false
 	}

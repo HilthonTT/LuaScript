@@ -2,6 +2,7 @@ package bytecode
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/hilthontt/luascript/internal/compiler/ast"
 )
@@ -370,18 +371,27 @@ func (g *Generator) compileWhile(is *InstructionSet, s *ast.WhileStatement) {
 	jb := is.define(Jump, s.Line(), topAnchor)
 	g.current.recordPending(jb)
 	exitAnchor.line = is.count
+	// `break` jumps here without passing the per-iteration close above, so
+	// close again on the exit path (idempotent for the normal-exit case).
+	g.emitLoopClose(is, closeBase, protos, s.Line())
 }
 
 func (g *Generator) compileRepeat(is *InstructionSet, s *ast.RepeatStatement) {
 	topAnchor := &anchor{line: is.count}
 	exitAnchor := &anchor{}
 
-	contAnchor := &anchor{}
-	g.current.loops = append(g.current.loops, &loopFrame{breakAnchor: exitAnchor, continueAnchor: contAnchor})
-
 	// Repeat's `until` condition is evaluated in the scope of locals declared
 	// in the body. We open the scope manually so the condition can see them.
 	g.current.locals.openScope()
+	contAnchor := &anchor{}
+	frame := &loopFrame{
+		breakAnchor: exitAnchor, continueAnchor: contAnchor,
+		isRepeat:            true,
+		repeatScopeIdx:      len(g.current.locals.scopes) - 1,
+		minContinueBindings: -1,
+	}
+	g.current.loops = append(g.current.loops, frame)
+
 	// See compileWhile: use the live slot count, not the high-water mark.
 	closeBase := g.current.locals.nextSlot
 	protos := len(is.Protos)
@@ -393,11 +403,18 @@ func (g *Generator) compileRepeat(is *InstructionSet, s *ast.RepeatStatement) {
 			g.compileReturn(is, s.Body.Return)
 		}
 	}
-	// `continue` jumps straight to the `until` condition. Caveat (same as
-	// Luau): a local declared *after* the continue is still in scope for the
-	// condition but was never assigned on that iteration.
+	// `continue` jumps straight to the `until` condition.
 	contAnchor.line = is.count
+	condStart := is.count
+	condProtos := len(is.Protos)
 	g.compileExpression(is, s.Condition)
+	// A local declared after a `continue` is in scope for the condition but
+	// its initialization is skipped on continuing iterations, leaving its
+	// reused slot holding an internal temporary. Reject conditions that read
+	// such a local (directly, or captured by a closure) — same as Luau.
+	if frame.minContinueBindings >= 0 {
+		g.checkRepeatContinueLocals(is, frame, condStart, condProtos, s.Condition.Line())
+	}
 	g.current.locals.closeScope()
 
 	g.current.loops = g.current.loops[:len(g.current.loops)-1]
@@ -407,6 +424,8 @@ func (g *Generator) compileRepeat(is *InstructionSet, s *ast.RepeatStatement) {
 	jb := is.define(JumpIfFalse, s.Line(), topAnchor)
 	g.current.recordPending(jb)
 	exitAnchor.line = is.count
+	// `break` jumps here without passing the close above (see compileWhile).
+	g.emitLoopClose(is, closeBase, protos, s.Line())
 }
 
 func (g *Generator) compileNumericFor(is *InstructionSet, s *ast.NumericForStatement) {
@@ -447,6 +466,8 @@ func (g *Generator) compileNumericFor(is *InstructionSet, s *ast.NumericForState
 	fl := is.define(ForLoop, s.Line(), indexSlot, bodyTop)
 	g.current.recordPending(fl)
 	exitAnchor.line = is.count
+	// `break` jumps here without passing the close above (see compileWhile).
+	g.emitLoopClose(is, indexSlot, protos, s.Line())
 
 	g.current.locals.closeScope()
 }
@@ -464,7 +485,10 @@ func (g *Generator) compileGenericFor(is *InstructionSet, s *ast.GenericForState
 	is.define(SetLocal, s.Line(), hiddenBase+1)
 	is.define(SetLocal, s.Line(), hiddenBase)
 
-	firstVarSlot := g.current.locals.maxSlot
+	// See compileWhile: the visible variables start at the LIVE slot count.
+	// maxSlot is a function-wide high-water mark that can sit above them
+	// (earlier sibling scopes), which would leave k/v captures unclosed.
+	firstVarSlot := g.current.locals.nextSlot
 	for _, n := range s.Names {
 		g.current.locals.define(n)
 	}
@@ -492,6 +516,8 @@ func (g *Generator) compileGenericFor(is *InstructionSet, s *ast.GenericForState
 	tloop := is.define(TForLoop, s.Line(), hiddenBase, bodyTop)
 	g.current.recordPending(tloop)
 	exitAnchor.line = is.count
+	// `break` jumps here without passing the close above (see compileWhile).
+	g.emitLoopClose(is, firstVarSlot, protos, s.Line())
 
 	g.current.locals.closeScope()
 }
@@ -541,8 +567,65 @@ func (g *Generator) compileContinue(is *InstructionSet, s *ast.ContinueStatement
 		return
 	}
 	frame := g.current.loops[len(g.current.loops)-1]
+	if frame.isRepeat {
+		// Record how many body-scope locals exist at this continue site so
+		// compileRepeat can reject an `until` condition that reads a local
+		// declared after it (whose initialization this jump skips).
+		n := len(g.current.locals.scopes[frame.repeatScopeIdx].bindings)
+		if frame.minContinueBindings < 0 || n < frame.minContinueBindings {
+			frame.minContinueBindings = n
+		}
+	}
 	j := is.define(Jump, s.Line(), frame.continueAnchor)
 	g.current.recordPending(j)
+}
+
+// checkRepeatContinueLocals rejects an `until` condition that uses a body
+// local declared after a `continue` in the same repeat loop. Such a local
+// is lexically in scope for the condition, but on iterations that continue
+// its declaration never ran and its stack slot may hold a leftover internal
+// temporary — silently exposing garbage. Luau reports the same situation as
+// a compile error.
+//
+// Detection is over the emitted code rather than the AST: direct reads show
+// up as GetLocal/SetLocal on the skipped slots in the condition's
+// instruction range [condStart, is.count); a closure in the condition that
+// captures one shows up as an in-stack upvalue on a proto created while
+// compiling the condition.
+func (g *Generator) checkRepeatContinueLocals(is *InstructionSet, frame *loopFrame, condStart, condProtos, line int) {
+	bindings := g.current.locals.scopes[frame.repeatScopeIdx].bindings
+	if frame.minContinueBindings >= len(bindings) {
+		return
+	}
+	skipped := make(map[int]string)
+	for _, b := range bindings[frame.minContinueBindings:] {
+		if !strings.HasPrefix(b.Name, "(") { // ignore compiler temporaries
+			skipped[b.Slot] = b.Name
+		}
+	}
+	report := func(name string) {
+		g.errs = append(g.errs, fmt.Errorf(
+			"line %d: local '%s' is used in the repeat...until condition but a 'continue' can skip its declaration",
+			line, name))
+	}
+	for _, ins := range is.Instructions[condStart:is.count] {
+		if ins.Opcode == GetLocal || ins.Opcode == SetLocal {
+			if name, ok := skipped[int(ins.A)]; ok {
+				report(name)
+				return
+			}
+		}
+	}
+	for _, p := range is.Protos[condProtos:] {
+		for _, u := range p.Upvalues {
+			if u.InStack {
+				if name, ok := skipped[u.Index]; ok {
+					report(name)
+					return
+				}
+			}
+		}
+	}
 }
 
 func (g *Generator) compileGoto(is *InstructionSet, s *ast.GotoStatement) {

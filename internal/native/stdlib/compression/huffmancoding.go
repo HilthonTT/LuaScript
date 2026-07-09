@@ -88,10 +88,12 @@ func HuffEncoding(node *Node, prefix []bool, codes map[rune][]bool) {
 }
 
 // HuffEncode encodes the string in by applying the mapping defined by codes.
+// Iteration is byte-wise: Lua strings are byte sequences, and a rune-based
+// walk would collapse non-UTF-8 bytes to U+FFFD and corrupt binary input.
 func HuffEncode(codes map[rune][]bool, in string) []bool {
 	out := make([]bool, 0)
-	for _, s := range in {
-		out = append(out, codes[s]...)
+	for i := 0; i < len(in); i++ {
+		out = append(out, codes[rune(in[i])]...)
 	}
 	return out
 }
@@ -101,7 +103,9 @@ func HuffEncode(codes map[rune][]bool, in string) []bool {
 // out stores the current decoded string.
 func HuffDecode(root, current *Node, in []bool, out string) string {
 	if current.symbol != -1 {
-		out += string(current.symbol)
+		// Symbols are bytes (see HuffEncode); string(rune) would UTF-8
+		// encode values >= 128 into two bytes and corrupt the round-trip.
+		out += string([]byte{byte(current.symbol)})
 		return HuffDecode(root, root, in, out)
 	}
 	if len(in) == 0 {
@@ -113,11 +117,12 @@ func HuffDecode(root, current *Node, in []bool, out string) string {
 	return HuffDecode(root, current.left, in[1:], out)
 }
 
-// SymbolCountOrd computes sorted symbol-frequency list of input message
+// SymbolCountOrd computes the sorted symbol-frequency list of the input
+// message, counting BYTES (symbols are byte values 0..255 — see HuffEncode).
 func SymbolCountOrd(message string) []SymbolFreq {
 	runeCount := make(map[rune]int)
-	for _, s := range message {
-		runeCount[s]++
+	for i := 0; i < len(message); i++ {
+		runeCount[rune(message[i])]++
 	}
 	listfreq := make([]SymbolFreq, len(runeCount))
 	i := 0

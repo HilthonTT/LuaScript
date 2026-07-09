@@ -107,42 +107,50 @@ func PatternMatch(s, pat string, init int) []Value {
 // (string, pattern, position) iterator state stored as a Lua table; the
 // caller advances `pos` between calls.
 type GMatchIter struct {
-	ms  matchState
-	pos int // 1-based byte position to start the next search from
+	ms        matchState
+	pos       int // 1-based byte position to start the next search from
+	lastMatch int // byte end of the previous match, or -1 (Lua 5.4 rule)
 }
 
-// NewGMatchIter sets up a string.gmatch iterator state.
-func NewGMatchIter(s, pat string) *GMatchIter {
+// NewGMatchIter sets up a string.gmatch iterator state. `init` is the
+// Lua 5.4 optional third argument: a 1-based start position (negative
+// counts from the end, clamped to [1, #s+1]).
+func NewGMatchIter(s, pat string, init int) *GMatchIter {
 	return &GMatchIter{
-		ms:  matchState{src: s, pat: pat, captures: make([]patternCapture, 0, 4)},
-		pos: 1,
+		ms:        matchState{src: s, pat: pat, captures: make([]patternCapture, 0, 4)},
+		pos:       luaInit(s, init) + 1,
+		lastMatch: -1,
 	}
 }
 
 // Next produces the next match's captures (or whole-match), or nil when
-// exhausted. The iterator advances past zero-length matches to avoid
-// infinite loops on patterns like "a*". The matchState (and its capture
-// buffer) is reused across calls, so a gmatch loop allocates per match
-// only for the returned values.
+// exhausted. Per Lua 5.4 (`e != lastmatch` in gmatch_aux), an empty match
+// abutting the previous match's end is rejected and the scan resumes one
+// byte later — that both avoids infinite loops on patterns like "a*" and
+// stops a spurious empty match right after a non-empty one. The matchState
+// (and its capture buffer) is reused across calls, so a gmatch loop
+// allocates per match only for the returned values.
 func (g *GMatchIter) Next() []Value {
-	if g.pos > len(g.ms.src)+1 {
-		return nil
-	}
-	startByte, endByte, caps, ok := g.ms.findImpl(g.pos, false)
-	if !ok {
-		return nil
-	}
-	// Advance past this match; if it was zero-length, step one byte to
-	// avoid an infinite loop.
-	if endByte+1 > startByte {
+	for g.pos <= len(g.ms.src)+1 {
+		startByte, endByte, caps, ok := g.ms.findImpl(g.pos, false)
+		if !ok {
+			return nil
+		}
+		if endByte == g.lastMatch && endByte == startByte-1 {
+			// Empty match ending where the previous match ended: rejected.
+			g.pos = startByte + 1
+			continue
+		}
+		g.lastMatch = endByte
+		// Next scan starts exactly at this match's end (an accepted empty
+		// match at that position is impossible thanks to the rule above).
 		g.pos = endByte + 1
-	} else {
-		g.pos = startByte + 1
+		if len(caps) > 0 {
+			return caps
+		}
+		return []Value{g.ms.src[startByte-1 : endByte]}
 	}
-	if len(caps) > 0 {
-		return caps
-	}
-	return []Value{g.ms.src[startByte-1 : endByte]}
+	return nil
 }
 
 // PatternGSub implements string.gsub. repl is the substitution source
@@ -159,6 +167,15 @@ func PatternGSub(
 	if maxN < 0 {
 		maxN = 1<<31 - 1
 	}
+	// Lua accepts a number repl and treats it as its string form; anything
+	// other than string/number/table/function is a bad argument.
+	switch repl.(type) {
+	case int64, float64:
+		repl = ToString(repl)
+	case string, *Table, *Closure, *GoFunc:
+	default:
+		panic(Errorf("bad argument #3 to 'gsub' (string/function/table expected, got %s)", TypeName(repl)))
+	}
 	var b strings.Builder
 	b.Grow(len(s))
 	anchored := strings.HasPrefix(pat, "^")
@@ -168,33 +185,30 @@ func PatternGSub(
 	}
 	count := 0
 	srcPos := 0
+	// Lua 5.4 semantics: an empty match whose end coincides with the end of
+	// the previous match is rejected (`e != lastmatch` in str_gsub), so
+	// gsub("abc", "a*", "X") is "XbXcX" (3), not the 5.3-era "XXbXcX" (4).
+	lastMatch := -1
 	ms := matchState{src: s, pat: pat, captures: make([]patternCapture, 0, 4)}
-	for srcPos <= len(s) && count < maxN {
+	for count < maxN {
 		ms.captures = ms.captures[:0]
 		end := ms.match(srcPos, pStart)
-		if end < 0 {
-			if anchored {
-				break
-			}
-			if srcPos < len(s) {
-				b.WriteByte(s[srcPos])
-			}
-			srcPos++
-			continue
+		if end >= 0 && end != lastMatch {
+			caps := ms.collectCaptures(srcPos, end)
+			matchStr := s[srcPos:end]
+			applyReplacement(&b, matchStr, caps, repl, callFn)
+			count++
+			lastMatch = end
 		}
-		caps := ms.collectCaptures(srcPos, end)
-		matchStr := s[srcPos:end]
-		applyReplacement(&b, matchStr, caps, repl, callFn)
-		count++
-		// Advance past the match; zero-length match: emit one source char
-		// to make progress.
 		if end > srcPos {
+			// Non-empty match: continue right after it.
 			srcPos = end
-		} else {
-			if srcPos < len(s) {
-				b.WriteByte(s[srcPos])
-			}
+		} else if srcPos < len(s) {
+			// No match, or an empty one: emit one source byte to progress.
+			b.WriteByte(s[srcPos])
 			srcPos++
+		} else {
+			break
 		}
 		if anchored {
 			break
@@ -255,14 +269,7 @@ func applyReplacement(
 		} else {
 			key = matchStr
 		}
-		v := r.Get(key)
-		if v == nil || v == false {
-			b.WriteString(matchStr)
-		} else if s, ok := v.(string); ok {
-			b.WriteString(s)
-		} else {
-			b.WriteString(ToString(v))
-		}
+		writeSubstValue(b, matchStr, r.Get(key))
 	default:
 		// Function (Closure or GoFunc): call with captures (or whole match).
 		args := caps
@@ -274,13 +281,28 @@ func applyReplacement(
 		if len(results) > 0 {
 			v = results[0]
 		}
-		if v == nil || v == false {
-			b.WriteString(matchStr)
-		} else if s, ok := v.(string); ok {
-			b.WriteString(s)
-		} else {
-			b.WriteString(ToString(v))
+		writeSubstValue(b, matchStr, v)
+	}
+}
+
+// writeSubstValue writes the value produced by a table/function replacement.
+// Lua 5.4: nil/false keeps the original match, strings and numbers are
+// substituted, anything else is an error.
+func writeSubstValue(b *strings.Builder, matchStr string, v Value) {
+	switch x := v.(type) {
+	case nil:
+		b.WriteString(matchStr)
+	case bool:
+		if x {
+			panic(Errorf("invalid replacement value (a boolean)"))
 		}
+		b.WriteString(matchStr)
+	case string:
+		b.WriteString(x)
+	case int64, float64:
+		b.WriteString(ToString(v))
+	default:
+		panic(Errorf("invalid replacement value (a %s)", TypeName(v)))
 	}
 }
 
@@ -311,8 +333,8 @@ func (ms *matchState) collectCaptures(sStart, matchEnd int) []Value {
 		case capPosition:
 			out[i] = int64(c.start + 1) // 1-based
 		case capUnfinished:
-			// Open capture — pattern is malformed but produce something.
-			out[i] = ""
+			// Open capture at match end — the pattern is malformed.
+			panic(Errorf("unfinished capture"))
 		default:
 			out[i] = ms.src[c.start : c.start+c.len]
 		}
@@ -595,7 +617,7 @@ func (ms *matchState) startCapture(sIdx, pIdx, capLen int) int {
 func (ms *matchState) closeCapture(sIdx, pIdx int) int {
 	idx := ms.findUnfinishedCapture()
 	if idx < 0 {
-		return -1
+		panic(Errorf("invalid pattern capture"))
 	}
 	ms.captures[idx].len = sIdx - ms.captures[idx].start
 	r := ms.match(sIdx, pIdx)
@@ -636,7 +658,7 @@ func (ms *matchState) matchBackref(sIdx, pIdx, n int) int {
 // matchBalance handles `%b<open><close>` — match a balanced pair.
 func (ms *matchState) matchBalance(sIdx, pIdx int) int {
 	if pIdx+1 >= len(ms.pat) {
-		return -1
+		panic(Errorf("malformed pattern (missing arguments to '%%b')"))
 	}
 	open, close := ms.pat[pIdx], ms.pat[pIdx+1]
 	if sIdx >= len(ms.src) || ms.src[sIdx] != open {

@@ -19,12 +19,32 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/hilthontt/luascript/internal/compiler"
 	"github.com/hilthontt/luascript/internal/compiler/bytecode"
 	"github.com/hilthontt/luascript/internal/compiler/parser"
 	"github.com/hilthontt/luascript/internal/version"
 )
+
+// buildStamp identifies the actual interpreter build. The version constants
+// are hardcoded (no -ldflags injection), so on their own they cannot tell
+// two builds apart: a codegen or optimizer change that alters emitted
+// bytecode without touching the opcode count or SerialVersion would silently
+// serve stale chunks. The executable's size+mtime change on every rebuild
+// (including the temp binaries `go run` produces), so they make dev
+// iteration invalidate naturally.
+var buildStamp = sync.OnceValue(func() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	fi, err := os.Stat(exe)
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf("%d:%d", fi.Size(), fi.ModTime().UnixNano())
+})
 
 // Disabled reports whether the cache is turned off for this process.
 func Disabled() bool {
@@ -90,9 +110,10 @@ func entryPath(src string) (string, bool) {
 	}
 	h := sha256.New()
 	// Domain-separate the key by everything that invalidates an entry:
-	// bytecode layout, opcode numbering, and the interpreter version.
-	fmt.Fprintf(h, "luascript-bc\x00%d\x00%d\x00%s\x00",
-		bytecode.SerialVersion, bytecode.InstructionCount, version.GetVersionString())
+	// bytecode layout, opcode numbering, the interpreter version, and the
+	// concrete build (see buildStamp).
+	fmt.Fprintf(h, "luascript-bc\x00%d\x00%d\x00%s\x00%s\x00",
+		bytecode.SerialVersion, bytecode.InstructionCount, version.GetVersionString(), buildStamp())
 	h.Write([]byte(src))
 	return filepath.Join(dir, hex.EncodeToString(h.Sum(nil))+".lscb"), true
 }
