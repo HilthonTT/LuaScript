@@ -1,0 +1,72 @@
+-- 53_plugin.lsc — calling Go libraries at run time
+--
+-- The `plugin` module generates a small Go file that re-exports the functions
+-- you ask for, compiles it with `go build -buildmode=plugin`, loads the shared
+-- object, and dispatches calls through reflection.
+--
+-- Go's plugin support only exists on linux, darwin and freebsd, and only with
+-- cgo — there is no such thing on Windows. So the module always loads and you
+-- branch on `plugin.supported`.
+
+local plugin = require("plugin")
+
+print("plugin supported: " .. tostring(plugin.supported))
+
+if not plugin.supported then
+	print(plugin.unsupported_reason())
+	print("skipping the rest of this example.")
+	return
+end
+
+print("build cache:      " .. plugin.dir())
+print("")
+
+-- Declare the Go packages to import and the functions to lift out of them.
+-- The first build invokes the Go compiler (a second or two); after that the
+-- .so is cached and reused, so re-running this is instant.
+local p = plugin.generate("strutil", {
+	packages = {
+		{ name = "strings" },
+		{ name = "strconv" },
+	},
+	functions = {
+		{ pkg = "strings", name = "ToUpper" },
+		{ pkg = "strings", name = "Split" },
+		{ pkg = "strings", name = "NewReplacer" },
+		{ pkg = "strconv", name = "Atoi" },
+		-- `as` renames the symbol, which is how two packages exporting the
+		-- same name can live in one plugin.
+		{ pkg = "strings", name = "Repeat", as = "Rep" },
+	},
+})
+
+-- 1. Two spellings of the same call. `p.Name(...)` looks the symbol up in the
+--    .so on first use and caches it; `p:call("Name", ...)` is the explicit
+--    form, and the one that raises if the symbol isn't there.
+print("ToUpper:  " .. p:call("ToUpper", "hello"))
+print("ToUpper:  " .. p.ToUpper("hello"))
+print("Rep:      " .. p.Rep("ab", 3))
+
+-- 2. Go slices arrive as tables.
+local parts = p.Split("a,b,c", ",")
+print("Split:    " .. #parts .. " parts -> " .. parts[1] .. " " .. parts[2] .. " " .. parts[3])
+
+-- 3. Most real Go APIs return (value, error). The error keeps its position and
+--    becomes nil on success, or its message on failure — so it reads like any
+--    other Lua call.
+local n, err = p.Atoi("41")
+print("Atoi:     " .. tostring(n) .. ", err = " .. tostring(err))
+
+local bad, err2 = p.Atoi("not a number")
+print("Atoi:     " .. tostring(bad) .. ", err = " .. tostring(err2))
+
+-- 4. A *strings.Replacer has no Lua counterpart, so it comes back as a
+--    GoValue: an opaque handle whose exported Go methods stay callable. This is
+--    what lets a plugin hand back something like a *sql.DB and have `db:Query()`
+--    work.
+local rep = p.NewReplacer("cats", "dogs")
+print("Replacer: " .. rep:Replace("i like cats"))
+
+-- 5. A symbol that isn't in the plugin reads as nil rather than raising, so you
+--    can feature-detect; p:call is the form that reports the error.
+print("missing:  " .. tostring(p.NoSuchFunction))

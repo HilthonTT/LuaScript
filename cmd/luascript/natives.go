@@ -22,6 +22,7 @@ import (
 	"github.com/hilthontt/luascript/internal/native/datascience/ndarray"
 	osNative "github.com/hilthontt/luascript/internal/native/stdlib/os"
 	"github.com/hilthontt/luascript/internal/native/datascience/plot"
+	"github.com/hilthontt/luascript/internal/plugin"
 	regexpNative "github.com/hilthontt/luascript/internal/native/stdlib/regexp"
 	"github.com/hilthontt/luascript/internal/native/stdlib/sort"
 	"github.com/hilthontt/luascript/internal/native/datascience/stats"
@@ -71,6 +72,11 @@ var nativeRegistrars = []func(*vm.VM){
 	ndarray.RegisterNDArrayPreload,
 	plot.RegisterPlotPreload,
 	luaml.RegisterMLPreload,
+	// plugin loads Go libraries dynamically (go build -buildmode=plugin +
+	// reflection). Registered on every platform so `require("plugin")` always
+	// resolves; on platforms without Go plugin support the module loads with
+	// `supported = false` and generate/open raise. See internal/plugin.
+	plugin.RegisterPluginPreload,
 	// enumrt installs an internal global (__enum_freeze) the bytecode
 	// generator calls when lowering `enum` declarations. Not a require()
 	// target — placed in nativeRegistrars purely so it lands on both the
