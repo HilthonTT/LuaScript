@@ -111,9 +111,7 @@ func (v *VM) loadActiveFrom(t *Thread) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // coroutine.* library — installed by registerStdlib
-// ---------------------------------------------------------------------------
 
 func registerCoroutineLibrary(v *VM) {
 	mod := NewTable(0, 8)

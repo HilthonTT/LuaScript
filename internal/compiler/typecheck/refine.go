@@ -217,9 +217,7 @@ func mergeRefine(a, b refinement) refinement {
 	return out
 }
 
-// ---------------------------------------------------------------------------
 // Narrowing operations on types
-// ---------------------------------------------------------------------------
 
 // narrowToKind keeps only the part of `t` whose Kind is `k`.
 //
@@ -347,9 +345,7 @@ func kindForTypeString(s string) (Kind, bool) {
 	return 0, false
 }
 
-// ---------------------------------------------------------------------------
 // AST shape helpers
-// ---------------------------------------------------------------------------
 
 // typeGuardTarget returns the identifier name `x` when `e` is a call of the
 // form `type(x)` or `typeof(x)` with a single identifier argument.

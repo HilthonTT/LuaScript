@@ -522,10 +522,6 @@ func (g *Generator) compileGenericFor(is *InstructionSet, s *ast.GenericForState
 	g.current.locals.closeScope()
 }
 
-// ---------------------------------------------------------------------------
-// Jumps
-// ---------------------------------------------------------------------------
-
 func (g *Generator) compileReturn(is *InstructionSet, s *ast.ReturnStatement) {
 	n := len(s.Values)
 	if n == 0 {

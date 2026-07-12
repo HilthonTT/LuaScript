@@ -29,9 +29,7 @@ func setupModuleDir(t *testing.T, name, src string) (string, string) {
 	return filepath.ToSlash(dir), mp
 }
 
-// ---------------------------------------------------------------------------
 // require — basic load + cache
-// ---------------------------------------------------------------------------
 
 func TestRequireLoadsModuleAndReturnsValue(t *testing.T) {
 	dir, _ := setupModuleDir(t, "greet.lsc", `return {hello = "hi"}`)
@@ -77,9 +75,7 @@ func TestRequireCachesModuleSecondCallNoReExec(t *testing.T) {
 	assertGlobalEqual(t, v, "runs", int64(1))
 }
 
-// ---------------------------------------------------------------------------
 // dotted module names → / substitution
-// ---------------------------------------------------------------------------
 
 func TestRequireResolvesDottedNameToSubdirectory(t *testing.T) {
 	dir := t.TempDir()
@@ -97,9 +93,7 @@ func TestRequireResolvesDottedNameToSubdirectory(t *testing.T) {
 	assertGlobalEqual(t, v, "t", "from src/time")
 }
 
-// ---------------------------------------------------------------------------
 // .lsc wins over .lua when both exist
-// ---------------------------------------------------------------------------
 
 func TestRequirePrefersLuaScriptOverLua(t *testing.T) {
 	dir := t.TempDir()
@@ -114,9 +108,7 @@ func TestRequirePrefersLuaScriptOverLua(t *testing.T) {
 	assertGlobalEqual(t, v, "x", "luascript-version")
 }
 
-// ---------------------------------------------------------------------------
 // missing module
-// ---------------------------------------------------------------------------
 
 func TestRequireMissingModuleErrors(t *testing.T) {
 	src := `
@@ -132,9 +124,7 @@ func TestRequireMissingModuleErrors(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // preload table — host-registered loaders
-// ---------------------------------------------------------------------------
 
 func TestPreloadHookRunsOnce(t *testing.T) {
 	src := `
@@ -156,9 +146,7 @@ func TestPreloadHookRunsOnce(t *testing.T) {
 	assertGlobalEqual(t, v, "same", true)
 }
 
-// ---------------------------------------------------------------------------
 // package.searchpath
-// ---------------------------------------------------------------------------
 
 func TestSearchpathFindsExistingFile(t *testing.T) {
 	dir, _ := setupModuleDir(t, "lib.lsc", `return 1`)
@@ -184,9 +172,7 @@ func TestSearchpathReturnsNilAndMessageOnMiss(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // loadfile / dofile / load
-// ---------------------------------------------------------------------------
 
 func TestLoadfileReturnsCallableChunk(t *testing.T) {
 	_, fpath := setupModuleDir(t, "x.lsc", `return 7`)
@@ -228,9 +214,7 @@ func TestLoadCompilesString(t *testing.T) {
 	assertGlobalEqual(t, v, "r", int64(42))
 }
 
-// ---------------------------------------------------------------------------
 // Module receives modname + path as ...
-// ---------------------------------------------------------------------------
 
 func TestModuleReceivesNameAndPathAsVarargs(t *testing.T) {
 	dir, _ := setupModuleDir(t, "hello.lsc", `

@@ -51,9 +51,7 @@ func assertGlobalEqual(t *testing.T, v *VM, name string, want Value) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Arithmetic & numeric subtypes
-// ---------------------------------------------------------------------------
 
 func TestIntegerArithmeticPreservesIntegerSubtype(t *testing.T) {
 	v := run(t, `r = 2 + 3 * 4`)
@@ -115,9 +113,7 @@ func TestBitwiseOps(t *testing.T) {
 	assertGlobalEqual(t, v, "f", int64(-1))
 }
 
-// ---------------------------------------------------------------------------
 // Strings
-// ---------------------------------------------------------------------------
 
 func TestStringConcat(t *testing.T) {
 	v := run(t, `s = "hello" .. " " .. "world"`)
@@ -134,9 +130,7 @@ func TestLengthOfString(t *testing.T) {
 	assertGlobalEqual(t, v, "n", int64(5))
 }
 
-// ---------------------------------------------------------------------------
 // Comparison & logical
-// ---------------------------------------------------------------------------
 
 func TestNumericComparisonAcrossSubtypes(t *testing.T) {
 	v := run(t, `
@@ -182,9 +176,7 @@ func TestNotOperator(t *testing.T) {
 	assertGlobalEqual(t, v, "d", false)
 }
 
-// ---------------------------------------------------------------------------
 // Control flow
-// ---------------------------------------------------------------------------
 
 func TestIfElseChooses(t *testing.T) {
 	v := run(t, `
@@ -281,9 +273,7 @@ func TestGotoForwardJump(t *testing.T) {
 	assertGlobalEqual(t, v, "x", int64(0))
 }
 
-// ---------------------------------------------------------------------------
 // Tables
-// ---------------------------------------------------------------------------
 
 func TestTableArrayPart(t *testing.T) {
 	v := run(t, `
@@ -335,9 +325,7 @@ func TestTableMutation(t *testing.T) {
 	assertGlobalEqual(t, v, "b", "two")
 }
 
-// ---------------------------------------------------------------------------
 // Functions, returns, varargs
-// ---------------------------------------------------------------------------
 
 func TestSimpleFunctionCallReturnsValue(t *testing.T) {
 	v := run(t, `
@@ -390,9 +378,7 @@ func TestVarargFirstValueOnly(t *testing.T) {
 	assertGlobalEqual(t, v, "r", int64(10))
 }
 
-// ---------------------------------------------------------------------------
 // Closures & upvalues
-// ---------------------------------------------------------------------------
 
 func TestClosureCapturesLocal(t *testing.T) {
 	v := run(t, `
@@ -428,9 +414,7 @@ func TestClosuresShareUpvalue(t *testing.T) {
 	assertGlobalEqual(t, v, "r", int64(3))
 }
 
-// ---------------------------------------------------------------------------
 // Methods (colon)
-// ---------------------------------------------------------------------------
 
 func TestMethodCallReceivesSelf(t *testing.T) {
 	v := run(t, `
@@ -441,9 +425,7 @@ func TestMethodCallReceivesSelf(t *testing.T) {
 	assertGlobalEqual(t, v, "r", int64(42))
 }
 
-// ---------------------------------------------------------------------------
 // Errors / pcall
-// ---------------------------------------------------------------------------
 
 func TestPcallCatchesError(t *testing.T) {
 	v := run(t, `
@@ -482,9 +464,7 @@ func TestCallNonFunctionRaises(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Built-ins
-// ---------------------------------------------------------------------------
 
 func TestTypeBuiltin(t *testing.T) {
 	v := run(t, `
@@ -541,9 +521,7 @@ func TestAssertFailsWithMessage(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // pairs (hash iteration)
-// ---------------------------------------------------------------------------
 
 func TestPairsVisitsAllEntries(t *testing.T) {
 	v := run(t, `

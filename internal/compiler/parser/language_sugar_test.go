@@ -11,8 +11,6 @@ import (
 	"github.com/hilthontt/luascript/internal/compiler/ast"
 )
 
-// --- continue --------------------------------------------------------------
-
 func TestParseContinueInLoops(t *testing.T) {
 	srcs := []string{
 		"for i = 1, 10 do continue end",
@@ -95,8 +93,6 @@ func TestContinueRemainsUsableAsIdentifier(t *testing.T) {
 	}
 }
 
-// --- if expressions ----------------------------------------------------------
-
 func TestParseIfExpression(t *testing.T) {
 	stmt := parseExpect1(t, `local s = if x > 0 then "pos" elseif x < 0 then "neg" else "zero"`)
 	ls, ok := stmt.(*ast.LocalStatement)
@@ -129,8 +125,6 @@ func TestParseIfExpressionRequiresElse(t *testing.T) {
 	}
 }
 
-// --- default parameters ------------------------------------------------------
-
 func TestParseDefaultParams(t *testing.T) {
 	stmt := parseExpect1(t, `local function f(a, b: number = 2, c: string = "x") end`)
 	lf, ok := stmt.(*ast.LocalFunctionStatement)
@@ -159,8 +153,6 @@ func TestParseDefaultParamWithoutType(t *testing.T) {
 		t.Fatal("expected default on untyped param")
 	}
 }
-
-// --- attributes ----------------------------------------------------------------
 
 func TestParseAttribValidation(t *testing.T) {
 	parse(t, "local x <const> = 1")

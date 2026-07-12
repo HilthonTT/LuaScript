@@ -200,9 +200,7 @@ func collectChildren(site string, args []vm.Value) []fyne.CanvasObject {
 	return out
 }
 
-// ---------------------------------------------------------------------------
 // Wrappers
-// ---------------------------------------------------------------------------
 
 func wrapWindow(w fyne.Window) *vm.Table {
 	methods := vm.NewTable(0, 8)

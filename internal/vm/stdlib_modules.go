@@ -27,9 +27,7 @@ func registerLibraryModules(v *VM) {
 	v.stringMeta.Set("__index", stringLib)
 }
 
-// ---------------------------------------------------------------------------
 // math
-// ---------------------------------------------------------------------------
 
 func buildMathLibrary() *Table {
 	t := NewTable(0, 32)
@@ -221,9 +219,7 @@ func floatToFloat1(name string, fn func(float64) float64) func(*VM, []Value) []V
 	}
 }
 
-// ---------------------------------------------------------------------------
 // string
-// ---------------------------------------------------------------------------
 
 func buildStringLibrary() *Table {
 	t := NewTable(0, 16)
@@ -649,9 +645,7 @@ func formatQ(v Value) string {
 	panic(Errorf("bad argument to 'format' (value has no literal form)"))
 }
 
-// ---------------------------------------------------------------------------
 // table
-// ---------------------------------------------------------------------------
 
 func buildTableLibrary() *Table {
 	t := NewTable(0, 8)
@@ -793,9 +787,7 @@ func buildTableLibrary() *Table {
 	return t
 }
 
-// ---------------------------------------------------------------------------
 // io  (minimal — write, read("l"))
-// ---------------------------------------------------------------------------
 
 func buildIOLibrary() *Table {
 	t := NewTable(0, 4)

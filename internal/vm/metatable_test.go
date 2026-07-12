@@ -5,9 +5,7 @@ import (
 	"testing"
 )
 
-// ---------------------------------------------------------------------------
 // __index
-// ---------------------------------------------------------------------------
 
 func TestIndexMetamethodWithTable(t *testing.T) {
 	v := run(t, `
@@ -44,9 +42,7 @@ func TestIndexPrefersRawValueOverMetamethod(t *testing.T) {
 	assertGlobalEqual(t, v, "r", "raw")
 }
 
-// ---------------------------------------------------------------------------
 // __newindex
-// ---------------------------------------------------------------------------
 
 func TestNewIndexMetamethodInterceptsNewKeys(t *testing.T) {
 	v := run(t, `
@@ -70,9 +66,7 @@ func TestNewIndexNotCalledForExistingKey(t *testing.T) {
 	assertGlobalEqual(t, v, "r", int64(2))
 }
 
-// ---------------------------------------------------------------------------
 // Arithmetic metamethods
-// ---------------------------------------------------------------------------
 
 func TestAddMetamethod(t *testing.T) {
 	v := run(t, `
@@ -106,9 +100,7 @@ func TestUnaryMinusMetamethod(t *testing.T) {
 	assertGlobalEqual(t, v, "r", int64(-7))
 }
 
-// ---------------------------------------------------------------------------
 // Comparison metamethods
-// ---------------------------------------------------------------------------
 
 func TestEqMetamethodForTables(t *testing.T) {
 	v := run(t, `
@@ -135,9 +127,7 @@ func TestLtMetamethod(t *testing.T) {
 	assertGlobalEqual(t, v, "s", false)
 }
 
-// ---------------------------------------------------------------------------
 // __concat / __len
-// ---------------------------------------------------------------------------
 
 func TestConcatMetamethod(t *testing.T) {
 	v := run(t, `
@@ -158,9 +148,7 @@ func TestLenMetamethod(t *testing.T) {
 	assertGlobalEqual(t, v, "r", int64(42))
 }
 
-// ---------------------------------------------------------------------------
 // __call
-// ---------------------------------------------------------------------------
 
 func TestCallMetamethod(t *testing.T) {
 	v := run(t, `
@@ -170,9 +158,7 @@ func TestCallMetamethod(t *testing.T) {
 	assertGlobalEqual(t, v, "r", "hi:world")
 }
 
-// ---------------------------------------------------------------------------
 // raw* functions
-// ---------------------------------------------------------------------------
 
 func TestRawgetSkipsMetamethod(t *testing.T) {
 	v := run(t, `
@@ -205,9 +191,7 @@ func TestRawequal(t *testing.T) {
 	assertGlobalEqual(t, v, "raweq", false)
 }
 
-// ---------------------------------------------------------------------------
 // OO pattern via metatables
-// ---------------------------------------------------------------------------
 
 func TestClassPatternViaMetatables(t *testing.T) {
 	v := run(t, `
@@ -227,9 +211,7 @@ func TestClassPatternViaMetatables(t *testing.T) {
 	assertGlobalEqual(t, v, "greeting", "I am Whiskers")
 }
 
-// ---------------------------------------------------------------------------
 // Error path: arithmetic on a metamethod-less table
-// ---------------------------------------------------------------------------
 
 func TestArithOnTableWithoutMetamethodErrors(t *testing.T) {
 	// `--!nocheck` opts out of static type checking — this test exercises
@@ -241,9 +223,7 @@ func TestArithOnTableWithoutMetamethodErrors(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // __tostring — invoked by tostring(), print(), io.write(), error(value)
-// ---------------------------------------------------------------------------
 
 func TestTostringMetamethod(t *testing.T) {
 	v := run(t, `

@@ -5,9 +5,7 @@ import (
 	"testing"
 )
 
-// ---------------------------------------------------------------------------
 // create / status
-// ---------------------------------------------------------------------------
 
 func TestCoroutineCreateProducesSuspendedCo(t *testing.T) {
 	v := run(t, `
@@ -19,9 +17,7 @@ func TestCoroutineCreateProducesSuspendedCo(t *testing.T) {
 	assertGlobalEqual(t, v, "ty", "thread")
 }
 
-// ---------------------------------------------------------------------------
 // resume → final return values
-// ---------------------------------------------------------------------------
 
 func TestCoroutineResumeRunsToCompletion(t *testing.T) {
 	v := run(t, `
@@ -34,9 +30,7 @@ func TestCoroutineResumeRunsToCompletion(t *testing.T) {
 	assertGlobalEqual(t, v, "s", "dead")
 }
 
-// ---------------------------------------------------------------------------
 // yield round-trip
-// ---------------------------------------------------------------------------
 
 func TestCoroutineYieldRoundTrip(t *testing.T) {
 	v := run(t, `
@@ -57,9 +51,7 @@ func TestCoroutineYieldRoundTrip(t *testing.T) {
 	assertGlobalEqual(t, v, "s", "dead")
 }
 
-// ---------------------------------------------------------------------------
 // wrap as iterator (the most common producer/consumer pattern)
-// ---------------------------------------------------------------------------
 
 func TestCoroutineWrapAsIterator(t *testing.T) {
 	v := run(t, `
@@ -77,9 +69,7 @@ func TestCoroutineWrapAsIterator(t *testing.T) {
 	assertGlobalEqual(t, v, "c", int64(30))
 }
 
-// ---------------------------------------------------------------------------
 // resuming a dead coroutine
-// ---------------------------------------------------------------------------
 
 func TestResumingDeadCoroutineFails(t *testing.T) {
 	v := run(t, `
@@ -94,9 +84,7 @@ func TestResumingDeadCoroutineFails(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // error inside coroutine surfaces as (false, msg)
-// ---------------------------------------------------------------------------
 
 func TestErrorInsideCoroutineSurfacesViaResume(t *testing.T) {
 	v := run(t, `
@@ -112,9 +100,7 @@ func TestErrorInsideCoroutineSurfacesViaResume(t *testing.T) {
 	assertGlobalEqual(t, v, "s", "dead")
 }
 
-// ---------------------------------------------------------------------------
 // yield outside any coroutine errors
-// ---------------------------------------------------------------------------
 
 func TestYieldOutsideCoroutineErrors(t *testing.T) {
 	msg := runErr(t, `coroutine.yield(1)`)
@@ -123,9 +109,7 @@ func TestYieldOutsideCoroutineErrors(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // isyieldable
-// ---------------------------------------------------------------------------
 
 func TestIsyieldable(t *testing.T) {
 	v := run(t, `

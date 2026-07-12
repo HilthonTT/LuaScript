@@ -54,10 +54,6 @@ func expectErrContains(t *testing.T, src, substr string) {
 		substr, strings.Join(msgs, "\n  "), src)
 }
 
-// ---------------------------------------------------------------------------
-// Primitives + locals
-// ---------------------------------------------------------------------------
-
 func TestPrimitiveAnnotationOK(t *testing.T) {
 	expectOK(t, `local x: number = 1`)
 	expectOK(t, `local s: string = "hi"`)
@@ -90,10 +86,6 @@ func TestUnannotatedLocalIsLatent(t *testing.T) {
 	expectOK(t, `local f = some_global`)
 }
 
-// ---------------------------------------------------------------------------
-// Optionals + unions
-// ---------------------------------------------------------------------------
-
 func TestOptionalAcceptsNil(t *testing.T) {
 	expectOK(t, `local x: number? = nil`)
 	expectOK(t, `local x: number? = 1`)
@@ -112,10 +104,6 @@ func TestUnionRejectsNonMember(t *testing.T) {
 	expectErrContains(t, `local id: number | string = true`, `"boolean"`)
 }
 
-// ---------------------------------------------------------------------------
-// Type aliases
-// ---------------------------------------------------------------------------
-
 func TestTypeAliasResolves(t *testing.T) {
 	expectOK(t, `type Id = number
 local x: Id = 1`)
@@ -130,9 +118,7 @@ func TestUnknownAliasErrors(t *testing.T) {
 	expectErrContains(t, `local x: NotDefined = 1`, `unknown type "NotDefined"`)
 }
 
-// ---------------------------------------------------------------------------
 // Functions
-// ---------------------------------------------------------------------------
 
 func TestFunctionParamTypeChecksArgs(t *testing.T) {
 	src := `
@@ -192,9 +178,7 @@ b()
 	expectOK(t, src)
 }
 
-// ---------------------------------------------------------------------------
 // Type assertions
-// ---------------------------------------------------------------------------
 
 func TestTypeAssertionOverride(t *testing.T) {
 	src := `local n: number = something :: number`
@@ -211,9 +195,7 @@ takes(payload :: number)
 	expectOK(t, src)
 }
 
-// ---------------------------------------------------------------------------
 // Operators
-// ---------------------------------------------------------------------------
 
 func TestArithmeticRequiresNumbers(t *testing.T) {
 	expectErrContains(t, `local n: number = "x" + 1`, `"string"`)
@@ -235,9 +217,7 @@ func TestLengthOpAcceptsStringOrTable(t *testing.T) {
 	expectOK(t, `local n = #{1,2,3}`)
 }
 
-// ---------------------------------------------------------------------------
 // Stdlib integration
-// ---------------------------------------------------------------------------
 
 func TestStdlibPrintAcceptsAnyArgs(t *testing.T) {
 	expectOK(t, `print(1, "x", true, nil)`)
@@ -260,9 +240,7 @@ func TestStdlibUnknownFieldErrors(t *testing.T) {
 	expectErrContains(t, `local x = math.notReal`, `no field`)
 }
 
-// ---------------------------------------------------------------------------
 // Mode directives
-// ---------------------------------------------------------------------------
 
 func TestNocheckBypassesAllChecks(t *testing.T) {
 	// Compiler glue handles the actual bypass — but the directive must be
@@ -299,9 +277,7 @@ func TestNonstrictModeAcceptsImplicitAny(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Lua programs without annotations remain unaffected
-// ---------------------------------------------------------------------------
 
 func TestUntypedLuaProgramTypechecks(t *testing.T) {
 	// Realistic Lua program with no annotations — checker must accept.
@@ -331,9 +307,7 @@ print(next())
 	expectOK(t, src)
 }
 
-// ---------------------------------------------------------------------------
 // Structs
-// ---------------------------------------------------------------------------
 
 func TestStructPositionalConstruction(t *testing.T) {
 	expectOK(t, `struct Point { x: number, y: number }
@@ -390,9 +364,7 @@ func TestStructOptionalFieldMayBeOmitted(t *testing.T) {
 local c = Config{ name = "svc" }`)
 }
 
-// ---------------------------------------------------------------------------
 // Tagged enums (sum types)
-// ---------------------------------------------------------------------------
 
 func TestTaggedEnumConstruction(t *testing.T) {
 	expectOK(t, `enum Shape
@@ -427,9 +399,7 @@ local function name_of(c: Color): string return "?" end
 local s = name_of(Color.RED)`)
 }
 
-// ---------------------------------------------------------------------------
 // Generics
-// ---------------------------------------------------------------------------
 
 func TestGenericIdentityInference(t *testing.T) {
 	expectOK(t, `local function id<T>(x: T): T return x end

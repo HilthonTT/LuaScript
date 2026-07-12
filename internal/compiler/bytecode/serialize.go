@@ -310,8 +310,6 @@ func rebuildParams(ins *Instruction) []any {
 	return nil
 }
 
-// --- primitive encoders --------------------------------------------------
-
 func writeUvarint(w *bufio.Writer, v uint64) {
 	var buf [binary.MaxVarintLen64]byte
 	n := binary.PutUvarint(buf[:], v)

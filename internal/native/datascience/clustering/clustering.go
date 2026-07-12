@@ -104,9 +104,7 @@ func clMeanShift(_ *vm.VM, args []vm.Value) []vm.Value {
 	return []vm.Value{out}
 }
 
-// ---------------------------------------------------------------------------
 // Conversion helpers
-// ---------------------------------------------------------------------------
 
 // tableToPoints reads an array-of-arrays Lua table into []Point. Each inner
 // table must hold only numbers.
@@ -175,9 +173,7 @@ func labelsToTable(labels []int, bump bool) *vm.Table {
 	return out
 }
 
-// ---------------------------------------------------------------------------
 // Option-table helpers
-// ---------------------------------------------------------------------------
 
 func optTable(args []vm.Value, n int) *vm.Table {
 	if n < 1 || n > len(args) || args[n-1] == nil {

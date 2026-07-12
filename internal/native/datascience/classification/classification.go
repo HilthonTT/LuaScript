@@ -27,9 +27,7 @@ func classificationLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
 	return []vm.Value{mod}
 }
 
-// ---------------------------------------------------------------------------
 // Naive Bayes (text)
-// ---------------------------------------------------------------------------
 
 // newNaiveBayes: classification.naivebayes(class1, class2 [, ...]) -> object
 // Optionally pass { tfidf = true } as the final argument to build a TF-IDF
@@ -107,9 +105,7 @@ func newBayesObject(clf *Classifier) *vm.Table {
 	return withMethods(methods)
 }
 
-// ---------------------------------------------------------------------------
 // K-nearest neighbours
-// ---------------------------------------------------------------------------
 
 // newKNNObject: classification.knn([k=3]) -> object
 func newKNNObject(_ *vm.VM, args []vm.Value) []vm.Value {
@@ -118,9 +114,7 @@ func newKNNObject(_ *vm.VM, args []vm.Value) []vm.Value {
 	return []vm.Value{newNumericObject("knn", model.Fit, model.Predict, nil)}
 }
 
-// ---------------------------------------------------------------------------
 // Perceptron
-// ---------------------------------------------------------------------------
 
 // newPerceptronObject: classification.perceptron([opts]) -> object
 // opts: { lr = 0.1, epochs = 50 }
@@ -132,9 +126,7 @@ func newPerceptronObject(_ *vm.VM, args []vm.Value) []vm.Value {
 	return []vm.Value{newNumericObject("perceptron", model.Fit, model.Predict, nil)}
 }
 
-// ---------------------------------------------------------------------------
 // Logistic regression
-// ---------------------------------------------------------------------------
 
 // newLogisticObject: classification.logistic([opts]) -> object
 // opts: { lr = 0.1, epochs = 200 }
@@ -146,9 +138,7 @@ func newLogisticObject(_ *vm.VM, args []vm.Value) []vm.Value {
 	return []vm.Value{newNumericObject("logistic", model.Fit, model.Predict, model.PredictProba)}
 }
 
-// ---------------------------------------------------------------------------
 // Support Vector Machine
-// ---------------------------------------------------------------------------
 
 // newSVMObject: classification.svm([opts]) -> object.
 // opts keys: kernel ("rbf"|"linear"|"poly"), C, gamma, coef0, degree,
@@ -272,9 +262,7 @@ func newNumericObject(
 	return withMethods(methods)
 }
 
-// ---------------------------------------------------------------------------
 // Shared helpers
-// ---------------------------------------------------------------------------
 
 // withMethods wraps a methods table in a fresh object table whose
 // metatable routes lookups through __index, mirroring the db/http modules.
@@ -354,9 +342,7 @@ func floatsToTable(xs []float64) *vm.Table {
 	return out
 }
 
-// ---------------------------------------------------------------------------
 // Option-table helpers
-// ---------------------------------------------------------------------------
 
 func optTable(args []vm.Value, n int) *vm.Table {
 	if n < 1 || n > len(args) || args[n-1] == nil {

@@ -234,9 +234,7 @@ func (c *checker) structConstructorType(s *ast.StructStatement) *Type {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Statement walker
-// ---------------------------------------------------------------------------
 
 func (c *checker) walkBlock(b *ast.Block) {
 	if b == nil {
@@ -495,9 +493,7 @@ func (c *checker) walkReturn(r *ast.ReturnStatement) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Function-body machinery
-// ---------------------------------------------------------------------------
 
 // functionShapeFromExpr builds a Type{KindFunction, Fn} from a
 // FunctionExpression's annotations. Missing param types default to `any`
@@ -581,9 +577,7 @@ func (c *checker) walkFunctionBody(fe *ast.FunctionExpression, shape *FunctionSh
 	c.walkBlock(fe.Body)
 }
 
-// ---------------------------------------------------------------------------
 // Expression typing
-// ---------------------------------------------------------------------------
 
 // walkExpressionDiscard evaluates an expression purely for side-effect
 // checking and discards the result.

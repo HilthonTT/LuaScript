@@ -12,14 +12,12 @@ func newWithSource(src string) *Parser {
 	return New(lexer.New(src))
 }
 
-// ---------------------------------------------------------------------------
 // Type-syntax parsing — Phase 1 of the Luau-style type system.
 //
 // These tests cover the parser surface only: type annotations on locals,
 // parameters, return types, type aliases, type assertions, and the type
 // expression grammar (primitives, named, optional, union, function, table).
 // They do not exercise the type checker (Phase 2+).
-// ---------------------------------------------------------------------------
 
 // firstLocalType plucks the parsed type of the only `local` in src.
 func firstLocalType(t *testing.T, src string) ast.TypeNode {
@@ -236,8 +234,6 @@ func TestLocalAnnotationTableTypeNested(t *testing.T) {
 	}
 }
 
-// --- Params / return on declared functions ----------------------------------
-
 func TestFunctionDeclarationTypedParamsAndReturn(t *testing.T) {
 	src := "function add(a: number, b: number): number return a + b end"
 	fd := parseExpect1(t, src).(*ast.FunctionDeclaration)
@@ -296,8 +292,6 @@ func TestUnannotatedParamsHaveNilType(t *testing.T) {
 	}
 }
 
-// --- Type aliases -----------------------------------------------------------
-
 func TestTypeAliasPrimitive(t *testing.T) {
 	src := "type Id = number"
 	s := parseExpect1(t, src).(*ast.TypeAliasStatement)
@@ -351,8 +345,6 @@ func TestTypeFunctionCallStillWorks(t *testing.T) {
 	}
 }
 
-// --- Type assertions --------------------------------------------------------
-
 func TestTypeAssertionBasic(t *testing.T) {
 	src := "local n = x :: number"
 	ls := parseExpect1(t, src).(*ast.LocalStatement)
@@ -391,8 +383,6 @@ func TestLabelStatementStillWorks(t *testing.T) {
 	}
 }
 
-// --- Round-trip via String() ------------------------------------------------
-
 func TestTypeAnnotationRoundTrip(t *testing.T) {
 	// Each case lists distinguishing substrings the rendered output must
 	// contain. The assertion is "the annotation didn't disappear silently",
@@ -420,8 +410,6 @@ func TestTypeAnnotationRoundTrip(t *testing.T) {
 		})
 	}
 }
-
-// --- Lexer mode-directive surface ------------------------------------------
 
 func TestLexerModeDirectiveStrict(t *testing.T) {
 	// Compile-time integration: the lexer is consumed by the parser; the

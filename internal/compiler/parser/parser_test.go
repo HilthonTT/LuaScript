@@ -503,7 +503,7 @@ return fib(10)
 	}
 }
 
-// --- match statement (parser-level desugar) -----------------------------
+// match statement (parser-level desugar)
 
 // matchArms returns the scrutinee LocalStatement and the per-arm gated
 // IfStatements produced by the match desugar. The v2 desugar shape is:
@@ -723,8 +723,6 @@ func contains(s, sub string) bool {
 	return false
 }
 
-// --- structs -------------------------------------------------------------
-
 func TestParseStructBasic(t *testing.T) {
 	stmt := parseExpect1(t, `struct Point {
 		x: number,
@@ -779,8 +777,6 @@ func TestParseStructErrors(t *testing.T) {
 	}
 }
 
-// --- tagged enum variants ------------------------------------------------
-
 func TestParseTaggedEnum(t *testing.T) {
 	stmt := parseExpect1(t, `enum Shape
 		Circle(number),
@@ -828,8 +824,6 @@ func TestParseTaggedEnumErrors(t *testing.T) {
 		}
 	}
 }
-
-// --- match v2: typed bindings, destructuring, guards ---------------------
 
 func TestMatchTypedBindingDesugar(t *testing.T) {
 	_, arms := matchArms(t, `match v do
@@ -930,8 +924,6 @@ end`)
 		t.Errorf("error = %q, want it to mention value patterns", msg)
 	}
 }
-
-// --- generics ------------------------------------------------------------
 
 func TestParseGenericFunction(t *testing.T) {
 	lf := parseExpect1(t, "local function id<T>(x: T): T return x end").(*ast.LocalFunctionStatement)

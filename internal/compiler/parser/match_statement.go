@@ -412,10 +412,6 @@ func (p *Parser) reportArrowError() {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Arm lowering
-// ---------------------------------------------------------------------------
-
 // buildArm builds one arm's gated `if` block:
 //
 //	if not <matched> [and <test>] then
@@ -585,10 +581,6 @@ func typeTest(tok token.Token, subject string, ty ast.TypeNode) ast.Expression {
 	}
 	return nil
 }
-
-// ---------------------------------------------------------------------------
-// Small AST builders
-// ---------------------------------------------------------------------------
 
 func ident(name string, tok token.Token) *ast.Identifier {
 	return &ast.Identifier{BaseNode: baseAt(tok), Name: name}

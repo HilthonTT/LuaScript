@@ -69,9 +69,7 @@ func (v *VM) callMM(fn Value, args ...Value) Value {
 	return results[0]
 }
 
-// ---------------------------------------------------------------------------
 // Arithmetic & bitwise dispatch
-// ---------------------------------------------------------------------------
 
 // arithMM implements the binary arithmetic dispatch: try the raw path, and
 // only consult __<event> when the operands are not coercible to numbers.
@@ -209,9 +207,7 @@ func (v *VM) bitNotMM(a Value) Value {
 	panic(Errorf("bitwise operand has no integer representation"))
 }
 
-// ---------------------------------------------------------------------------
 // Concat / Length / Comparison
-// ---------------------------------------------------------------------------
 
 // concatMM joins two values with __concat fallback. Used for the n-ary
 // Concat opcode by reducing pairwise from the right.
@@ -323,9 +319,7 @@ func isOrderable(a, b Value) bool {
 	return false
 }
 
-// ---------------------------------------------------------------------------
 // Indexing / new-index / call
-// ---------------------------------------------------------------------------
 
 // indexMM reads obj[key] honoring __index. Reads the raw table first; if the
 // key is absent and a metatable's __index is present, follows the chain

@@ -9,7 +9,6 @@ import (
 	"github.com/hilthontt/luascript/internal/compiler/token"
 )
 
-// ---------------------------------------------------------------------------
 // Pratt-style expression parser.
 //
 // parseExpression(minPrec) reads the prefix (atom or unary) and then keeps
@@ -19,7 +18,6 @@ import (
 //
 // Postfix forms — calls, method-calls, indexes, and table/string-call args —
 // are folded by the same loop because they sit at the highest level (Call).
-// ---------------------------------------------------------------------------
 
 // parseExpression is the public entrypoint with the lowest precedence floor.
 func (p *Parser) parseExpression() ast.Expression {

@@ -793,9 +793,7 @@ func (v *VM) dispatch(f *CallFrame, ins *bytecode.Instruction) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Closure construction
-// ---------------------------------------------------------------------------
 
 // makeClosure builds a closure for `proto` capturing upvalues per its
 // UpvalueDesc table. InStack=true descriptors look up the immediately
@@ -819,9 +817,7 @@ func (v *VM) makeClosure(parent *CallFrame, proto *bytecode.InstructionSet) *Clo
 	return cl
 }
 
-// ---------------------------------------------------------------------------
 // Calls and returns
-// ---------------------------------------------------------------------------
 
 // doCall pops the function + nargs args and invokes it. The function lives
 // at Stack[sp-nargs-1]; arguments at Stack[sp-nargs..sp]. Results land on

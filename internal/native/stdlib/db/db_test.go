@@ -14,7 +14,6 @@ import (
 	"github.com/hilthontt/luascript/internal/vm"
 )
 
-// ---------------------------------------------------------------------------
 // Fake sql driver — a minimal in-memory key/value store implemented behind
 // the database/sql/driver interfaces. Avoids pulling a real DB dependency
 // (sqlite, etc.) into the test suite. The "schema" is one column "key" and
@@ -27,7 +26,6 @@ import (
 //
 // Bind parameters are not used by the tests, but the interface implementations
 // accept and ignore them so the helper stays generic.
-// ---------------------------------------------------------------------------
 
 type fakeDriver struct{}
 
@@ -160,9 +158,7 @@ func init() {
 	sql.Register("luascripttest", fakeDriver{})
 }
 
-// ---------------------------------------------------------------------------
 // VM harness
-// ---------------------------------------------------------------------------
 
 func runDB(t *testing.T, src string) *vm.VM {
 	t.Helper()
@@ -193,9 +189,7 @@ func runDBErr(t *testing.T, src string) string {
 	return e.Error()
 }
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 func TestModuleExposesOpenAndVersion(t *testing.T) {
 	v := runDB(t, `

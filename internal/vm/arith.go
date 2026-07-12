@@ -108,9 +108,7 @@ func arithNeg(v Value) Value {
 	return -f
 }
 
-// ---------------------------------------------------------------------------
 // Bitwise — operands must be exactly representable as int64.
-// ---------------------------------------------------------------------------
 
 func toBitInt(v Value) int64 {
 	i, ok := ToInteger(v)
@@ -149,9 +147,7 @@ func shiftLeft(x, n int64) int64 {
 	return int64(uint64(x) >> uint64(-n))
 }
 
-// ---------------------------------------------------------------------------
 // Comparison
-// ---------------------------------------------------------------------------
 
 // less implements Lua's `<`. Numbers cross-compare; strings compare
 // lexicographically; mismatched types raise a runtime error.
@@ -267,9 +263,7 @@ func leFloatInt(f float64, i int64) bool {
 	return f < 0
 }
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 func firstNonNumber(a, b Value) Value {
 	if _, _, _, ok := ToNumber(a); !ok {

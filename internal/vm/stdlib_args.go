@@ -46,9 +46,7 @@ func describeBadArg(v Value) string {
 	return base
 }
 
-// ---------------------------------------------------------------------------
 // Numeric helpers
-// ---------------------------------------------------------------------------
 
 // NumArg accepts any value coercible to a Lua number (int or float). The
 // (i, f, isInt, ok) tuple lets callers preserve integer-vs-float subtype.
@@ -107,9 +105,7 @@ func StringArg(name string, n int, args []Value) string {
 	panic(Errorf("bad argument #%d to '%s' (string expected, got %s)", n, name, describeBadArg(args[n-1])))
 }
 
-// ---------------------------------------------------------------------------
 // Object helpers
-// ---------------------------------------------------------------------------
 
 // TableArg insists on a *Table.
 func TableArg(name string, n int, args []Value) *Table {
@@ -189,9 +185,7 @@ func TableOrStringArg(name string, n int, args []Value) (s string, t *Table, isS
 	panic(Errorf("bad argument #%d to '%s' (table or string expected, got %s)", n, name, describeBadArg(args[n-1])))
 }
 
-// ---------------------------------------------------------------------------
 // Optional-argument helpers
-// ---------------------------------------------------------------------------
 
 // OptString returns the string arg at position n or `dflt` if the arg is
 // absent or nil. A present, non-string, non-nil value raises.

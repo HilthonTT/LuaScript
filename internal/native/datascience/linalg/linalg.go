@@ -151,9 +151,7 @@ func linalgLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
 	return []vm.Value{m}
 }
 
-// ---------------------------------------------------------------------------
 // Numeric core
-// ---------------------------------------------------------------------------
 
 func dot(a, b []float64) float64 {
 	var s float64
@@ -358,9 +356,7 @@ func luSolve(lu [][]float64, piv []int, b []float64) []float64 {
 	return x
 }
 
-// ---------------------------------------------------------------------------
 // Marshalling helpers
-// ---------------------------------------------------------------------------
 
 func vec(site string, n int, args []vm.Value) []float64 {
 	t := vm.TableArg(site, n, args)

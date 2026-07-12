@@ -80,9 +80,7 @@ func mlLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
 	return []vm.Value{m}
 }
 
-// ---------------------------------------------------------------------------
 // Network object
-// ---------------------------------------------------------------------------
 
 // wrapNet exposes a *ml.Neural as a Lua object. Each method closes over n, so
 // it has direct access to the Go network without round-tripping through the
@@ -203,9 +201,7 @@ func trainNet(n *ml.Neural, opts *vm.Table) {
 	trainer.Train(n, data, validation, iterations)
 }
 
-// ---------------------------------------------------------------------------
 // Config / option parsing
-// ---------------------------------------------------------------------------
 
 func parseConfig(site string, t *vm.Table) *ml.Config {
 	inputs := int(intField(site, t, "inputs", 0))
@@ -326,9 +322,7 @@ func lossFromString(site, s string) ml.LossType {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Lua marshalling helpers
-// ---------------------------------------------------------------------------
 
 // parseExamples reads an array of { input = {...}, response = {...} } records
 // into training.Examples.
@@ -406,9 +400,7 @@ func weights3DToTable(w [][][]float64) *vm.Table {
 	return layers
 }
 
-// ---------------------------------------------------------------------------
 // Table-field readers (config/option tables are keyed by string)
-// ---------------------------------------------------------------------------
 
 func intField(site string, t *vm.Table, key string, dflt int64) int64 {
 	v := t.Get(key)

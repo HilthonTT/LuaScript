@@ -26,7 +26,7 @@ const (
 	patternMaxDepth    = 200
 	// capPosition is the sentinel `len` value for a position capture
 	// (the empty `()` syntax) — Lua's lstrlib uses -1 / -2 as flags.
-	capPosition = -1
+	capPosition   = -1
 	capUnfinished = -2
 )
 
@@ -343,9 +343,7 @@ func (ms *matchState) collectCaptures(sStart, matchEnd int) []Value {
 	return out
 }
 
-// ---------------------------------------------------------------------------
 // Core matcher
-// ---------------------------------------------------------------------------
 
 // match is the central recursive routine. It returns the byte offset
 // just past the end of the match, or -1 on failure. Both arguments are

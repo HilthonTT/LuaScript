@@ -238,9 +238,7 @@ func TestErrorReturnMapsToNilOrMessage(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // GoValue
-// ---------------------------------------------------------------------------
 
 type greeter struct {
 	Name   string

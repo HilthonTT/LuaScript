@@ -133,10 +133,8 @@ func statsLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
 	return []vm.Value{m}
 }
 
-// ---------------------------------------------------------------------------
 // Numeric core — pure functions over []float64. Callers guarantee non-empty
 // input (the wrappers enforce it) unless a function documents otherwise.
-// ---------------------------------------------------------------------------
 
 func sum(xs []float64) float64 {
 	var s float64
@@ -385,9 +383,7 @@ func quantileSorted(s []float64, q float64) float64 {
 	return s[lo]*(1-frac) + s[hi]*frac
 }
 
-// ---------------------------------------------------------------------------
 // Marshalling helpers
-// ---------------------------------------------------------------------------
 
 func sortedCopy(xs []float64) []float64 {
 	s := make([]float64, len(xs))

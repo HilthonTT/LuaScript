@@ -52,9 +52,7 @@ type ndarray struct {
 	shape []int
 }
 
-// ---------------------------------------------------------------------------
 // Core numeric layer (VM-independent; exercised directly in the tests)
-// ---------------------------------------------------------------------------
 
 // maxNDElems bounds the element count of any single array. Script-supplied
 // shapes must not be able to force an unrecoverable OOM (fatal, not
@@ -434,9 +432,7 @@ func shapeStr(shape []int) string {
 	return "(" + strings.Join(parts, ", ") + ")"
 }
 
-// ---------------------------------------------------------------------------
 // Lua marshalling
-// ---------------------------------------------------------------------------
 
 // ndKey is the (private) instance-table key under which the backing *ndarray
 // is stored. Prefixed with a control byte to avoid colliding with any field a
@@ -444,9 +440,9 @@ func shapeStr(shape []int) string {
 const ndKey = "\x00ndarray"
 
 var (
-	ndMeta     *vm.Table
-	metaOnce   sync.Once
-	ndMethods  *vm.Table // shared __index method table
+	ndMeta    *vm.Table
+	metaOnce  sync.Once
+	ndMethods *vm.Table // shared __index method table
 )
 
 // wrap exposes an *ndarray as a Lua object sharing a single metatable; the
@@ -505,9 +501,7 @@ func argAt(args []vm.Value, i int) vm.Value {
 	return args[i-1]
 }
 
-// ---------------------------------------------------------------------------
 // Module loader
-// ---------------------------------------------------------------------------
 
 func ndLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
 	m := vm.NewTable(0, 16)
@@ -715,9 +709,7 @@ func result(a *ndarray) vm.Value {
 	return wrap(a)
 }
 
-// ---------------------------------------------------------------------------
 // Metatable (shared across all instances)
-// ---------------------------------------------------------------------------
 
 func buildMeta() {
 	ndMethods = vm.NewTable(0, 32)
@@ -1014,9 +1006,7 @@ func (a *ndarray) toTable() vm.Value {
 	return build(a.shape, a.data)
 }
 
-// ---------------------------------------------------------------------------
 // Rendering (NumPy-flavored, with edge truncation for large arrays)
-// ---------------------------------------------------------------------------
 
 const edgeItems = 3 // show first/last N along any axis longer than 2*edgeItems
 

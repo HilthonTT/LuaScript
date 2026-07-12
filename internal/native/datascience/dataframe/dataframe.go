@@ -69,9 +69,7 @@ type DataFrame struct {
 	n     int // row count (length of every column)
 }
 
-// ---------------------------------------------------------------------------
 // Construction
-// ---------------------------------------------------------------------------
 
 // fromColumns builds a frame from a Lua map of { name = array }. All columns
 // must share a length.
@@ -190,9 +188,7 @@ func tableToColumn(t *vm.Table) []vm.Value {
 	return col
 }
 
-// ---------------------------------------------------------------------------
 // Pure transforms (return new frames; never mutate the receiver)
-// ---------------------------------------------------------------------------
 
 func (d *DataFrame) has(name string) bool { _, ok := d.cols[name]; return ok }
 
@@ -294,9 +290,7 @@ func (d *DataFrame) floatColumn(name string) ([]float64, bool) {
 	return out, true
 }
 
-// ---------------------------------------------------------------------------
 // Lua method binding
-// ---------------------------------------------------------------------------
 
 // wrap exposes a *DataFrame as a Lua object whose methods are colon-called
 // (self is args[0]; the actual arguments start at index 1).
@@ -725,9 +719,7 @@ func compareValues(a, b vm.Value) int {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Lua marshalling helpers
-// ---------------------------------------------------------------------------
 
 func arg(args []vm.Value, i int) vm.Value {
 	if i < 1 || i > len(args) {

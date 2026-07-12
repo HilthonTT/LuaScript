@@ -95,9 +95,7 @@ func csvLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
 	return []vm.Value{m}
 }
 
-// ---------------------------------------------------------------------------
 // Pure string <-> grid conversion
-// ---------------------------------------------------------------------------
 
 func parse(text string, delim rune) ([][]string, error) {
 	r := encodingcsv.NewReader(strings.NewReader(text))
@@ -117,9 +115,7 @@ func stringify(grid [][]string, delim rune) (string, error) {
 	return sb.String(), w.Error()
 }
 
-// ---------------------------------------------------------------------------
 // Lua marshalling
-// ---------------------------------------------------------------------------
 
 type options struct {
 	header     bool

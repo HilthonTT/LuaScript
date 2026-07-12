@@ -63,9 +63,7 @@ func newFigure() *figure { return &figure{width: 640, height: 400} }
 
 func (f *figure) nextColor() string { return palette[len(f.series)%len(palette)] }
 
-// ---------------------------------------------------------------------------
 // Loader + Figure wrapping
-// ---------------------------------------------------------------------------
 
 const figKey = "\x00plotfig"
 
@@ -203,9 +201,7 @@ func buildMeta() {
 	}})
 }
 
-// ---------------------------------------------------------------------------
 // Argument parsing / series construction
-// ---------------------------------------------------------------------------
 
 func argAt(args []vm.Value, i int) vm.Value {
 	if i < 1 || i > len(args) {
@@ -391,9 +387,7 @@ func asString(v vm.Value) string {
 	return vm.ToString(v)
 }
 
-// ---------------------------------------------------------------------------
 // SVG rendering
-// ---------------------------------------------------------------------------
 
 func (f *figure) dataBounds() (xlo, xhi, ylo, yhi float64) {
 	xlo, ylo = math.Inf(1), math.Inf(1)

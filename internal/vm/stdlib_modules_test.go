@@ -5,9 +5,7 @@ import (
 	"testing"
 )
 
-// ---------------------------------------------------------------------------
 // math
-// ---------------------------------------------------------------------------
 
 func TestMathConstants(t *testing.T) {
 	v := run(t, `
@@ -87,9 +85,7 @@ func TestMathRandomDeterministicWithSeed(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // string
-// ---------------------------------------------------------------------------
 
 func TestStringBasicOps(t *testing.T) {
 	v := run(t, `
@@ -159,9 +155,7 @@ func TestStringMethodSyntax(t *testing.T) {
 	assertGlobalEqual(t, v, "c", int64(5))
 }
 
-// ---------------------------------------------------------------------------
 // table
-// ---------------------------------------------------------------------------
 
 func TestTableInsertAppendsAtEnd(t *testing.T) {
 	v := run(t, `
@@ -218,9 +212,7 @@ func TestTableUnpackAndPack(t *testing.T) {
 	assertGlobalEqual(t, v, "c", int64(30))
 }
 
-// ---------------------------------------------------------------------------
 // io  (skip io.read which would block on stdin in tests)
-// ---------------------------------------------------------------------------
 
 func TestIOWriteIsCallable(t *testing.T) {
 	// We don't capture stdout in tests; just verify the call doesn't panic.
