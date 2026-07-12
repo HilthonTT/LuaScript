@@ -100,7 +100,9 @@ func SetPercent(pct int) int {
 // SetMemoryLimit sets the soft heap limit in bytes and returns the previous
 // limit. Passing a negative value queries the current limit without changing
 // it (the runtime/debug contract).
-func SetMemoryLimit(bytes int64) int64 { return debug.SetMemoryLimit(bytes) }
+func SetMemoryLimit(bytes int64) int64 {
+	return debug.SetMemoryLimit(bytes)
+}
 
 // IsRunning reports whether the collector is currently enabled. Backs
 // collectgarbage("isrunning").

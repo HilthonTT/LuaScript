@@ -141,7 +141,9 @@ var primitiveByName = map[string]*Type{
 
 // PrimitiveByName returns the singleton primitive Type for `name`, or nil
 // if `name` is not one of the closed-set primitives.
-func PrimitiveByName(name string) *Type { return primitiveByName[name] }
+func PrimitiveByName(name string) *Type {
+	return primitiveByName[name]
+}
 
 // NewUnion builds a union of `members`, flattening nested unions, deduping
 // equal types, and short-circuiting to a singleton when the simplification
@@ -182,7 +184,9 @@ outer:
 }
 
 // Optional builds `T | nil` via NewUnion.
-func Optional(t *Type) *Type { return NewUnion(t, nilT) }
+func Optional(t *Type) *Type {
+	return NewUnion(t, nilT)
+}
 
 // Same reports whether two types are structurally identical. Used by
 // dedup, by invariant comparisons (e.g. table-field width subtyping at
@@ -410,10 +414,30 @@ func NewTable(fields []TableField, indexer *Indexer) *Type {
 // AnyT, NilT, NumberT, StringT, BooleanT, UnknownT, NeverT expose the
 // singleton primitives. Used by package-external callers (stdlib_types.go,
 // the REPL banner).
-func AnyT() *Type     { return anyT }
-func NilT() *Type     { return nilT }
-func NumberT() *Type  { return numberT }
-func StringT() *Type  { return stringT }
-func BooleanT() *Type { return booleanT }
-func UnknownT() *Type { return unknownT }
-func NeverT() *Type   { return neverT }
+func AnyT() *Type {
+	return anyT
+}
+
+func NilT() *Type {
+	return nilT
+}
+
+func NumberT() *Type {
+	return numberT
+}
+
+func StringT() *Type {
+	return stringT
+}
+
+func BooleanT() *Type {
+	return booleanT
+}
+
+func UnknownT() *Type {
+	return unknownT
+}
+
+func NeverT() *Type {
+	return neverT
+}

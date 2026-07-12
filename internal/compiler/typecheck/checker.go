@@ -58,7 +58,7 @@ type checker struct {
 // unknown). Vararg also yields `any`.
 func (c *checker) expandRHS(values []ast.Expression, n int) []*Type {
 	out := make([]*Type, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		out[i] = nilT
 	}
 	if len(values) == 0 {
@@ -824,10 +824,7 @@ func (c *checker) checkCallArgs(line int, fn *FunctionShape, args []*Type) {
 			return
 		}
 		// Check positional params (only those provided).
-		bound := len(args)
-		if bound > len(fn.Params) {
-			bound = len(fn.Params)
-		}
+		bound := min(len(args), len(fn.Params))
 		for i := 0; i < bound; i++ {
 			if !assignable(args[i], fn.Params[i]) {
 				c.errAssign(line, args[i], fn.Params[i])

@@ -364,13 +364,13 @@ func (is *InstructionSet) define(action uint8, sourceLine int, params ...any) *I
 // jump targets are *anchor pre-resolution or int post-resolution).
 func encodeParams(i *Instruction, op uint8, params []any) {
 	switch op {
-	// --- BoxedAny: keep the original box so VM push is a single field read
+	// BoxedAny: keep the original box so VM push is a single field read
 	case LoadInt, LoadFloat, LoadString:
 		if len(params) >= 1 {
 			i.BoxedAny = params[0]
 		}
 
-	// --- StrA: string-keyed name/key/method
+	// StrA: string-keyed name/key/method
 	case GetGlobal, SetGlobal, GetField, SetField, Self:
 		if len(params) >= 1 {
 			if s, ok := params[0].(string); ok {
@@ -378,7 +378,7 @@ func encodeParams(i *Instruction, op uint8, params []any) {
 			}
 		}
 
-	// --- A only: single int param (or *anchor for jumps, resolved later)
+	// A only: single int param (or *anchor for jumps, resolved later)
 	case LoadNil, LoadVararg, Pop, Concat, Return,
 		Closure, GetLocal, SetLocal, GetUpvalue, SetUpvalue, CloseUpvalues:
 		if len(params) >= 1 {
@@ -389,7 +389,7 @@ func encodeParams(i *Instruction, op uint8, params []any) {
 			i.A = asAnchorOrInt32(params[0])
 		}
 
-	// --- A + B: two int params; B may be an anchor for For-family
+	// A + B: two int params; B may be an anchor for For-family
 	case NewTable, SetList, Call, TForCall:
 		if len(params) >= 1 {
 			i.A = asInt32(params[0])
@@ -405,7 +405,7 @@ func encodeParams(i *Instruction, op uint8, params []any) {
 			i.B = asAnchorOrInt32(params[1])
 		}
 
-	// --- No params: nothing to encode
+	// No params: nothing to encode
 	default:
 		// LoadTrue, LoadFalse, Leave, Dup, GetTable, SetTable,
 		// arithmetic / bitwise / comparison / unary ops

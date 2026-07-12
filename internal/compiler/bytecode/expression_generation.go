@@ -86,10 +86,6 @@ func (g *Generator) compileExpressionMulti(is *InstructionSet, exp ast.Expressio
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Variable references
-// ---------------------------------------------------------------------------
-
 // compileLoadName resolves `name` and emits the appropriate Get* instruction.
 func (g *Generator) compileLoadName(is *InstructionSet, name string, line int) {
 	if slot, ok := g.current.locals.lookupLocal(name); ok {

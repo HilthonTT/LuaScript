@@ -2,6 +2,7 @@ package analyze
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/hilthontt/luascript/internal/compiler/ast"
 )
@@ -177,12 +178,15 @@ func eachFunction(prog *ast.Program) []fnInfo {
 }
 
 func funcDeclName(fd *ast.FunctionDeclaration) string {
-	name := fd.Name.Name
+	var name strings.Builder
+	name.WriteString(fd.Name.Name)
 	for _, f := range fd.DottedFields {
-		name += "." + f
+		name.WriteString(".")
+		name.WriteString(f)
 	}
 	if fd.MethodName != "" {
-		name += ":" + fd.MethodName
+		name.WriteString(":")
+		name.WriteString(fd.MethodName)
 	}
-	return name
+	return name.String()
 }

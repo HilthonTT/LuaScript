@@ -17,7 +17,7 @@ package typecheck
 func stdlibGlobals() map[string]*Type {
 	g := map[string]*Type{}
 
-	// ----- top-level globals (vm/stdlib.go) -----------------------------------
+	// top-level globals (vm/stdlib.go)
 
 	// print(...) -> ()
 	g["print"] = NewFunction(nil, nil, true, anyT)
@@ -62,7 +62,7 @@ func stdlibGlobals() map[string]*Type {
 	g["rawequal"] = NewFunction([]*Type{anyT, anyT}, []*Type{booleanT}, false, nil)
 	g["rawlen"] = NewFunction([]*Type{anyT}, []*Type{numberT}, false, nil)
 
-	// ----- loader (vm/loader.go) ----------------------------------------------
+	// loader (vm/loader.go)
 
 	// require(modname) -> any — cross-module typing is a v2 problem;
 	// `require` returns `any` so call sites flow loosely.

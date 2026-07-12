@@ -26,7 +26,12 @@ package typecheck
 // in a child env frame, so a refinement never escapes its branch and the
 // env model needs no changes.
 
-import "github.com/hilthontt/luascript/internal/compiler/ast"
+import (
+	"maps"
+	"slices"
+
+	"github.com/hilthontt/luascript/internal/compiler/ast"
+)
 
 // refinement maps a local name to the type it should hold inside a branch.
 // An empty/nil refinement means "nothing learned" — the branch sees the
@@ -208,12 +213,8 @@ func mergeRefine(a, b refinement) refinement {
 		return a
 	}
 	out := make(refinement, len(a)+len(b))
-	for k, v := range a {
-		out[k] = v
-	}
-	for k, v := range b {
-		out[k] = v
-	}
+	maps.Copy(out, a)
+	maps.Copy(out, b)
 	return out
 }
 
@@ -287,12 +288,7 @@ func keepKinds(t *Type, kinds ...Kind) *Type {
 		return t
 	}
 	want := func(k Kind) bool {
-		for _, x := range kinds {
-			if x == k {
-				return true
-			}
-		}
-		return false
+		return slices.Contains(kinds, k)
 	}
 	if t.Kind == KindUnion {
 		kept := make([]*Type, 0, len(t.Union))

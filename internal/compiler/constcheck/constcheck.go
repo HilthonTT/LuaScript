@@ -39,7 +39,9 @@ type Errors struct {
 	Messages []string
 }
 
-func (e *Errors) Error() string { return strings.Join(e.Messages, "\n") }
+func (e *Errors) Error() string {
+	return strings.Join(e.Messages, "\n")
+}
 
 // checker tracks lexical scopes. Every local is recorded (attributed or
 // not) so an inner plain `local x` correctly shadows an outer `local x
@@ -51,8 +53,13 @@ type checker struct {
 	errors []string
 }
 
-func (c *checker) pushScope() { c.scopes = append(c.scopes, map[string]string{}) }
-func (c *checker) popScope()  { c.scopes = c.scopes[:len(c.scopes)-1] }
+func (c *checker) pushScope() {
+	c.scopes = append(c.scopes, map[string]string{})
+}
+
+func (c *checker) popScope() {
+	c.scopes = c.scopes[:len(c.scopes)-1]
+}
 
 func (c *checker) define(name, attrib string) {
 	c.scopes[len(c.scopes)-1][name] = attrib

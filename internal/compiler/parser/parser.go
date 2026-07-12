@@ -221,8 +221,13 @@ func (p *Parser) peek2Token() token.Token {
 	return *p.peek2
 }
 
-func (p *Parser) curTokenIs(t token.Type) bool  { return p.curToken.Type == t }
-func (p *Parser) peekTokenIs(t token.Type) bool { return p.peekToken.Type == t }
+func (p *Parser) curTokenIs(t token.Type) bool {
+	return p.curToken.Type == t
+}
+
+func (p *Parser) peekTokenIs(t token.Type) bool {
+	return p.peekToken.Type == t
+}
 
 // expectPeek advances if the peek token matches `t`; otherwise records an
 // error and returns false. The caller MUST check the boolean.

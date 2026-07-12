@@ -32,17 +32,25 @@ type Error struct {
 // Error implements the error interface, returning the message verbatim.
 // Having this here lets callers return *Error directly as an `error` while
 // preserving the typed-introspection helpers (IsEOF etc.) for the REPL.
-func (e *Error) Error() string { return e.Message }
+func (e *Error) Error() string {
+	return e.Message
+}
 
 // IsEOF reports whether the error is an end-of-file marker.
-func (e *Error) IsEOF() bool { return e.ErrType == EndOfFileError }
+func (e *Error) IsEOF() bool {
+	return e.ErrType == EndOfFileError
+}
 
 // IsUnexpectedEnd reports whether the error is an unmatched `end`.
-func (e *Error) IsUnexpectedEnd() bool { return e.ErrType == UnexpectedEndError }
+func (e *Error) IsUnexpectedEnd() bool {
+	return e.ErrType == UnexpectedEndError
+}
 
 // IsUnexpectedToken reports whether the error is the generic "unexpected
 // token" category.
-func (e *Error) IsUnexpectedToken() bool { return e.ErrType == UnexpectedTokenError }
+func (e *Error) IsUnexpectedToken() bool {
+	return e.ErrType == UnexpectedTokenError
+}
 
 // IsUnexpectedEmptyLine reports whether the error is an unmatched `end`
 // arising from REPL input with no preceding statements.

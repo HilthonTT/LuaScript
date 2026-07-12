@@ -61,13 +61,33 @@ func (docGroup) isDoc()    {}
 // Constructors. These are tiny on purpose: emit code reads more naturally
 // with short names (text, line, group, nest, concat).
 
-func nilDoc() Doc            { return docNil{} }
-func text(s string) Doc      { return docText{s} }
-func line() Doc              { return docLine{} }
-func softLine() Doc          { return docSoftLine{} }
-func hardLine() Doc          { return docHardLine{} }
-func nest(n int, d Doc) Doc  { return docNest{n: n, inner: d} }
-func group(d Doc) Doc        { return docGroup{inner: d} }
+func nilDoc() Doc {
+	return docNil{}
+}
+
+func text(s string) Doc {
+	return docText{s}
+}
+
+func line() Doc {
+	return docLine{}
+}
+
+func softLine() Doc {
+	return docSoftLine{}
+}
+
+func hardLine() Doc {
+	return docHardLine{}
+}
+
+func nest(n int, d Doc) Doc {
+	return docNest{n: n, inner: d}
+}
+
+func group(d Doc) Doc {
+	return docGroup{inner: d}
+}
 
 // concat composes documents end-to-end. Nil-document arguments are dropped
 // so emit sites can write `concat(maybeNil, ..., last)` without wrapping

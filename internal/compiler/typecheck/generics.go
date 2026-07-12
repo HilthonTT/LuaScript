@@ -53,7 +53,9 @@ func (c *checker) resolveTypeApplication(app *ast.TypeApplication) *Type {
 		return anyT
 	}
 	c.instDepth++
-	defer func() { c.instDepth-- }()
+	defer func() {
+		c.instDepth--
+	}()
 
 	g, ok := c.env.generics[app.Name]
 	if !ok {

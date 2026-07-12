@@ -15,7 +15,9 @@ import (
 // runtime errors still panic with the string-typed LuaError.
 type luaError struct{ value Value }
 
-func (e luaError) Error() string { return ToString(e.value) }
+func (e luaError) Error() string {
+	return ToString(e.value)
+}
 
 // recoverValue maps a recovered panic to the Lua error value a protected call
 // (pcall/coroutine.resume) should surface as its error result.
