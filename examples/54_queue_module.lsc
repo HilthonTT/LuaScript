@@ -1,0 +1,117 @@
+-- 54_queue_module.lsc — the `queue` module: a priority job queue + channels.
+--
+-- Concurrency model, up front, because it shapes the whole API: the VM is
+-- single-threaded, so YOUR JOBS ALWAYS RUN ON THE VM GOROUTINE, one at a time.
+-- The queue buys you ordering, delays, retries, backpressure and metrics — not
+-- parallelism. Goroutines exist only where they never touch the VM
+-- (`queue.after` / `queue.tick` feed a channel from a timer).
+
+local queue = require("queue")
+
+print("== priority + FIFO ==")
+
+-- Jobs run highest-priority first; same-priority jobs run in push order.
+local q = queue.new()
+q:push(function() print("  3. cleanup (priority 0)") end)
+q:push(function() print("  1. page the on-call (priority 100)") end, { priority = 100 })
+q:push(function() print("  2. flush metrics (priority 10)") end, { priority = 10 })
+
+-- :run() drains the queue on this goroutine and returns how many jobs it ran.
+print("ran " .. q:run() .. " jobs\n")
+
+print("== retries with backoff ==")
+
+local flaky_attempts = 0
+local r = queue.new{
+  on_error = function(msg, info)
+    print("  job " .. info.id .. " gave up after " .. info.attempts .. " attempts: " .. msg)
+  end,
+}
+
+-- Fails twice, succeeds on the third attempt. `backoff_ms` parks each retry.
+r:push(function()
+  flaky_attempts = flaky_attempts + 1
+  if flaky_attempts < 3 then error("connection reset") end
+  print("  succeeded on attempt " .. flaky_attempts)
+end, { id = "sync-users", retries = 3, backoff_ms = 5 })
+
+-- This one never succeeds, so it exhausts its retries and lands in on_error.
+r:push(function() error("disk full") end, { id = "write-cache", retries = 1 })
+
+r:run()
+local m = r:metrics()
+print(string.format("  metrics: processed=%d succeeded=%d failed=%d retried=%d\n",
+  m.processed, m.succeeded, m.failed, m.retried))
+
+print("== delays and a self-rescheduling loop ==")
+
+-- A job that re-pushes itself with a delay is an event loop. :run() waits out
+-- the delay, so this drains in ~30ms rather than spinning.
+local loop = queue.new()
+local ticks = 0
+local function tick()
+  ticks = ticks + 1
+  print("  tick " .. ticks)
+  if ticks < 3 then
+    loop:push(tick, { delay_ms = 10 })
+  end
+end
+loop:push(tick)
+loop:run()
+print()
+
+print("== backpressure ==")
+
+-- A bounded queue refuses work instead of growing without limit.
+local small = queue.new{ capacity = 1 }
+print("  first push  -> " .. tostring(small:push(function() end)))
+local id, err = small:push(function() end)
+print("  second push -> " .. tostring(id) .. ", " .. tostring(err))
+print("  " .. tostring(small) .. "\n")
+
+print("== channels ==")
+
+-- A channel is a real Go channel carrying Lua values. Buffered here, so the
+-- sends don't block.
+local ch = queue.channel(3)
+ch:send("alpha")
+ch:send("beta")
+print("  " .. tostring(ch))
+
+-- try_send tells you *why* it failed rather than blocking.
+ch:send("gamma")
+local sent, why = ch:try_send("delta")
+print("  try_send on a full channel -> " .. tostring(sent) .. ", " .. tostring(why))
+
+-- Closing lets receivers drain what is already buffered, then reports "closed".
+ch:close()
+while true do
+  local v, ok = ch:receive()
+  if not ok then break end
+  print("  received " .. v)
+end
+print("  drained; is_closed = " .. tostring(ch:is_closed()) .. "\n")
+
+print("== timers (the one place a goroutine is involved) ==")
+
+-- queue.after runs a Go timer on its own goroutine and hands the value over a
+-- channel. The goroutine never touches the VM, so this is safe.
+local later = queue.after(20, "elapsed")
+local v, ok = later:receive(1000)   -- receive with a 1s timeout
+print("  after(20ms) -> " .. tostring(v) .. " (ok=" .. tostring(ok) .. ")")
+
+-- queue.tick is the repeating form. Always :stop() it — that shuts the
+-- goroutine down.
+local ticker = queue.tick(10)
+for i = 1, 3 do
+  ticker:receive(1000)
+  print("  tick " .. i)
+end
+ticker:stop()
+
+-- A receive that times out returns nil, false, "timeout" — it does not error.
+local idle = queue.channel(1)
+local _, got, reason = idle:receive(15)
+print("  idle receive -> ok=" .. tostring(got) .. ", reason=" .. tostring(reason))
+
+print("\ndone.")

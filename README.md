@@ -8,20 +8,21 @@ A Lua-flavored language with a stack-based virtual machine and **Luau-style grad
 
 The surface syntax tracks **Lua 5.4** as closely as possible — the same chunks, the same scoping rules, the same metatables, coroutines, and standard library shape. Optional type annotations on top, à la [Luau](https://luau.org), check at compile time and erase before bytecode so the runtime is unchanged.
 
-The implementation is a clean-room rewrite focused on being readable end-to-end: lex → parse → typecheck → bytecode → stack VM. No LLVM, no JIT, no surprises.
+The implementation is a clean-room rewrite focused on being readable end-to-end: lex → parse → constcheck → typecheck → constant-fold → bytecode → stack VM. No LLVM, no JIT, no surprises.
 
 ## Contents
 
 - [Status](#status)
 - [Quick start](#quick-start)
 - [Bundling a script into a standalone .exe](#bundling-a-script-into-a-standalone-exe)
+- [Jobs and channels (the `queue` module)](#jobs-and-channels-the-queue-module)
 - [Desktop UI module (opt-in)](#desktop-ui-module-opt-in)
 - [Bonsai mode](#bonsai-mode)
 - [Examples](#examples)
 - [Type system](#type-system)
 - [REPL](#repl)
 - [Project layout](#project-layout)
-- [Non-goals (for now)](#non-goals-for-now)
+- [Not in v1 (deliberately)](#not-in-v1-deliberately)
 - [Contributing](#contributing)
 - [Inspirations](#inspirations)
 - [License](#license)
@@ -34,12 +35,16 @@ The implementation is a clean-room rewrite focused on being readable end-to-end:
 - **Bytecode** — stack-based with closure upvalues, vararg passing, generic-`for` iteration, and a one-time scan that fills `NumLocals` at runtime where the generator left it blank. Types are erased before this stage — the VM never sees them.
 - **VM** — closures, metatables, coroutines (via goroutines + channels), `pcall`/`error` unwinding.
 - **Standard library** — `print`/`tostring`/`tonumber`, `ipairs`/`pairs`/`next`, `pcall`/`assert`/`error`, `type` plus the `typeof`/`sizeof` reflection builtins, raw and metatable helpers, plus `math`, `string` (full Lua pattern surface: `find`/`match`/`gmatch`/`gsub`), `table`, `io.write`/`read`, `coroutine`, and `package`/`require`. `__tostring` is honoured by `tostring`, `print`, `io.write`, `error`, and the REPL.
-- **Native modules** — `require("…")` for `db`, `os`, `math`, `json`, `http` (client), `httpserver`, `crypto`, `time`, `regexp`, `uuid`, `sort`, `compression`, `bit32`, `utf8`, `io`, `log`, `debug`, `std` (stack/queue/deque/set/list/heap/hashmap), `clustering` (k-means/DBSCAN/hierarchical/mean-shift), `classification` (Naive Bayes/KNN/perceptron/logistic/SVM), and the data-science set: `stats` (descriptive/inferential statistics), `linalg` (vectors/matrices), `csv` (read/write), and `dataframe` (column-oriented tables). All ship by default; `cmd/natives.go::nativeRegistrars` is the single source of truth. The Fyne-backed `ui` GUI module is **opt-in** behind the `luascript_ui` build tag (it pulls in OpenGL/cgo) — see [Desktop UI module](#desktop-ui-module-opt-in).
+- **Native modules** — `require("…")` for `db`, `os`, `math`, `json`, `http` (client), `httpserver`, `crypto`, `time`, `regexp`, `uuid`, `sort`, `compression`, `bit32`, `utf8`, `io`, `log`, `debug`, `queue` (priority job queue + channels), `std` (stack/queue/deque/set/list/heap/hashmap/trie), `clustering` (k-means/DBSCAN/hierarchical/mean-shift), `classification` (Naive Bayes/KNN/perceptron/logistic/SVM), and the data-science set: `stats` (descriptive/inferential statistics), `linalg` (vectors/matrices), `csv` (read/write), `dataframe` (column-oriented tables), `ndarray` (dense N-D arrays with broadcasting), `plot` (dependency-free SVG charting), and `ml` (feed-forward neural nets). All ship by default; `cmd/luascript/natives.go::nativeRegistrars` is the single source of truth. Two modules are platform- or toolchain-gated: the Fyne-backed `ui` GUI module is **opt-in** behind the `luascript_ui` build tag (it pulls in OpenGL/cgo — see [Desktop UI module](#desktop-ui-module-opt-in)), and `plugin` (load Go packages at run time) needs cgo and a platform where Go supports plugins, so it **never runs on Windows** — `require("plugin")` resolves everywhere but reports `supported = false` there.
 - **Enums** — `enum Name V1, V2 end` declares an int-auto-increment, frozen-via-`__newindex`-proxy table (typecheck treats the alias as `number`). Add a payload to any variant — `enum Shape Circle(number), Rect(number, number), Unit end` — to make it a **tagged sum type**: payload variants become constructors, nullary variants become singletons, and every value carries a `__tag` plus a `typeof`-visible nominal type. Bare-variant enums keep the original behaviour.
 - **Structs** — `struct Point { x: number, y: number }` declares a nominal product type: a constructor value plus a type alias for the structural shape. Construct positionally (`Point(1, 2)`) or by name (`Point{ x = 1, y = 2 }`); instances report their name via `typeof`. `struct` is a soft keyword, so existing `struct` variables still compile.
 - **Match** — `match subject do ... end` dispatches over an expression. Value/literal arms (`0`, `1, 2, 3`, `_`), typed binding arms (`n: number ->`, `x: any ->`), destructuring arms for tagged enums (`Shape.Circle(r) ->`) and structs (`Point{ x = px } ->`), and `if` guards. A pure parser-level desugar — no runtime machinery, no new VM opcodes.
 - **Generics** — `<T, U>` type parameters on functions, type aliases, and structs (`function map<T, U>(xs: {T}, f: (T) -> U): {U}`, `type Box<T> = { value: T }`, `struct Pair<A, B> { ... }`). Instantiated with `Name<Args>` (nested `Box<Box<number>>` works). Fully erased before bytecode; the checker infers type variables from call arguments and substitutes them into return types.
 - **Defer** — `defer cleanup()` schedules a call to run when the enclosing function exits, in last-in-first-out order, on normal return **and** when an error unwinds the frame (caught by `pcall`). Lowered to a frame-local closure list; ideal for paired acquire/release. Capture is by upvalue, so a deferred call sees a variable's value at exit time (unlike Go, which snapshots arguments eagerly).
+- **`continue`** — a real statement (not a `goto` desugar) that jumps to the loop's per-iteration anchor, closing upvalues on the way. A contextual keyword like Luau's, so `continue = 1` still parses as an identifier. In `repeat`, an `until` condition that reads a local declared after a `continue` is a compile error (matching Luau).
+- **If expressions** — `local x = if cond then a elseif c2 then b else z` — Luau-style, no `end`, arms are single expressions, `else` mandatory. Literal conditions are pruned by the constant folder.
+- **Default parameters** — `function f(x: number = 10)`. Applied by a codegen prologue equivalent to `if x == nil then x = 10 end`, so `false` does not trigger the default and defaults can see earlier parameters.
+- **Attributes** — `local x <const> = 1` and `local h <close> = …` are parsed and enforced by an always-on `constcheck` pass (it runs even under `--!nocheck`), which rejects assignment to a const local — including through a compound assignment, a `function x() end` redefinition, or a captured upvalue. `<close>`'s runtime `__close` semantics are a non-goal; the attribute is parse- and const-checked only.
 - **REPL** — readline-driven, history-backed, with continuation prompts for incomplete input. Top-level `local` declarations persist across REPL chunks (a deliberate convenience deviation from `lua`). Type-check errors are surfaced with a distinct `type-error:` prefix.
 
 ## Quick start
@@ -107,6 +112,58 @@ Limitations (v1):
 - The bundled binary matches the host platform — no cross-compilation flag yet.
 - Bundled scripts don't see `os.Args`.
 - Antivirus heuristics occasionally flag self-modifying-style .exes; code-signing fixes it. This is the same trade-off PyInstaller and Bun's `--compile` have.
+
+## Jobs and channels (the `queue` module)
+
+`require("queue")` gives you a priority job queue and Go-backed channels.
+
+```lua
+local queue = require("queue")
+
+local q = queue.new{ capacity = 1000, on_error = function(msg, info)
+    print("job " .. info.id .. " failed: " .. msg)
+end }
+
+q:push(function() cleanup() end)                                    -- priority 0
+q:push(function() page_oncall() end, { priority = 100 })            -- runs first
+q:push(sync, { retries = 3, backoff_ms = 250, id = "sync-users" })  -- retried on error
+q:push(reap, { delay_ms = 5000 })                                   -- runs later
+
+q:run()   -- drains the queue on this goroutine; returns how many jobs ran
+```
+
+| Method                  | Effect                                                                                 |
+| ----------------------- | -------------------------------------------------------------------------------------- |
+| `q:push(fn, opts?)`     | Enqueue. Returns a job id, or `nil, "queue is full"` when a bounded queue is at capacity. |
+| `q:run()`               | Drain until empty (waiting out any delays) or until `:stop()`. Returns the count run.  |
+| `q:poll(max?)`          | Run only jobs already due, at most `max`. Never sleeps.                                |
+| `q:stop()` / `q:clear()`| Halt the drain (safe from inside a job) / drop everything pending.                      |
+| `q:metrics()`           | `enqueued`, `processed`, `succeeded`, `failed`, `retried`, `expired`, `dropped`, `pending`, `avg_wait_ms`, `avg_exec_ms`, `max_wait_ms`, `max_exec_ms`. |
+
+`push` options: `priority` (higher runs first; ties break FIFO), `delay_ms`, `retries`, `backoff_ms`, `timeout_ms`, `id`, `args`, `payload`.
+
+Channels carry Lua values between goroutines, with Go's semantics:
+
+```lua
+local ch = queue.channel(16)          -- 0 (the default) is unbuffered
+ch:send("work")                       -- blocks; ch:send(v, 250) times out
+local v, ok = ch:receive(1000)        -- -> value, true  |  nil, false, "timeout"|"closed"
+ch:close()                            -- receivers drain the buffer, then see "closed"
+
+local t = queue.tick(500)             -- a timer goroutine feeding a channel
+t:receive(); t:stop()
+```
+
+### The one rule
+
+**Jobs always run on the VM goroutine, one at a time.** The VM is single-threaded and has no locks, so running Lua on two goroutines at once is a data race, not a speedup. The queue therefore buys you *ordering, delays, retries, backpressure, deadline-shedding and metrics* — **not parallelism**, which this runtime cannot offer for Lua code and does not pretend to.
+
+Two consequences worth internalising:
+
+- `timeout_ms` is a deadline on **starting**, not on running: a job that sits past its deadline is dropped unrun (and counted in `expired`). It cannot abort a job already in progress, because there is no way to preempt a Lua call mid-flight.
+- The only goroutines in the module are `queue.after` and `queue.tick`, which run a timer and push a value into a channel. They never touch the VM, which is exactly why they are safe.
+
+See [`54_queue_module.lsc`](examples/54_queue_module.lsc) for a full tour.
 
 ## Desktop UI module (opt-in)
 
@@ -212,6 +269,15 @@ repo root with `go run ./cmd/luascript examples/<file>`:
 | `43_tagged_enums.lsc`          | tagged sum-type enums — payload variants as constructors, nullary variants as singletons, `__tag`/`typeof` introspection, a `Result` pattern |
 | `44_match.lsc`                 | `match` v2 — typed binding patterns, `if` guards, and destructuring of tagged enums and structs (with a `Result` pipeline)            |
 | `45_generics.lsc`              | generics — parametric functions with inference (`map`/`filter`), generic type aliases (`Box<T>`), and generic structs (a `Stack<T>`)   |
+| `46_generics.lsc`              | generics, continued — deeper inference and instantiation cases                                                                         |
+| `47_ndarray_module.lsc`        | the `ndarray` native module — dense N-D arrays, broadcasting, overloaded operators, axis reductions, matmul/transpose/reshape          |
+| `48_plot_module.lsc`           | the `plot` native module — dependency-free SVG charting (`line`/`scatter`/`bar`/`histogram`, auto-ranged axes, legend, `save`)         |
+| `49_continue.lsc`              | `continue` — skip to the next iteration in `for`/`while`/`repeat`, with the `repeat`/`until` scoping rule                              |
+| `50_if_expressions.lsc`        | if expressions — `local x = if c then a else b`, no `end`, `else` mandatory                                                            |
+| `51_default_params.lsc`        | default parameters — `function f(x = 1)`, why `false` doesn't trigger the default, defaults referring to earlier params                |
+| `52_attributes.lsc`            | `<const>` and `<close>` attributes and what the always-on `constcheck` pass rejects                                                    |
+| `53_plugin.lsc`                | the `plugin` native module — load Go packages at run time. **Needs cgo + linux/darwin/freebsd; will not run on Windows** (use WSL)     |
+| `54_queue_module.lsc`          | the `queue` native module — priority job queue (delays, retries, backpressure, metrics) and Go-backed channels (`after`/`tick`)        |
 
 ### Running the module examples
 
@@ -514,16 +580,19 @@ type-error: Type "string" could not be converted into "number" at line 1
 │   │   ├── token/     token types and keyword table
 │   │   ├── parser/    recursive-descent parser, Pratt-style for expressions
 │   │   ├── ast/       AST node definitions (statements, expressions, types)
+│   │   ├── constcheck/ always-on pass rejecting assignment to `<const>` locals
 │   │   ├── typecheck/ gradual type system — Type representation, env, pass
 │   │   ├── optimize/  AST constant-folding pass (Lua-5.4-safe subset)
 │   │   ├── analyze/   pass-registry static analyzer (`luascript analyze`)
+│   │   ├── bccache/   on-disk bytecode compile cache (LUASCRIPT_NOCACHE / _CACHE_DIR)
 │   │   ├── debug/     pprof Start/Stop wrappers used by `luascript profile`
 │   │   ├── bytecode/  AST → instruction-set generator
-│   │   └── compiler.go  top-level pipeline (lex → parse → typecheck → optimize → bytecode)
+│   │   └── compiler.go  top-level pipeline (lex → parse → constcheck → typecheck → optimize → bytecode)
 │   ├── vm/            stack VM, closures, metatables, coroutines, stdlib
 │   ├── native/        bundled native modules
-│   │   ├── stdlib/    runtime modules (db, os, http, json, std, log, …)
+│   │   ├── stdlib/    runtime modules (db, os, http, json, std, queue, log, …)
 │   │   └── datascience/  ndarray, dataframe, stats, linalg, ml, plot, …
+│   ├── plugin/        `plugin` module — load Go packages at run time (cgo, non-Windows)
 │   ├── lsp/           language server (protocol, jsonrpc2, uri + server/)
 │   ├── formatter/     `luascript fmt` — trivia-preserving formatter
 │   ├── bonsai/        ASCII bonsai tree side mode (cbonsai/gobonsai fork)

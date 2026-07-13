@@ -23,6 +23,7 @@ import (
 	osNative "github.com/hilthontt/luascript/internal/native/stdlib/os"
 	"github.com/hilthontt/luascript/internal/native/datascience/plot"
 	"github.com/hilthontt/luascript/internal/plugin"
+	"github.com/hilthontt/luascript/internal/native/stdlib/queue"
 	regexpNative "github.com/hilthontt/luascript/internal/native/stdlib/regexp"
 	"github.com/hilthontt/luascript/internal/native/stdlib/sort"
 	"github.com/hilthontt/luascript/internal/native/datascience/stats"
@@ -56,6 +57,7 @@ var nativeRegistrars = []func(*vm.VM){
 	uuid.RegisterUUIDPreload,
 	sort.RegisterSortPreload,
 	std.RegisterStdPreload,
+	queue.RegisterQueuePreload,
 	compression.RegisterCompressionPreload,
 	bit32.RegisterBit32Preload,
 	utf8x.RegisterUTF8Preload,
