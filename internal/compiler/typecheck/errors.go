@@ -11,10 +11,10 @@ import (
 // the full picture per compile.
 type TypeError struct {
 	Line    int
-	Code    string  // short stable identifier for tooling, e.g. "incompat-assign"
-	Message string  // human-readable, single-line
-	Got     *Type   // optional — populated for assignability errors
-	Want    *Type   // optional — populated for assignability errors
+	Code    string // short stable identifier for tooling, e.g. "incompat-assign"
+	Message string // human-readable, single-line
+	Got     *Type  // optional — populated for assignability errors
+	Want    *Type  // optional — populated for assignability errors
 }
 
 // Format renders the error in Luau-style:

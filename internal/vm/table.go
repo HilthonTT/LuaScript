@@ -11,7 +11,7 @@ import "math"
 type Table struct {
 	array     []Value
 	hash      map[Value]Value
-	keys      []Value // hash keys in insertion order; nil entries are tombstones
+	keys      []Value       // hash keys in insertion order; nil entries are tombstones
 	keyPos    map[Value]int // key -> index in keys; deleted keys keep their entry until compaction so Next can resume from them
 	dead      int           // tombstone count in keys
 	metatable *Table

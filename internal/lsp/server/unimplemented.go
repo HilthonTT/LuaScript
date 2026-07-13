@@ -17,9 +17,11 @@ type unimplementedServer struct{}
 func (unimplementedServer) Initialize(context.Context, *protocol.InitializeParams) (*protocol.InitializeResult, error) {
 	return &protocol.InitializeResult{}, nil
 }
-func (unimplementedServer) Initialized(context.Context, *protocol.InitializedParams) error { return nil }
-func (unimplementedServer) Shutdown(context.Context) error                                 { return nil }
-func (unimplementedServer) Exit(context.Context) error                                     { return nil }
+func (unimplementedServer) Initialized(context.Context, *protocol.InitializedParams) error {
+	return nil
+}
+func (unimplementedServer) Shutdown(context.Context) error { return nil }
+func (unimplementedServer) Exit(context.Context) error     { return nil }
 func (unimplementedServer) WorkDoneProgressCancel(context.Context, *protocol.WorkDoneProgressCancelParams) error {
 	return nil
 }

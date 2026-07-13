@@ -28,10 +28,10 @@ func TestBroadcastShapes(t *testing.T) {
 		a, b, want []int
 		ok         bool
 	}{
-		{[]int{2, 3}, []int{3}, []int{2, 3}, true},   // row broadcast
-		{[]int{2, 3}, []int{}, []int{2, 3}, true},    // scalar
+		{[]int{2, 3}, []int{3}, []int{2, 3}, true},    // row broadcast
+		{[]int{2, 3}, []int{}, []int{2, 3}, true},     // scalar
 		{[]int{2, 1}, []int{1, 3}, []int{2, 3}, true}, // outer
-		{[]int{2, 3}, []int{4}, nil, false},          // mismatch
+		{[]int{2, 3}, []int{4}, nil, false},           // mismatch
 	}
 	for _, c := range cases {
 		out, ok := broadcast(c.a, c.b)

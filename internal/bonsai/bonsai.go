@@ -32,21 +32,21 @@ const (
 // defaults inside Run, so callers can pass an empty Options{} for "just
 // grow a tree".
 type Options struct {
-	Seed        int64         // 0 -> time.Now().UnixNano()
-	Life        int           // 0 -> 32, clamped to [1,127]
-	Multiplier  int           // 0 -> 5, clamped to [0,20]
-	Pot         int           // 0 -> PotBig
-	Align       int           // 0 -> AlignCenter
-	Leaves      []string      // nil -> []string{"&"}
-	Message     string        // optional message box
-	MsgX, MsgY  int           // upper-left of message; defaults 4,2
-	BaseX, BaseY int          // overrides for pot position; 0 = auto-center
-	Print       bool          // dump tree to stdout and exit
-	Live        bool          // animate growth step-by-step
-	Step        time.Duration // delay between live steps; 0 -> 33ms
-	Infinite    bool          // keep regrowing until quit
-	Wait        time.Duration // delay between trees in infinite mode; 0 -> 4s
-	Screensaver bool          // implies Live + Infinite, exits on any keypress
+	Seed         int64         // 0 -> time.Now().UnixNano()
+	Life         int           // 0 -> 32, clamped to [1,127]
+	Multiplier   int           // 0 -> 5, clamped to [0,20]
+	Pot          int           // 0 -> PotBig
+	Align        int           // 0 -> AlignCenter
+	Leaves       []string      // nil -> []string{"&"}
+	Message      string        // optional message box
+	MsgX, MsgY   int           // upper-left of message; defaults 4,2
+	BaseX, BaseY int           // overrides for pot position; 0 = auto-center
+	Print        bool          // dump tree to stdout and exit
+	Live         bool          // animate growth step-by-step
+	Step         time.Duration // delay between live steps; 0 -> 33ms
+	Infinite     bool          // keep regrowing until quit
+	Wait         time.Duration // delay between trees in infinite mode; 0 -> 4s
+	Screensaver  bool          // implies Live + Infinite, exits on any keypress
 }
 
 // applyDefaults fills zero-valued fields with cbonsai defaults and clamps

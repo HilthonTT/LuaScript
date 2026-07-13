@@ -34,7 +34,7 @@ func (c *functionalCross) ExtendNames(input map[int]string, initialSize int) int
 func PowCross(i int, power float64) featureCross {
 	return &functionalCross{
 		functionName: "^" + strconv.FormatFloat(power, 'f', -1, 64),
-		boundVars: []int{i},
+		boundVars:    []int{i},
 		crossFn: func(vars []float64) []float64 {
 			return []float64{math.Pow(vars[i], power)}
 		},

@@ -9,10 +9,10 @@ func nullCall(_ Value, _ []Value) []Value { return nil }
 
 func TestPatternFindBasic(t *testing.T) {
 	cases := []struct {
-		s, pat       string
-		init         int
-		ok           bool
-		start, end   int
+		s, pat     string
+		init       int
+		ok         bool
+		start, end int
 	}{
 		{"hello", "ell", 1, true, 2, 4},
 		{"hello", "xyz", 1, false, 0, 0},
@@ -160,13 +160,13 @@ func TestPatternGMatchIter(t *testing.T) {
 
 func TestPatternHasSpecials(t *testing.T) {
 	cases := map[string]bool{
-		"abc":      false,
-		"a.c":      true,
-		"hello!":   false,
-		"^anchor":  true,
-		"[set]":    true,
-		"end$":     true,
-		"%w+":      true,
+		"abc":     false,
+		"a.c":     true,
+		"hello!":  false,
+		"^anchor": true,
+		"[set]":   true,
+		"end$":    true,
+		"%w+":     true,
 	}
 	for pat, want := range cases {
 		if PatternHasSpecials(pat) != want {

@@ -1015,9 +1015,9 @@ func TestStructLowersToStructDefineCall(t *testing.T) {
 	}
 	main := generate(t, stmts)[0]
 	assertOpcodes(t, main,
-		"getglobal",  // __struct_define
-		"loadstring", // "Point"
-		"newtable",   // field-name array
+		"getglobal",                                // __struct_define
+		"loadstring",                               // "Point"
+		"newtable",                                 // field-name array
 		"dup", "loadint", "loadstring", "settable", // "x"
 		"dup", "loadint", "loadstring", "settable", // "y"
 		"call",     // __struct_define(name, fields)
@@ -1051,9 +1051,9 @@ func TestTaggedEnumLowersToADTCall(t *testing.T) {
 	}
 	main := generate(t, stmts)[0]
 	assertOpcodes(t, main,
-		"getglobal",  // __enum_adt
-		"loadstring", // "Shape"
-		"newtable",   // arities hash
+		"getglobal",                  // __enum_adt
+		"loadstring",                 // "Shape"
+		"newtable",                   // arities hash
 		"dup", "loadint", "setfield", // Circle = 1
 		"dup", "loadint", "setfield", // Rect = 2
 		"dup", "loadint", "setfield", // Unit = 0

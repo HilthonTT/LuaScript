@@ -15,13 +15,13 @@ func TestRLERoundTrip(t *testing.T) {
 		"empty":            "",
 		"single":           "a",
 		"short run":        "aaa",
-		"digits in data":   "11",                       // old encoder produced "21" -> 21 ones
-		"mixed digits":     "aa3333bb",                 // counts must not collide with data digits
-		"binary/punct":     "a,b;c\t\n!@#",             // non-\w bytes survive
-		"nul bytes":        "\x00\x00\x00x\x00",         // NUL round-trips
-		"long run":         strings.Repeat("z", 1000),   // exceeds the 128 run cap, splits into packets
+		"digits in data":   "11",                      // old encoder produced "21" -> 21 ones
+		"mixed digits":     "aa3333bb",                // counts must not collide with data digits
+		"binary/punct":     "a,b;c\t\n!@#",            // non-\w bytes survive
+		"nul bytes":        "\x00\x00\x00x\x00",       // NUL round-trips
+		"long run":         strings.Repeat("z", 1000), // exceeds the 128 run cap, splits into packets
 		"long literals":    "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ" + "~`",
-		"alternating":      strings.Repeat("ab", 200),   // worst case for runs; literals dominate
+		"alternating":      strings.Repeat("ab", 200), // worst case for runs; literals dominate
 		"runs and literal": "aaaaabcdeeeefg",
 	}
 	for name, in := range cases {
