@@ -176,6 +176,18 @@ func (c *checker) stmt(s ast.Statement) {
 		c.expr(n.Expression)
 	case *ast.DeferStatement:
 		c.expr(n.Call)
+	case *ast.TryCatchStatement:
+		c.block(n.Try)
+		// The catch binding is an ordinary assignable local scoped to the
+		// handler, so it needs a scope of its own around the handler's block.
+		c.pushScope()
+		if n.CatchVar != nil {
+			c.define(n.CatchVar.Name, "")
+		}
+		c.block(n.Catch)
+		c.popScope()
+	case *ast.ThrowStatement:
+		c.expr(n.Value)
 	case *ast.EnumStatement:
 		if n.Name != nil {
 			c.define(n.Name.Name, "")

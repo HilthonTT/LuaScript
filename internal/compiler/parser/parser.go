@@ -149,7 +149,7 @@ func (p *Parser) ParseProgram() (program *ast.Program, err *errors.Error) {
 }
 
 // parseBlock reads statements until it hits a block-terminating token
-// (`end`, `else`, `elseif`, `until`, EOF). A leading or trailing return
+// (`end`, `else`, `elseif`, `until`, `catch`, EOF). A leading or trailing return
 // statement is recognised here because Lua restricts `return` to the last
 // statement of a block.
 func (p *Parser) parseBlock() *ast.Block {
@@ -185,7 +185,7 @@ func (p *Parser) parseBlock() *ast.Block {
 // in the Lua grammar.
 func (p *Parser) endOfBlock() bool {
 	switch p.curToken.Type {
-	case token.EOF, token.End, token.Else, token.ElseIf, token.Until:
+	case token.EOF, token.End, token.Else, token.ElseIf, token.Until, token.Catch:
 		return true
 	}
 	return false
@@ -395,6 +395,12 @@ func describeTokenType(t token.Type) string {
 		return "'goto'"
 	case token.Match:
 		return "'match'"
+	case token.Try:
+		return "'try'"
+	case token.Catch:
+		return "'catch'"
+	case token.Throw:
+		return "'throw'"
 	case token.And:
 		return "'and'"
 	case token.Or:

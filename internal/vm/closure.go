@@ -35,4 +35,19 @@ type CallFrame struct {
 	// VM.runDeferred). nil for the overwhelmingly common frame that defers
 	// nothing, so the slice costs nothing until a `defer` actually fires.
 	Deferred []*Closure
+	// handlers holds the `try` regions currently open in this activation,
+	// innermost last. Handlers live on the frame rather than on the VM so a
+	// `return` out of a `try` needs no bookkeeping — unwinding the frame
+	// discards them — and so a coroutine's handlers travel with its frames
+	// across a yield/resume swap. nil until this activation runs a Try.
+	handlers []tryHandler
+}
+
+// tryHandler is one open `try` region: where to resume, and the VM state to
+// restore first. Everything here is captured when the Try opcode runs, i.e. at
+// a statement boundary, so stackTop is the frame's clean stack height.
+type tryHandler struct {
+	catchIP   int // instruction index of the catch clause
+	stackTop  int // len(vm.Stack) when Try ran
+	markDepth int // len(vm.callMarks) when Try ran
 }

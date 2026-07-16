@@ -126,6 +126,9 @@ const (
 	Match    Type = "MATCH"
 	Enum     Type = "ENUM"
 	Defer    Type = "DEFER"
+	Try      Type = "TRY"
+	Catch    Type = "CATCH"
+	Throw    Type = "THROW"
 )
 
 var keywords = map[string]Type{
@@ -154,6 +157,9 @@ var keywords = map[string]Type{
 	"match":    Match,
 	"enum":     Enum,
 	"defer":    Defer,
+	"try":      Try,
+	"catch":    Catch,
+	"throw":    Throw,
 }
 
 // operators maps every operator literal — single- and multi-character — to

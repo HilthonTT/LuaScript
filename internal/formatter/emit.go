@@ -170,6 +170,10 @@ func (e *emitter) statement(stmt ast.Statement, opts Options) Doc {
 		return e.genericFor(s, opts)
 	case *ast.DoStatement:
 		return e.doStmt(s, opts)
+	case *ast.TryCatchStatement:
+		return e.tryCatchStmt(s, opts)
+	case *ast.ThrowStatement:
+		return concat(text("throw "), e.expr(s.Value, opts))
 	case *ast.BreakStatement:
 		return text("break")
 	case *ast.ContinueStatement:
@@ -381,6 +385,20 @@ func (e *emitter) doStmt(s *ast.DoStatement, opts Options) Doc {
 	return concat(
 		text("do"),
 		e.block(s.Body, opts),
+		hardLine(), text("end"),
+	)
+}
+
+func (e *emitter) tryCatchStmt(s *ast.TryCatchStatement, opts Options) Doc {
+	catch := text("catch do")
+	if s.CatchVar != nil {
+		catch = concat(text("catch "), text(s.CatchVar.Name), text(" do"))
+	}
+	return concat(
+		text("try"),
+		e.block(s.Try, opts),
+		hardLine(), catch,
+		e.block(s.Catch, opts),
 		hardLine(), text("end"),
 	)
 }

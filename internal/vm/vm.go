@@ -153,9 +153,11 @@ func (v *VM) callClosure(cl *Closure, args []Value, nresults int) {
 	// cached on the proto via localsResolved — without that flag this scan
 	// would run on every single call (a full instruction-stream walk).
 	if !cl.Proto.LocalsResolved() {
-		if n := computeMaxLocalSlots(cl.Proto); n > cl.Proto.NumLocals {
+		n, hasTry := scanProto(cl.Proto)
+		if n > cl.Proto.NumLocals {
 			cl.Proto.NumLocals = n
 		}
+		cl.Proto.SetHasTry(hasTry)
 		cl.Proto.MarkLocalsResolved()
 	}
 	numLocals := cl.Proto.NumLocals
@@ -171,12 +173,19 @@ func (v *VM) callClosure(cl *Closure, args []Value, nresults int) {
 	v.exec(len(v.frames))
 }
 
-// computeMaxLocalSlots scans p's instruction stream to find the largest
-// local slot referenced (either via Set/GetLocal or implicitly via the
-// for-loop opcodes which use baseSlot..baseSlot+2 for numeric for and
-// baseSlot..baseSlot+2+nresults for the generic for). Returns slot+1 i.e.
-// the count of slots the function needs reserved at frame entry.
-func computeMaxLocalSlots(p *bytecode.InstructionSet) int {
+// scanProto walks p's instruction stream once, deriving the two facts the VM
+// cannot read off the proto directly. Both are cached on the proto behind
+// LocalsResolved, so this runs at most once per prototype.
+//
+// numLocals is the largest local slot referenced (either via Set/GetLocal or
+// implicitly by the for-loop opcodes, which use baseSlot..baseSlot+2 for
+// numeric for and baseSlot..baseSlot+2+nresults for the generic for), plus one
+// — i.e. the count of slots to reserve at frame entry. It is needed because the
+// generator leaves the main chunk's NumLocals at 0.
+//
+// hasTry reports whether the body installs any error handler, which decides
+// whether calls into it need the recover-installing exec path.
+func scanProto(p *bytecode.InstructionSet) (numLocals int, hasTry bool) {
 	maxSlot := -1
 	bump := func(n int) {
 		if n > maxSlot {
@@ -193,9 +202,11 @@ func computeMaxLocalSlots(p *bytecode.InstructionSet) int {
 			bump(int(ins.A) + 2 + int(ins.B))
 		case bytecode.TForLoop:
 			bump(int(ins.A) + 3)
+		case bytecode.Try:
+			hasTry = true
 		}
 	}
-	return maxSlot + 1
+	return maxSlot + 1, hasTry
 }
 
 func (v *VM) push(x Value) {
@@ -292,6 +303,9 @@ func (v *VM) acquireFrame(cl *Closure, base, top, nresults int, varargs []Value)
 	f.NResults = nresults
 	f.Varargs = varargs
 	f.Deferred = nil
+	// Reslice rather than nil out: tryHandler holds no pointers, so keeping
+	// the backing array pins nothing and a `try`-heavy frame reuses it.
+	f.handlers = f.handlers[:0]
 	return f
 }
 
@@ -351,11 +365,105 @@ func (v *VM) closeUpvaluesAbove(index int) {
 	v.openUpvs = keep
 }
 
-// exec drives the interpreter until the frame stack drops below `entryDepth`.
-// `entryDepth` is the number of frames present immediately after the call
-// site pushed its target frame; when that frame returns, len(v.frames) drops
-// below entryDepth and exec exits, returning control to the Go caller.
+// exec runs the frame the caller just pushed. `entryDepth` is len(v.frames)
+// immediately after that push, so the frame being run is frames[entryDepth-1]
+// and exec returns once it has left.
+//
+// Bodies containing a `try` take the protected path, which installs a recover;
+// everything else runs the bare loop below, so the overwhelming majority of
+// calls pay nothing for the feature beyond one predictable branch.
+//
+// The loop is written out here rather than delegating to execLoop because exec
+// is entered once per script call: routing the common path through a second
+// non-inlinable call costs a few percent on call-heavy code (fib).
 func (v *VM) exec(entryDepth int) {
+	if v.frames[entryDepth-1].Closure.Proto.HasTry() {
+		// Re-enter after every caught error: the handler has repointed the
+		// frame's IP at its catch clause, and execLoop resumes from there.
+		for v.execCatching(entryDepth) {
+		}
+		return
+	}
+	for len(v.frames) >= entryDepth {
+		f := v.frames[len(v.frames)-1]
+		if f.IP >= len(f.Closure.Proto.Instructions) {
+			// Defensive — every well-formed proto ends with Leave/Return.
+			v.unwindFrame(f, nil)
+			continue
+		}
+		ins := f.Closure.Proto.Instructions[f.IP]
+		f.IP++
+		v.dispatch(f, ins)
+	}
+}
+
+// execCatching runs the loop with a recover installed, returning true when an
+// error was caught by a `try` in this exec's own frame and execution should
+// resume at that frame's catch clause. Any error this frame cannot handle is
+// re-panicked, so it keeps unwinding to an enclosing try, a pcall, or the host
+// exactly as it would have.
+func (v *VM) execCatching(entryDepth int) (resume bool) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			return
+		}
+		if !v.dispatchToHandler(entryDepth, r) {
+			panic(r)
+		}
+		resume = true
+	}()
+	v.execLoop(entryDepth)
+	return false
+}
+
+// dispatchToHandler unwinds an in-flight error to the innermost `try` open in
+// frames[entryDepth-1], reporting whether it found one. It performs the same
+// restoration safeCall does — run the abandoned frames' defers, close their
+// open upvalues before the slots vanish, truncate frames/stack/callMarks — but
+// stops at this frame instead of the pcall boundary, then leaves the error
+// value on the stack for the catch clause to bind and repoints IP at it.
+func (v *VM) dispatchToHandler(entryDepth int, r any) bool {
+	if len(v.frames) < entryDepth {
+		// Our own frame already returned; the error belongs to someone else.
+		return false
+	}
+	f := v.frames[entryDepth-1]
+	if len(f.handlers) == 0 {
+		return false
+	}
+	h := f.handlers[len(f.handlers)-1]
+	// Pop before running the catch clause, so an error raised inside the
+	// handler propagates outward rather than re-entering the same handler.
+	f.handlers = f.handlers[:len(f.handlers)-1]
+
+	// Deferred calls of every frame this unwind abandons, innermost first.
+	// runDeferredSafely contains a panic from any single one so a faulty
+	// cleanup can't replace the error being delivered. Done before the
+	// truncation below, while those frames' locals are still live.
+	for i := len(v.frames) - 1; i >= entryDepth; i-- {
+		if len(v.frames[i].Deferred) > 0 {
+			v.runDeferredSafely(v.frames[i])
+		}
+	}
+	v.closeUpvaluesAbove(h.stackTop)
+	v.frames = v.frames[:entryDepth]
+	v.Stack = v.Stack[:h.stackTop]
+	// An error thrown between a MarkArgs and its matching Call leaves pending
+	// marks behind; drop them or the next variadic call in this frame pops a
+	// stale mark and reads a bogus args base.
+	v.callMarks = v.callMarks[:h.markDepth]
+
+	f.IP = h.catchIP
+	v.push(recoverValue(r))
+	return true
+}
+
+// execLoop drives the interpreter until the frame stack drops below
+// `entryDepth` — i.e. until frames[entryDepth-1] returns. It is the body of
+// exec's loop, used by the protected path; see the note on exec about why the
+// unprotected path repeats it inline instead of calling here.
+func (v *VM) execLoop(entryDepth int) {
 	for len(v.frames) >= entryDepth {
 		f := v.frames[len(v.frames)-1]
 		if f.IP >= len(f.Closure.Proto.Instructions) {
@@ -787,6 +895,20 @@ func (v *VM) dispatch(f *CallFrame, ins *bytecode.Instruction) {
 			panic(Errorf("defer: expected a function, got %s", TypeName(d)))
 		}
 		f.Deferred = append(f.Deferred, cl)
+
+	case bytecode.Try:
+		// Open a protected region. The stack is at a statement boundary here,
+		// so its height is exactly what the catch clause should see restored.
+		f.handlers = append(f.handlers, tryHandler{
+			catchIP:   int(ins.A),
+			stackTop:  len(v.Stack),
+			markDepth: len(v.callMarks),
+		})
+	case bytecode.EndTry:
+		// Left a protected region without raising — drop its handler(s).
+		f.handlers = f.handlers[:len(f.handlers)-int(ins.A)]
+	case bytecode.Throw:
+		panic(luaError{value: v.pop()})
 
 	default:
 		panic(fmt.Sprintf("vm: unknown opcode %d (%s)", ins.Opcode, bytecode.InstructionNameTable[ins.Opcode]))

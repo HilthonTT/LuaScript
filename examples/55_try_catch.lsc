@@ -1,0 +1,164 @@
+-- try / catch / throw: structured error handling.
+--
+--     try
+--         <body>
+--     catch err do        -- the binding is optional; the `do` is not
+--         <handler>
+--     end
+--
+-- If anything in the body raises, control jumps to the handler with the
+-- raised value bound. Reaching the end of the body skips the handler.
+-- `throw <expr>` raises a value — it is exactly what `error(<expr>)` does,
+-- so the two are interchangeable and `pcall` sees either.
+--
+-- The body is a real block in the enclosing function, not a hidden closure.
+-- That is what lets `return`, `break`, and `continue` inside a `try` act on
+-- the function or loop that encloses the whole try/catch, and lets the body
+-- read and write the enclosing locals directly.
+
+print("=== try / catch ===")
+
+-- --- the basics ---
+print("--- basics ---")
+try
+    print("  running the body")
+    throw "something went wrong"
+    print("  never reached")
+catch err do
+    print("  caught: " .. err)
+end
+
+-- No error: the handler is skipped entirely.
+try
+    print("  nothing to catch here")
+catch err do
+    print("  never reached")
+end
+
+-- --- any value can be thrown ---
+-- `throw` is not limited to strings. Tables make good structured errors.
+print("--- thrown values ---")
+try
+    throw { code = 404, msg = "not found" }
+catch err do
+    print("  code=" .. err.code .. " msg=" .. err.msg)
+end
+
+-- The binding is optional when the handler doesn't care what happened.
+try
+    throw "ignored"
+catch do
+    print("  caught, value discarded")
+end
+
+-- --- catches runtime faults too, not just `throw` ---
+-- A `try` traps anything `pcall` would: bad indexes, arithmetic on
+-- non-numbers, errors from `error()`, and errors raised deep inside calls.
+print("--- runtime errors ---")
+local empty = {}
+try
+    print(empty.missing.field)
+catch err do
+    print("  caught a runtime fault: " .. tostring(err))
+end
+
+local function validate(age)
+    if type(age) ~= "number" then
+        throw "age must be a number, got " .. type(age)
+    end
+    if age < 0 then
+        throw { field = "age", reason = "must not be negative" }
+    end
+    return age
+end
+
+for _, input in ipairs({ 30, -1, "forty" }) do
+    try
+        print("  ok: " .. validate(input))
+    catch err do
+        if type(err) == "table" then
+            print("  invalid " .. err.field .. ": " .. err.reason)
+        else
+            print("  invalid: " .. err)
+        end
+    end
+end
+
+-- --- control flow crosses the try boundary ---
+-- `return` returns from the enclosing function, not from the try.
+print("--- control flow ---")
+local function firstValid(inputs)
+    for _, v in ipairs(inputs) do
+        try
+            return validate(v)   -- returns from firstValid
+        catch err do
+            -- swallow and keep looking
+        end
+    end
+    return nil
+end
+print("  firstValid -> " .. tostring(firstValid({ "x", -5, 7, 9 })))
+
+-- `break` and `continue` act on the enclosing loop.
+local total = 0
+for i = 1, 6 do
+    try
+        if i == 5 then break end       -- leaves the loop
+        if i % 2 == 0 then continue end -- next iteration
+        total = total + i
+    catch err do
+        print("  never reached")
+    end
+end
+print("  total of odd i below 5 = " .. total)  -- 1 + 3 = 4
+
+-- --- nesting and re-throwing ---
+-- The innermost open handler wins. A handler is popped before it runs, so
+-- throwing from inside a `catch` propagates outward rather than re-entering
+-- itself — that is what makes this add-context-and-rethrow pattern work.
+print("--- nesting ---")
+try
+    try
+        throw "disk offline"
+    catch err do
+        throw "loading config: " .. err
+    end
+catch err do
+    print("  " .. err)
+end
+
+-- --- cleanup ---
+-- `defer` still runs when an error unwinds the frame, so cleanup happens
+-- whether the function returns normally or throws. The defers of every
+-- frame the unwind abandons run before the handler body.
+print("--- cleanup with defer ---")
+local function openThenFail()
+    defer print("  closing the resource")
+    print("  opened the resource")
+    throw "write failed"
+end
+try
+    openThenFail()
+catch err do
+    print("  caught: " .. err)
+end
+
+-- --- interop with pcall ---
+-- `throw` raises an ordinary Lua error, so pcall traps it, and a pcall
+-- inside a try handles its own errors without reaching the catch.
+print("--- pcall interop ---")
+local ok, err = pcall(function() throw "raised inside pcall" end)
+print("  pcall -> ok=" .. tostring(ok) .. " err=" .. tostring(err))
+
+try
+    local inner_ok, inner_err = pcall(function() throw "handled by pcall" end)
+    print("  the inner pcall caught it: " .. tostring(inner_err))
+catch err do
+    print("  never reached — pcall already handled it")
+end
+
+-- An uncaught throw propagates to the host and stops the script, exactly
+-- like error(). Uncomment to see it:
+-- throw "uncaught!"
+
+print("=== done ===")

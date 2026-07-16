@@ -74,6 +74,10 @@ func (g *Generator) compileStatement(is *InstructionSet, stmt ast.Statement) {
 		g.compileStructStatement(is, s)
 	case *ast.DeferStatement:
 		g.compileDefer(is, s)
+	case *ast.TryCatchStatement:
+		g.compileTryCatch(is, s)
+	case *ast.ThrowStatement:
+		g.compileThrow(is, s)
 	case *ast.ExpressionStatement:
 		// Lua only allows function/method calls in this slot. We emit the
 		// expression with no expected results and pop any value it leaves.
@@ -360,9 +364,9 @@ func (g *Generator) compileWhile(is *InstructionSet, s *ast.WhileStatement) {
 	closeBase := g.current.locals.nextSlot
 	protos := len(is.Protos)
 	contAnchor := &anchor{}
-	g.current.loops = append(g.current.loops, &loopFrame{breakAnchor: exitAnchor, continueAnchor: contAnchor})
+	g.pushLoop(&loopFrame{breakAnchor: exitAnchor, continueAnchor: contAnchor})
 	g.compileBlock(is, s.Body)
-	g.current.loops = g.current.loops[:len(g.current.loops)-1]
+	g.popLoop()
 	// `continue` lands here, so a skipped iteration still closes its
 	// captured upvalues before re-testing the condition.
 	contAnchor.line = is.count
@@ -390,7 +394,7 @@ func (g *Generator) compileRepeat(is *InstructionSet, s *ast.RepeatStatement) {
 		repeatScopeIdx:      len(g.current.locals.scopes) - 1,
 		minContinueBindings: -1,
 	}
-	g.current.loops = append(g.current.loops, frame)
+	g.pushLoop(frame)
 
 	// See compileWhile: use the live slot count, not the high-water mark.
 	closeBase := g.current.locals.nextSlot
@@ -417,7 +421,7 @@ func (g *Generator) compileRepeat(is *InstructionSet, s *ast.RepeatStatement) {
 	}
 	g.current.locals.closeScope()
 
-	g.current.loops = g.current.loops[:len(g.current.loops)-1]
+	g.popLoop()
 
 	g.emitLoopClose(is, closeBase, protos, s.Line())
 	// Falsy condition → jump back; truthy → fall through and exit.
@@ -454,9 +458,9 @@ func (g *Generator) compileNumericFor(is *InstructionSet, s *ast.NumericForState
 	bodyTop := &anchor{line: is.count}
 	protos := len(is.Protos)
 	contAnchor := &anchor{}
-	g.current.loops = append(g.current.loops, &loopFrame{breakAnchor: exitAnchor, continueAnchor: contAnchor})
+	g.pushLoop(&loopFrame{breakAnchor: exitAnchor, continueAnchor: contAnchor})
 	g.compileBlock(is, s.Body)
-	g.current.loops = g.current.loops[:len(g.current.loops)-1]
+	g.popLoop()
 	// `continue` lands just before the per-iteration upvalue close + ForLoop.
 	contAnchor.line = is.count
 	// Close upvalues over the loop variable (indexSlot) and any captured body
@@ -501,9 +505,9 @@ func (g *Generator) compileGenericFor(is *InstructionSet, s *ast.GenericForState
 	bodyTop := &anchor{line: is.count}
 	protos := len(is.Protos)
 	contAnchor := &anchor{}
-	g.current.loops = append(g.current.loops, &loopFrame{breakAnchor: exitAnchor, continueAnchor: contAnchor})
+	g.pushLoop(&loopFrame{breakAnchor: exitAnchor, continueAnchor: contAnchor})
 	g.compileBlock(is, s.Body)
-	g.current.loops = g.current.loops[:len(g.current.loops)-1]
+	g.popLoop()
 	// `continue` lands just before the per-iteration upvalue close + TForCall.
 	contAnchor.line = is.count
 	// Close upvalues over the visible loop variables (and captured body locals)
@@ -549,6 +553,12 @@ func (g *Generator) compileBreak(is *InstructionSet, s *ast.BreakStatement) {
 		return
 	}
 	frame := g.current.loops[len(g.current.loops)-1]
+	// A `break` inside a `try` leaves that protected region — drop its
+	// handler, or a later error in this frame would land in a catch clause
+	// the program has already jumped out of.
+	if n := g.exitTryDepth(frame); n > 0 {
+		is.define(EndTry, s.Line(), n)
+	}
 	j := is.define(Jump, s.Line(), frame.breakAnchor)
 	g.current.recordPending(j)
 }
@@ -571,6 +581,10 @@ func (g *Generator) compileContinue(is *InstructionSet, s *ast.ContinueStatement
 		if frame.minContinueBindings < 0 || n < frame.minContinueBindings {
 			frame.minContinueBindings = n
 		}
+	}
+	// As in compileBreak: a `continue` out of a `try` escapes that region.
+	if n := g.exitTryDepth(frame); n > 0 {
+		is.define(EndTry, s.Line(), n)
 	}
 	j := is.define(Jump, s.Line(), frame.continueAnchor)
 	g.current.recordPending(j)
@@ -625,9 +639,10 @@ func (g *Generator) checkRepeatContinueLocals(is *InstructionSet, frame *loopFra
 }
 
 func (g *Generator) compileGoto(is *InstructionSet, s *ast.GotoStatement) {
-	if line, ok := g.current.labels[s.Label]; ok {
+	if lbl, ok := g.current.labels[s.Label]; ok {
 		// Backwards goto — known label.
-		is.define(Jump, s.Line(), line)
+		g.checkGotoTryDepth(s.Label, s.Line(), g.current.tryDepth, lbl.tryDepth)
+		is.define(Jump, s.Line(), lbl.line)
 		return
 	}
 	// Forwards goto: we don't have full label-table fixup yet. Record an
@@ -636,7 +651,29 @@ func (g *Generator) compileGoto(is *InstructionSet, s *ast.GotoStatement) {
 	a := &anchor{}
 	j := is.define(Jump, s.Line(), a)
 	g.current.recordPending(j)
-	g.current.pendingGotos = append(g.current.pendingGotos, pendingGoto{label: s.Label, line: s.Line(), anchor: a})
+	g.current.pendingGotos = append(g.current.pendingGotos, pendingGoto{
+		label: s.Label, line: s.Line(), anchor: a, tryDepth: g.current.tryDepth,
+	})
+}
+
+// checkGotoTryDepth rejects a `goto` whose label sits at a different
+// try-nesting depth than the jump. Jumping *out* of a protected region would
+// leave its handler installed (so a later error would land in a catch the
+// program already left); jumping *in* would run the region with no handler
+// installed at all. Rather than miscompile either, report it — the same call
+// checkRepeatContinueLocals makes for its analogous case. Lua's own rule that
+// a goto may not jump into the scope of a local is the closest analogue.
+func (g *Generator) checkGotoTryDepth(label string, line, gotoDepth, labelDepth int) {
+	if gotoDepth == labelDepth {
+		return
+	}
+	dir := "out of"
+	if gotoDepth < labelDepth {
+		dir = "into"
+	}
+	g.errs = append(g.errs, fmt.Errorf(
+		"line %d: 'goto %s' jumps %s a 'try' block — use 'break', 'return', or restructure the control flow",
+		line, label, dir))
 }
 
 // compileDefer lowers `defer <call>` by wrapping the call in a zero-arg
@@ -661,14 +698,74 @@ func (g *Generator) compileDefer(is *InstructionSet, s *ast.DeferStatement) {
 	is.define(Defer, s.Line())
 }
 
+// compileTryCatch emits `try <body> catch [e] do <handler> end` as a protected
+// region in the *enclosing* frame — no closure is involved, so `return`,
+// `break`, and `continue` inside the body act on the function/loop that
+// encloses the whole try/catch, and the body's locals are ordinary frame slots.
+//
+//	    Try     -> catch      ; install a handler on this frame
+//	    <try body>
+//	    EndTry 1              ; body finished cleanly — drop the handler
+//	    Jump    -> done
+//	catch:                    ; the VM lands here with the error value pushed
+//	    SetLocal errSlot      ; (Pop 1 when the handler names no binding)
+//	    <catch body>
+//	done:
+//
+// The handler is *popped before* the catch body runs, so an error raised
+// inside catch propagates outward instead of looping back into itself.
+// Popping happens in the VM (see dispatchToHandler) rather than via an emitted
+// EndTry, because the jump to `catch` is made by the unwind, not by the code.
+func (g *Generator) compileTryCatch(is *InstructionSet, s *ast.TryCatchStatement) {
+	catchAnchor := &anchor{}
+	doneAnchor := &anchor{}
+
+	t := is.define(Try, s.Line(), catchAnchor)
+	g.current.recordPending(t)
+
+	g.current.tryDepth++
+	g.compileBlock(is, s.Try)
+	g.current.tryDepth--
+
+	is.define(EndTry, s.Line(), 1)
+	j := is.define(Jump, s.Line(), doneAnchor)
+	g.current.recordPending(j)
+
+	catchAnchor.line = is.count
+	g.current.locals.openScope()
+	if s.CatchVar != nil {
+		// The binding is a normal local of the enclosing function: its slot is
+		// inside the frame's pre-allocated local region (below the stack height
+		// the handler truncates to), so the unwind cannot clobber it.
+		slot := g.current.locals.define(s.CatchVar.Name)
+		is.define(SetLocal, s.CatchVar.Line(), slot)
+	} else {
+		is.define(Pop, s.Line(), 1)
+	}
+	g.compileBlock(is, s.Catch)
+	g.current.locals.closeScope()
+
+	doneAnchor.line = is.count
+}
+
+// compileThrow emits `throw <expr>` as an evaluate-then-raise. The raised
+// value is an ordinary Lua error — indistinguishable from `error(<expr>)`, so
+// `pcall` sees it, `catch` binds it, and an uncaught one reaches the host the
+// same way. Any Lua value may be thrown; it propagates verbatim.
+func (g *Generator) compileThrow(is *InstructionSet, s *ast.ThrowStatement) {
+	g.compileExpression(is, s.Value)
+	is.define(Throw, s.Line())
+}
+
 func (g *Generator) compileLabel(_ *InstructionSet, s *ast.LabelStatement) {
 	// A label is purely a jump target — emits no instruction; record its
 	// position and resolve any pending forward gotos that name it.
 	pos := g.current.is.count
-	g.current.labels[s.Name] = pos
+	g.current.labels[s.Name] = labelInfo{line: pos, tryDepth: g.current.tryDepth}
 	keep := g.current.pendingGotos[:0]
 	for _, p := range g.current.pendingGotos {
 		if p.label == s.Name {
+			g.checkGotoTryDepth(p.label, p.line, p.tryDepth, g.current.tryDepth)
 			p.anchor.line = pos
 			continue
 		}

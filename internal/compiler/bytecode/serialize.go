@@ -300,9 +300,9 @@ func rebuildParams(ins *Instruction) []any {
 		return []any{ins.BoxedAny}
 	case GetGlobal, SetGlobal, GetField, SetField, Self:
 		return []any{ins.StrA}
-	case LoadNil, LoadVararg, Pop, Concat, Return,
+	case LoadNil, LoadVararg, Pop, Concat, Return, EndTry,
 		Closure, GetLocal, SetLocal, GetUpvalue, SetUpvalue, CloseUpvalues,
-		Jump, JumpIfFalse, JumpIfTrue, JumpIfFalseKeep, JumpIfTrueKeep:
+		Jump, JumpIfFalse, JumpIfTrue, JumpIfFalseKeep, JumpIfTrueKeep, Try:
 		return []any{int(ins.A)}
 	case NewTable, SetList, Call, TForCall, ForPrep, ForLoop, TForLoop:
 		return []any{int(ins.A), int(ins.B)}

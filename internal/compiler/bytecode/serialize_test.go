@@ -122,6 +122,38 @@ func TestSerializeRoundTrip(t *testing.T) {
 	assertSetsEqual(t, "main", main, got)
 }
 
+// TestSerializeRoundTripTryCatch pins that the protected-region opcodes survive
+// the bytecode cache. Try/EndTry/Throw carry their operands in A only, so a
+// missed entry in rebuildParams would leave a cached chunk with an empty Params
+// slice — invisible to the VM (which reads the typed fields) but breaking the
+// disassembler, and silently mis-decoding if the encoding ever diverges.
+func TestSerializeRoundTripTryCatch(t *testing.T) {
+	main := generateFromSource(t, `
+		local function risky(n)
+			if n > 2 then throw { code = n } end
+			return n
+		end
+		local total = 0
+		for i = 1, 5 do
+			try
+				total = total + risky(i)
+				if i == 4 then break end
+			catch e do
+				total = total - 1
+				continue
+			end
+		end
+		try
+			throw "outer"
+		catch do
+			total = total * 2
+		end
+		return total
+	`)
+	got := roundTrip(t, main)
+	assertSetsEqual(t, "main", main, got)
+}
+
 func TestSerializeRejectsGarbage(t *testing.T) {
 	if _, err := DeserializeChunk(strings.NewReader("not a chunk at all")); err == nil {
 		t.Fatal("expected an error for garbage input")

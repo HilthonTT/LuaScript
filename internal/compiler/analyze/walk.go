@@ -70,6 +70,11 @@ func (w *walker) walkStmt(s ast.Statement) {
 		w.walkBlock(n.Body)
 	case *ast.DoStatement:
 		w.walkBlock(n.Body)
+	case *ast.TryCatchStatement:
+		w.walkBlock(n.Try)
+		w.walkBlock(n.Catch)
+	case *ast.ThrowStatement:
+		w.walkExpr(n.Value)
 	case *ast.ReturnStatement:
 		w.walkExprs(n.Values)
 	case *ast.ExpressionStatement:

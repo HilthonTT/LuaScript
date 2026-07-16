@@ -18,7 +18,7 @@ var keywords = []string{
 	"and", "break", "do", "else", "elseif", "end", "false", "for",
 	"function", "goto", "if", "in", "local", "nil", "not", "or",
 	"repeat", "return", "then", "true", "until", "while",
-	"match", "enum", "defer",
+	"match", "enum", "defer", "try", "catch", "throw",
 }
 
 // globals are the builtin global functions installed by vm/stdlib.go.

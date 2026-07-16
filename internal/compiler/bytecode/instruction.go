@@ -125,6 +125,29 @@ const (
 	// every iteration a fresh loop variable). No stack effect.
 	CloseUpvalues
 
+	// Try installs an error handler on the current frame: param A is the
+	// instruction index of the matching catch clause. If any error is raised
+	// while the handler is installed, the VM unwinds back to this frame,
+	// truncates the stack to the height Try observed, pushes the error value,
+	// and resumes at A. Handlers nest — the innermost one wins. No stack
+	// effect.
+	Try
+
+	// EndTry pops the innermost `count` (param A) handlers off the current
+	// frame without running them. Emitted on every path that leaves a
+	// protected region other than by raising: the fall-through end of a `try`
+	// body, and any `break`/`continue` that jumps out of one. No stack effect.
+	//
+	// A `return` out of a `try` needs no EndTry — handlers live on the frame,
+	// so unwinding the frame discards them.
+	EndTry
+
+	// Throw pops a value and raises it as a Lua error, identical to what the
+	// `error` builtin does (which propagates its argument verbatim, with no
+	// position prefix). It is an opcode rather than a lowering to a call so
+	// that `throw` cannot be re-pointed by shadowing the name `error`.
+	Throw
+
 	InstructionCount
 )
 
@@ -191,6 +214,9 @@ var InstructionNameTable = []string{
 	MarkArgs:        "markargs",
 	CloseUpvalues:   "closeupvalues",
 	Defer:           "defer",
+	Try:             "try",
+	EndTry:          "endtry",
+	Throw:           "throw",
 }
 
 // Instruction is one emitted opcode plus its parameters and source line.
@@ -296,6 +322,14 @@ type InstructionSet struct {
 	// that the one-time scan — needed because the main chunk's NumLocals is
 	// left at 0 by the generator — does not repeat on every call.
 	localsResolved bool
+
+	// hasTry records whether this body contains a Try opcode. It is written
+	// by the same one-time scan that resolves NumLocals (rather than by the
+	// generator) so that a proto loaded from the bytecode cache — which
+	// carries no flag bits of its own — gets it for free. The VM reads it to
+	// decide whether a call needs the recover-installing exec path; only
+	// bodies that actually use `try` pay for it.
+	hasTry bool
 }
 
 // LocalsResolved reports whether the VM has already reconciled NumLocals.
@@ -303,6 +337,14 @@ func (is *InstructionSet) LocalsResolved() bool { return is.localsResolved }
 
 // MarkLocalsResolved records that NumLocals is now authoritative.
 func (is *InstructionSet) MarkLocalsResolved() { is.localsResolved = true }
+
+// HasTry reports whether this body installs any error handler, i.e. whether
+// it contains a `try`. Only meaningful once the proto's one-time scan has
+// run — see SetHasTry and vm.callClosure.
+func (is *InstructionSet) HasTry() bool { return is.hasTry }
+
+// SetHasTry records the scan's finding. Called alongside MarkLocalsResolved.
+func (is *InstructionSet) SetHasTry(b bool) { is.hasTry = b }
 
 // UpvalueDesc describes how a function captures one upvalue.
 //
@@ -343,9 +385,9 @@ func (is *InstructionSet) define(action uint8, sourceLine int, params ...any) *I
 // The encoding contract per opcode group is:
 //
 //	A only (int param):
-//	    LoadNil, LoadVararg, Pop, Concat, Return,
+//	    LoadNil, LoadVararg, Pop, Concat, Return, EndTry,
 //	    Closure, GetLocal, SetLocal, GetUpvalue, SetUpvalue,
-//	    Jump, JumpIfFalse, JumpIfTrue, JumpIfFalseKeep, JumpIfTrueKeep
+//	    Jump, JumpIfFalse, JumpIfTrue, JumpIfFalseKeep, JumpIfTrueKeep, Try
 //	A + B (two int params):
 //	    NewTable (arrHint, hashHint), SetList (count, offset),
 //	    Call (nargs, nresults), TForCall (baseSlot, nresults),
@@ -355,7 +397,7 @@ func (is *InstructionSet) define(action uint8, sourceLine int, params ...any) *I
 //	BoxedAny only (the literal value, kept as a shared `any` box):
 //	    LoadInt, LoadFloat, LoadString
 //	No params:
-//	    LoadTrue, LoadFalse, Leave, Dup, GetTable, SetTable,
+//	    LoadTrue, LoadFalse, Leave, Dup, GetTable, SetTable, Throw,
 //	    Len, Not, Neg, BitNot, Add/Sub/Mul/Div/FloorDiv/Mod/Pow,
 //	    BitAnd/BitOr/BitXor/Shl/Shr, Eq/NotEq/Lt/Le/Gt/Ge
 //
@@ -380,11 +422,11 @@ func encodeParams(i *Instruction, op uint8, params []any) {
 
 	// A only: single int param (or *anchor for jumps, resolved later)
 	case LoadNil, LoadVararg, Pop, Concat, Return,
-		Closure, GetLocal, SetLocal, GetUpvalue, SetUpvalue, CloseUpvalues:
+		Closure, GetLocal, SetLocal, GetUpvalue, SetUpvalue, CloseUpvalues, EndTry:
 		if len(params) >= 1 {
 			i.A = asInt32(params[0])
 		}
-	case Jump, JumpIfFalse, JumpIfTrue, JumpIfFalseKeep, JumpIfTrueKeep:
+	case Jump, JumpIfFalse, JumpIfTrue, JumpIfFalseKeep, JumpIfTrueKeep, Try:
 		if len(params) >= 1 {
 			i.A = asAnchorOrInt32(params[0])
 		}

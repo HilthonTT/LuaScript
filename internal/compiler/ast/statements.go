@@ -505,3 +505,48 @@ func (ss *StructStatement) String() string {
 	out.WriteString("}")
 	return out.String()
 }
+
+// TryCatchStatement is `try <body> catch [err] do <handler> end`. If any
+// statement in Try raises — via `throw`, `error`, or a runtime fault — control
+// transfers to Catch with the raised value bound to CatchVar. Reaching the end
+// of Try normally skips Catch entirely.
+//
+// The protected region is a real block in the enclosing function, not a
+// closure: `return`, `break`, and `continue` inside Try act on the function or
+// loop that encloses the whole try/catch.
+type TryCatchStatement struct {
+	BaseNode
+	Try      *Block
+	CatchVar *Identifier // nil when the handler discards the error value
+	Catch    *Block
+}
+
+func (*TryCatchStatement) statementNode()          {}
+func (tc *TryCatchStatement) TokenLiteral() string { return tc.Token.Literal }
+func (tc *TryCatchStatement) String() string {
+	var out bytes.Buffer
+	out.WriteString("try ")
+	out.WriteString(tc.Try.String())
+	out.WriteString(" catch ")
+	if tc.CatchVar != nil {
+		out.WriteString(tc.CatchVar.String())
+		out.WriteString(" ")
+	}
+	out.WriteString("do ")
+	out.WriteString(tc.Catch.String())
+	out.WriteString(" end")
+	return out.String()
+}
+
+// ThrowStatement is `throw <expr>` — raise Value as an error. Any Lua value
+// may be thrown, not just a string.
+type ThrowStatement struct {
+	BaseNode
+	Value Expression
+}
+
+func (*ThrowStatement) statementNode()          {}
+func (ts *ThrowStatement) TokenLiteral() string { return ts.Token.Literal }
+func (ts *ThrowStatement) String() string {
+	return "throw " + ts.Value.String()
+}

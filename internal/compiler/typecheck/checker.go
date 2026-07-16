@@ -287,6 +287,21 @@ func (c *checker) walkStatement(s ast.Statement) {
 		// The deferred call is checked like any other call statement; it
 		// produces no value the surrounding scope can observe.
 		c.walkExpressionDiscard(n.Call)
+	case *ast.TryCatchStatement:
+		c.env.push()
+		c.walkBlock(n.Try)
+		c.env.pop()
+		c.env.push()
+		if n.CatchVar != nil {
+			// Anything can be thrown — a string, a table, a number — and v1
+			// has no way to narrow that, so the binding is `any`.
+			c.env.define(n.CatchVar.Name, anyT)
+		}
+		c.walkBlock(n.Catch)
+		c.env.pop()
+	case *ast.ThrowStatement:
+		// Like `error(v)`, any value may be thrown; nothing to constrain.
+		c.walkExpressionDiscard(n.Value)
 	case *ast.ReturnStatement:
 		c.walkReturn(n)
 	case *ast.TypeAliasStatement, *ast.LabelStatement, *ast.BreakStatement,

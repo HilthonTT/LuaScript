@@ -71,6 +71,13 @@ func foldStmt(s ast.Statement) {
 		if n.Call != nil {
 			n.Call = foldExpr(n.Call)
 		}
+	case *ast.TryCatchStatement:
+		foldBlock(n.Try)
+		foldBlock(n.Catch)
+	case *ast.ThrowStatement:
+		if n.Value != nil {
+			n.Value = foldExpr(n.Value)
+		}
 	case *ast.Block:
 		foldBlock(n)
 	}

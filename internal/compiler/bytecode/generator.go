@@ -14,15 +14,28 @@ type funcCtx struct {
 	locals       *localTable
 	upvals       []UpvalueDesc
 	loops        []*loopFrame // active loops, innermost last
-	labels       map[string]int
+	labels       map[string]labelInfo
 	pendingGotos []pendingGoto
 	pending      []*Instruction // instructions with a *anchor parameter
+
+	// tryDepth is how many `try` regions enclose the statement being emitted,
+	// in this function. Jumps that leave a protected region must pop the
+	// handlers they escape (see compileBreak / compileTryCatch).
+	tryDepth int
+}
+
+// labelInfo is a resolved `::label::` position plus the try-nesting depth it
+// sits at, so compileGoto can reject a jump that would cross a `try` boundary.
+type labelInfo struct {
+	line     int
+	tryDepth int
 }
 
 type pendingGoto struct {
-	label  string
-	line   int
-	anchor *anchor
+	label    string
+	line     int
+	anchor   *anchor
+	tryDepth int // depth at the goto site; compared against the label's
 }
 
 // loopFrame collects the break and continue targets for a single active
@@ -45,6 +58,32 @@ type loopFrame struct {
 	isRepeat            bool
 	repeatScopeIdx      int
 	minContinueBindings int
+
+	// tryDepth is the funcCtx's try-nesting depth at the loop header. A
+	// `break`/`continue` emitted at a deeper depth is jumping out of that many
+	// `try` regions and must pop their handlers first.
+	tryDepth int
+}
+
+// pushLoop registers f as the innermost active loop, stamping it with the
+// current try-nesting depth. Every loop form must go through this rather than
+// appending to ctx.loops directly, or `break`/`continue` inside a `try` will
+// leave the handler installed.
+func (g *Generator) pushLoop(f *loopFrame) *loopFrame {
+	f.tryDepth = g.current.tryDepth
+	g.current.loops = append(g.current.loops, f)
+	return f
+}
+
+// popLoop retires the innermost active loop.
+func (g *Generator) popLoop() {
+	g.current.loops = g.current.loops[:len(g.current.loops)-1]
+}
+
+// exitTryDepth returns how many handlers a jump to `frame` escapes, i.e. the
+// count for the EndTry that must precede the jump (0 = none needed).
+func (g *Generator) exitTryDepth(frame *loopFrame) int {
+	return g.current.tryDepth - frame.tryDepth
 }
 
 // Generator drives bytecode emission for an entire program.
@@ -90,7 +129,7 @@ func (g *Generator) InitTopLevelScope(_ *ast.Program) {
 	g.current = &funcCtx{
 		is:     is,
 		locals: newLocalTable(nil),
-		labels: map[string]int{},
+		labels: map[string]labelInfo{},
 	}
 }
 
@@ -160,7 +199,7 @@ func (g *Generator) pushFunction(name string, params []ast.TypedParam, isVararg 
 		parent: g.current,
 		is:     is,
 		locals: newLocalTable(g.current.locals),
-		labels: map[string]int{},
+		labels: map[string]labelInfo{},
 	}
 	// Declare each parameter as a local in the new function's root scope.
 	for _, p := range params {
