@@ -77,6 +77,9 @@ func newMath() *vm.Table {
 	methods.Set("atanh", unary("atanh", math.Atanh))
 	methods.Set("exp", unary("exp", math.Exp))
 	methods.Set("sqrt", unary("sqrt", math.Sqrt))
+	methods.Set("cbrt", unary("cbrt", math.Cbrt))
+	methods.Set("erf", unary("erf", math.Erf))
+	methods.Set("erfc", unary("erfc", math.Erfc))
 	methods.Set("deg", unary("deg", deg))
 	methods.Set("rad", unary("rad", rad))
 

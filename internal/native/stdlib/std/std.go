@@ -1,13 +1,15 @@
 package std
 
 import (
+	"math"
+
 	"github.com/hilthontt/luascript/internal/vm"
 )
 
 // RegisterStdPreload installs the `std` module under package.preload.
 // `require("std")` returns a table of constructors for the data
 // structures defined in this package — stack, queue, deque, set,
-// linked list, heap, hashmap. Each constructor returns a fresh object
+// linked list, heap, hashmap, trie, btree. Each constructor returns a fresh object
 // whose methods are bound to a private Go instance via colon-call.
 func RegisterStdPreload(v *vm.VM) {
 	vm.RegisterPreload(v, "std", stdLoader)
@@ -65,6 +67,16 @@ func newStdModule() *vm.Table {
 		h, _ := NewAny(less)
 		return []vm.Value{wrapHeap(h)}
 	}})
+	// std.new_btree(max_keys?) — an ordered B-tree over number OR string
+	// keys (the key type is locked in by the first insert; mixing raises).
+	// max_keys is the per-node key capacity, default 3, minimum 3.
+	methods.Set("new_btree", &vm.GoFunc{Name: "std:new_btree", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
+		maxKeys := int(vm.OptInt("std.new_btree", 1, args, 3))
+		if maxKeys < 3 {
+			panic(vm.Errorf("bad argument #1 to 'std.new_btree' (max_keys must be >= 3)"))
+		}
+		return []vm.Value{wrapBTree(&btreeBox{maxKeys: maxKeys})}
+	}})
 	// std.new_trie() — a string-keyed prefix tree. insert/find/remove accept
 	// one or more words; remove is lazy (marks non-leaf) so call compact() to
 	// reclaim dead nodes. size() counts words, capacity() counts nodes.
@@ -106,6 +118,131 @@ func wrapTrie(n *Node) *vm.Table {
 	}})
 	methods.Set("capacity", &vm.GoFunc{Name: "trie:capacity", Fn: func(_ *vm.VM, _ []vm.Value) []vm.Value {
 		return []vm.Value{int64(n.Capacity())}
+	}})
+	return withMethods(methods)
+}
+
+// btreeBox routes Lua keys to a number- or string-keyed BTree. BTree is
+// generic over constraints.Ordered, so a single tree can't hold arbitrary
+// Lua values: the first insert picks the concrete tree, and every later
+// key must be of the same type. Number keys are stored as float64, so
+// integers beyond 2^53 lose precision.
+type btreeBox struct {
+	maxKeys int
+	count   int
+	nums    *BTree[float64]
+	strs    *BTree[string]
+}
+
+func btreeKey(fname string, idx int, v vm.Value) (f float64, s string, isNum bool) {
+	switch k := v.(type) {
+	case int64:
+		return float64(k), "", true
+	case float64:
+		return k, "", true
+	case string:
+		return 0, k, false
+	default:
+		panic(vm.Errorf("bad argument #%d to '%s' (number or string expected, got %s)", idx, fname, vm.TypeName(v)))
+	}
+}
+
+// numKeyValue returns integral float keys as Lua integers so a tree of
+// inserted ints hands back ints from min/max.
+func numKeyValue(f float64) vm.Value {
+	if f == math.Trunc(f) && f >= math.MinInt64 && f < math.MaxInt64 {
+		return int64(f)
+	}
+	return f
+}
+
+func (b *btreeBox) insert(fname string, idx int, v vm.Value) {
+	f, s, isNum := btreeKey(fname, idx, v)
+	if isNum {
+		if b.strs != nil {
+			panic(vm.Errorf("bad argument #%d to '%s' (btree holds string keys, got number)", idx, fname))
+		}
+		if b.nums == nil {
+			b.nums = &BTree[float64]{maxKeys: b.maxKeys}
+		}
+		b.nums.Insert(f)
+	} else {
+		if b.nums != nil {
+			panic(vm.Errorf("bad argument #%d to '%s' (btree holds number keys, got string)", idx, fname))
+		}
+		if b.strs == nil {
+			b.strs = &BTree[string]{maxKeys: b.maxKeys}
+		}
+		b.strs.Insert(s)
+	}
+	b.count++
+}
+
+// search reports whether the key is present. A key whose type doesn't
+// match the tree's key type is simply absent, not an error.
+func (b *btreeBox) search(fname string, idx int, v vm.Value) bool {
+	f, s, isNum := btreeKey(fname, idx, v)
+	if isNum {
+		return b.nums != nil && b.nums.Search(f)
+	}
+	return b.strs != nil && b.strs.Search(s)
+}
+
+// remove deletes one occurrence of the key, reporting whether it was found.
+func (b *btreeBox) remove(fname string, idx int, v vm.Value) bool {
+	if !b.search(fname, idx, v) {
+		return false
+	}
+	f, s, isNum := btreeKey(fname, idx, v)
+	if isNum {
+		b.nums.Delete(f)
+	} else {
+		b.strs.Delete(s)
+	}
+	b.count--
+	return true
+}
+
+// wrapBTree exposes a btreeBox as a Lua object: insert takes one or more
+// keys; remove returns whether the key was found; min/max return nil on
+// an empty tree.
+func wrapBTree(b *btreeBox) *vm.Table {
+	methods := vm.NewTable(0, 7)
+	methods.Set("insert", &vm.GoFunc{Name: "btree:insert", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
+		for i := 2; i <= len(args); i++ {
+			b.insert("btree:insert", i, args[i-1])
+		}
+		return nil
+	}})
+	methods.Set("search", &vm.GoFunc{Name: "btree:search", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
+		return []vm.Value{b.search("btree:search", 2, vm.AnyArg("btree:search", 2, args))}
+	}})
+	methods.Set("remove", &vm.GoFunc{Name: "btree:remove", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
+		return []vm.Value{b.remove("btree:remove", 2, vm.AnyArg("btree:remove", 2, args))}
+	}})
+	methods.Set("min", &vm.GoFunc{Name: "btree:min", Fn: func(_ *vm.VM, _ []vm.Value) []vm.Value {
+		if b.nums != nil && b.nums.root != nil {
+			return []vm.Value{numKeyValue(b.nums.root.Min())}
+		}
+		if b.strs != nil && b.strs.root != nil {
+			return []vm.Value{b.strs.root.Min()}
+		}
+		return []vm.Value{nil}
+	}})
+	methods.Set("max", &vm.GoFunc{Name: "btree:max", Fn: func(_ *vm.VM, _ []vm.Value) []vm.Value {
+		if b.nums != nil && b.nums.root != nil {
+			return []vm.Value{numKeyValue(b.nums.root.Max())}
+		}
+		if b.strs != nil && b.strs.root != nil {
+			return []vm.Value{b.strs.root.Max()}
+		}
+		return []vm.Value{nil}
+	}})
+	methods.Set("size", &vm.GoFunc{Name: "btree:size", Fn: func(_ *vm.VM, _ []vm.Value) []vm.Value {
+		return []vm.Value{int64(b.count)}
+	}})
+	methods.Set("empty", &vm.GoFunc{Name: "btree:empty", Fn: func(_ *vm.VM, _ []vm.Value) []vm.Value {
+		return []vm.Value{b.count == 0}
 	}})
 	return withMethods(methods)
 }
