@@ -34,6 +34,13 @@ type env struct {
 
 type frame struct {
 	bindings map[string]*Type
+
+	// refined marks names whose binding in this frame is a narrowing shadow
+	// installed by applyRefinement, not a declaration. Assignment checking
+	// looks through these to the declared type (lookupDeclared), and an
+	// assignment widens them in place (widenRefined) so a stale narrowing
+	// can't outlive the value it described. Lazily allocated.
+	refined map[string]bool
 }
 
 func newEnv() *env {
@@ -57,12 +64,61 @@ func (e *env) pop() {
 
 // define binds a name in the innermost frame, shadowing any outer binding.
 // Re-defining within the same frame replaces the slot — matching Lua's
-// `local x ... local x` shadowing semantics.
+// `local x ... local x` shadowing semantics. A real declaration also clears
+// any refinement mark left on the slot: `local s = ...` starts fresh.
 func (e *env) define(name string, t *Type) {
 	if len(e.frames) == 0 {
 		return
 	}
-	e.frames[len(e.frames)-1].bindings[name] = t
+	f := &e.frames[len(e.frames)-1]
+	f.bindings[name] = t
+	delete(f.refined, name)
+}
+
+// defineRefined binds a narrowing shadow in the innermost frame. It types
+// exactly like define for lookup, but is invisible to lookupDeclared and
+// mutable by widenRefined.
+func (e *env) defineRefined(name string, t *Type) {
+	if len(e.frames) == 0 {
+		return
+	}
+	f := &e.frames[len(e.frames)-1]
+	f.bindings[name] = t
+	if f.refined == nil {
+		f.refined = map[string]bool{}
+	}
+	f.refined[name] = true
+}
+
+// lookupDeclared returns the innermost binding that is a declaration,
+// seeing through refinement shadows. Assignments are checked against this —
+// `s = nil` inside `if s ~= nil then` is legal because the *declared* type
+// is `string?`, whatever the branch narrowed `s` to.
+func (e *env) lookupDeclared(name string) (*Type, bool) {
+	for i := len(e.frames) - 1; i >= 0; i-- {
+		f := e.frames[i]
+		if t, ok := f.bindings[name]; ok {
+			if f.refined[name] {
+				continue
+			}
+			return t, true
+		}
+	}
+	return e.lookup(name)
+}
+
+// widenRefined folds an assigned type into every refinement shadow of
+// `name`, so a narrowing can't keep claiming the pre-assignment type after
+// `s = nil`. Widening with a union (rather than replacing) keeps outer
+// shadows sound when the assignment sits in a deeper branch that may not
+// execute on every path that reaches them.
+func (e *env) widenRefined(name string, t *Type) {
+	for i := range e.frames {
+		f := &e.frames[i]
+		if f.refined[name] {
+			f.bindings[name] = NewUnion(f.bindings[name], t)
+		}
+	}
 }
 
 // lookup walks innermost-to-outermost. Returns the bound type plus true on

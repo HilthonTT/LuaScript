@@ -283,6 +283,11 @@ func (c *checker) walkStatement(s ast.Statement) {
 		c.env.pop()
 	case *ast.ExpressionStatement:
 		c.walkExpressionDiscard(n.Expression)
+		// `assert(cond)` only returns when cond held, so its positive
+		// narrowing applies to the rest of the block.
+		if cond, ok := assertCondition(n.Expression); ok {
+			c.applyRefinement(c.refine(cond, true))
+		}
 	case *ast.DeferStatement:
 		// The deferred call is checked like any other call statement; it
 		// produces no value the surrounding scope can observe.
@@ -378,7 +383,9 @@ func (c *checker) walkAssignStatement(s *ast.AssignStatement) {
 	for i, t := range s.Targets {
 		switch tgt := t.(type) {
 		case *ast.Identifier:
-			declared, ok := c.env.lookup(tgt.Name)
+			// Check against the declared type, not any narrowing shadow —
+			// `s = nil` inside `if s ~= nil then` is legal for a `string?`.
+			declared, ok := c.env.lookupDeclared(tgt.Name)
 			if !ok {
 				// First-time global write: bind to the RHS type so later
 				// reads see it. Matches Lua's "globals materialize on
@@ -389,6 +396,9 @@ func (c *checker) walkAssignStatement(s *ast.AssignStatement) {
 			if !assignable(rhs[i], declared) {
 				c.errAssign(s.Line(), rhs[i], declared)
 			}
+			// The value changed; any active narrowing must absorb the new
+			// type or it would keep vouching for the old one.
+			c.env.widenRefined(tgt.Name, rhs[i])
 		case *ast.IndexExpression:
 			// Field assignment to a table. We currently don't enforce
 			// shape conformance on writes (most Lua tables are open),
@@ -408,7 +418,14 @@ func (c *checker) walkIfStatement(s *ast.IfStatement) {
 	// earlier condition was false — exactly Lua's evaluation order. The
 	// then-branch of each clause gets its own child frame on top.
 	c.env.push()
-	defer c.env.pop()
+
+	// Early-exit narrowing: when a leading prefix of clauses always
+	// terminates (`if s == nil then return end`), falling past the whole
+	// statement proves each of those conditions was false, so their
+	// negations outlive the `end`. Only a prefix qualifies — once a clause
+	// can fall through, later conditions may never have been evaluated.
+	var persist []refinement
+	prefixTerminates := true
 
 	for _, cl := range s.Clauses {
 		// Walk the condition once (in the already-narrowed scope) for error
@@ -423,13 +440,27 @@ func (c *checker) walkIfStatement(s *ast.IfStatement) {
 
 		// Fold this clause's "condition is false" narrowing into the
 		// accumulator so subsequent branches see it.
-		c.applyRefinement(c.refine(cl.Condition, false))
+		negR := c.refine(cl.Condition, false)
+		c.applyRefinement(negR)
+
+		if prefixTerminates {
+			if blockTerminates(cl.Body) {
+				persist = append(persist, negR)
+			} else {
+				prefixTerminates = false
+			}
+		}
 	}
 
 	if s.Else != nil {
 		c.env.push()
 		c.walkBlock(s.Else)
 		c.env.pop()
+	}
+
+	c.env.pop()
+	for _, r := range persist {
+		c.applyRefinement(r)
 	}
 }
 
@@ -934,7 +965,26 @@ func (c *checker) checkNamedStructCall(call *ast.CallExpression, sc *StructCtor)
 
 func (c *checker) typeOfBinary(e *ast.BinaryExpression) *Type {
 	left := c.typeOfExpression(e.Left)
-	right := c.typeOfExpression(e.Right)
+
+	// and/or short-circuit, so their RHS only evaluates under the LHS's
+	// truthy (and) / falsy (or) outcome — type it in a frame carrying that
+	// narrowing: `s ~= nil and #s`, `x or default`.
+	var right *Type
+	switch e.Op {
+	case "and":
+		c.env.push()
+		c.applyRefinement(c.refine(e.Left, true))
+		right = c.typeOfExpression(e.Right)
+		c.env.pop()
+	case "or":
+		c.env.push()
+		c.applyRefinement(c.refine(e.Left, false))
+		right = c.typeOfExpression(e.Right)
+		c.env.pop()
+	default:
+		right = c.typeOfExpression(e.Right)
+	}
+
 	switch e.Op {
 	case "+", "-", "*", "/", "//", "%", "^", "&", "|", "~", "<<", ">>":
 		c.requireNumber(e.Line(), left, right)
@@ -965,11 +1015,22 @@ func (c *checker) typeOfBinary(e *ast.BinaryExpression) *Type {
 		}
 		return booleanT
 	case "and":
-		// `a and b` returns a if falsy, else b. The result type is the
-		// union; for a typed-correctness perspective this is good enough.
-		return NewUnion(left, right)
+		// `a and b` yields a only when a is falsy — the truthy members of
+		// a's type can't reach the result. (false can't be split off from
+		// boolean, so a boolean member survives whole.)
+		falsy := keepKinds(left, KindNil, KindBoolean)
+		if falsy.Kind == KindNever {
+			return right
+		}
+		return NewUnion(falsy, right)
 	case "or":
-		return NewUnion(left, right)
+		// `a or b` yields a only when a is truthy — nil can't survive,
+		// which is what makes `x or default` a non-optional.
+		truthy := removeKind(left, KindNil)
+		if truthy.Kind == KindNever {
+			return right
+		}
+		return NewUnion(truthy, right)
 	}
 	return anyT
 }
