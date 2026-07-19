@@ -408,6 +408,11 @@ func (v *VM) execCatching(entryDepth int) (resume bool) {
 		if r == nil {
 			return
 		}
+		// coroutine.close's unwind sentinel is not a catchable error; a
+		// `try` around a yield must not intercept the close.
+		if isCloseSignal(r) {
+			panic(r)
+		}
 		if !v.dispatchToHandler(entryDepth, r) {
 			panic(r)
 		}
@@ -1054,6 +1059,11 @@ func (v *VM) doReturn(f *CallFrame, count int) {
 // CallValue sets NResults=-1 so all returned values land on the stack
 // where the caller can read them via Stack[base:].
 func (v *VM) unwindFrame(f *CallFrame, rets []Value) {
+	// The frame is exiting: any `try` regions still open in it are gone. Drop
+	// them before running defers, or a defer that errors during a `return`
+	// out of a try would dispatch back into this frame's own catch clause —
+	// resurrecting a function that already committed its return value.
+	f.handlers = nil
 	if len(f.Deferred) > 0 {
 		// Deferred calls return through doReturn, which reuses v.retScratch —
 		// the same buffer `rets` usually aliases. Copy the return values into a

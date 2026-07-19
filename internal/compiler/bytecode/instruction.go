@@ -363,7 +363,7 @@ func (is *InstructionSet) Name() string { return is.name }
 func (is *InstructionSet) Type() string { return is.isType }
 
 func (is *InstructionSet) define(action uint8, sourceLine int, params ...any) *Instruction {
-	i := &Instruction{Opcode: action, Params: params, line: is.count, sourceLine: sourceLine + 1}
+	i := &Instruction{Opcode: action, Params: params, line: is.count, sourceLine: sourceLine}
 	for _, p := range params {
 		if a, ok := p.(*anchor); ok {
 			i.anchor = a

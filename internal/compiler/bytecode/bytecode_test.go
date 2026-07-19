@@ -103,15 +103,14 @@ func TestInstructionInspect(t *testing.T) {
 	if !strings.Contains(got, "42") {
 		t.Errorf("Inspect missing param: %q", got)
 	}
-	if !strings.Contains(got, "source line: 5") {
-		// define adds 1 to sourceLine
+	if !strings.Contains(got, "source line: 4") {
 		t.Errorf("Inspect missing source line: %q", got)
 	}
 	if ins.Line() != 0 {
 		t.Errorf("Line() = %d, want 0 for first instruction", ins.Line())
 	}
-	if ins.SourceLine() != 5 {
-		t.Errorf("SourceLine() = %d, want 5", ins.SourceLine())
+	if ins.SourceLine() != 4 {
+		t.Errorf("SourceLine() = %d, want 4", ins.SourceLine())
 	}
 }
 

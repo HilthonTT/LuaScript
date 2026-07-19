@@ -22,6 +22,7 @@ func Check(prog *ast.Program, opts Options) []TypeError {
 		return nil
 	}
 	c.preResolveAliases(prog.Block.Statements)
+	c.scanMutations(prog.Block)
 	c.walkBlock(prog.Block)
 	sortByLine(c.errors)
 	return c.errors
@@ -45,6 +46,66 @@ type checker struct {
 	// generics (`type L<T> = { next: L<T> }`) would otherwise expand
 	// forever and blow the Go stack — a fatal, unrecoverable crash.
 	instDepth int
+
+	// builtins pins the exact stdlib signatures installGlobals bound for the
+	// names narrowing trusts (assert/error/type/typeof). builtinInScope
+	// compares against these so a shadowed builtin stops driving narrowing.
+	builtins map[string]*Type
+
+	// assignedSomewhere / upvalMutated are filled by scanMutations before
+	// the walk: every name assigned anywhere in the program, and the subset
+	// assigned by some function literal as an upvalue. See refine.go.
+	assignedSomewhere map[string]bool
+	upvalMutated      map[string]bool
+}
+
+// builtinInScope reports whether `name` still denotes the stdlib builtin at
+// this point — i.e. it resolves to the exact signature installGlobals bound.
+// Re-aliasing the real builtin (`local assert = assert`) keeps the same
+// signature value and stays trusted; any other shadowing does not.
+func (c *checker) builtinInScope(name string) bool {
+	t, ok := c.env.lookup(name)
+	return ok && t == c.builtins[name]
+}
+
+// invalidateCallRefinements widens every visible refinement of a variable
+// some closure mutates as an upvalue: an arbitrary call may reach that
+// closure, so the narrowing can't be trusted past it.
+func (c *checker) invalidateCallRefinements() {
+	if len(c.upvalMutated) == 0 {
+		return
+	}
+	for name := range c.upvalMutated {
+		if !c.env.visiblyRefined(name) {
+			continue
+		}
+		if declared, ok := c.env.lookupDeclared(name); ok {
+			c.env.widenRefined(name, declared)
+		}
+	}
+}
+
+// widenLoopAssigned widens refinements established *outside* a loop for
+// every name the loop body assigns: on the second iteration those statements
+// re-execute after the assignment, so a pre-loop narrowing can't vouch for
+// them. Called after pushing the loop frame and before applying the loop
+// condition's own refinement (which is re-established every iteration and
+// therefore stays sound).
+func (c *checker) widenLoopAssigned(b *ast.Block) {
+	if b == nil {
+		return
+	}
+	assigned := map[string]bool{}
+	upval := map[string]bool{}
+	scanBlockMutations(b, assigned, upval, false, nil)
+	for name := range assigned {
+		if !c.env.visiblyRefined(name) {
+			continue
+		}
+		if declared, ok := c.env.lookupDeclared(name); ok {
+			c.env.widenRefined(name, declared)
+		}
+	}
 }
 
 // expandRHS evaluates an explist of length m against an N-target slot list
@@ -89,8 +150,15 @@ func (c *checker) expandRHS(values []ast.Expression, n int) []*Type {
 // installGlobals seeds the env with the stdlib type signatures. The full
 // signature surface lives in stdlib_types.go.
 func (c *checker) installGlobals() {
-	for name, t := range stdlibGlobals() {
+	g := stdlibGlobals()
+	for name, t := range g {
 		c.env.define(name, t)
+	}
+	c.builtins = map[string]*Type{
+		"assert": g["assert"],
+		"error":  g["error"],
+		"type":   g["type"],
+		"typeof": g["typeof"],
 	}
 }
 
@@ -263,14 +331,27 @@ func (c *checker) walkStatement(s ast.Statement) {
 	case *ast.WhileStatement:
 		c.walkExpressionDiscard(n.Condition)
 		c.env.push()
+		// Refinements from outside the loop can't vouch for variables the
+		// body assigns — iteration 2 re-runs the body after the assignment.
+		c.widenLoopAssigned(n.Body)
 		// Inside the loop body the condition held true, so its truthy
 		// narrowing applies (e.g. `while x ~= nil do` makes x non-nil).
+		// This is re-established every iteration, so it goes on top of the
+		// loop-assignment widening.
 		c.applyRefinement(c.refine(n.Condition, true))
 		c.walkBlock(n.Body)
 		c.env.pop()
 	case *ast.RepeatStatement:
 		c.env.push()
+		c.widenLoopAssigned(n.Body)
 		c.walkBlock(n.Body)
+		if blockHasDirectContinue(n.Body) {
+			// A continue jumps straight to the `until` condition, bypassing
+			// whatever narrowing the fall-through path established in the
+			// body frame — drop those before checking the condition. (The
+			// body's locals themselves stay in scope, as at runtime.)
+			c.env.dropRefinedInTop()
+		}
 		c.walkExpressionDiscard(n.Condition)
 		c.env.pop()
 	case *ast.NumericForStatement:
@@ -284,8 +365,10 @@ func (c *checker) walkStatement(s ast.Statement) {
 	case *ast.ExpressionStatement:
 		c.walkExpressionDiscard(n.Expression)
 		// `assert(cond)` only returns when cond held, so its positive
-		// narrowing applies to the rest of the block.
-		if cond, ok := assertCondition(n.Expression); ok {
+		// narrowing applies to the rest of the block — but only while
+		// `assert` still denotes the builtin; a shadowing definition makes
+		// the call prove nothing.
+		if cond, ok := assertCondition(n.Expression); ok && c.builtinInScope("assert") {
 			c.applyRefinement(c.refine(cond, true))
 		}
 	case *ast.DeferStatement:
@@ -353,6 +436,13 @@ func (c *checker) walkLocalStatement(s *ast.LocalStatement) {
 			bound = declared
 		} else {
 			bound = values[i]
+			if bound.Kind == KindNil {
+				// `local f` / `local f = nil` without an annotation: the
+				// forward-declaration idiom. Pinning the literal nil type
+				// would reject every later assignment; untyped slots are
+				// `any` by design.
+				bound = anyT
+			}
 		}
 		c.env.define(name.Name, bound)
 	}
@@ -444,7 +534,7 @@ func (c *checker) walkIfStatement(s *ast.IfStatement) {
 		c.applyRefinement(negR)
 
 		if prefixTerminates {
-			if blockTerminates(cl.Body) {
+			if c.blockTerminates(cl.Body) {
 				persist = append(persist, negR)
 			} else {
 				prefixTerminates = false
@@ -476,6 +566,7 @@ func (c *checker) walkNumericFor(s *ast.NumericForStatement) {
 		}
 	}
 	c.env.push()
+	c.widenLoopAssigned(s.Body)
 	c.env.define(s.Name, numberT)
 	c.walkBlock(s.Body)
 	c.env.pop()
@@ -486,6 +577,7 @@ func (c *checker) walkGenericFor(s *ast.GenericForStatement) {
 		c.walkExpressionDiscard(e)
 	}
 	c.env.push()
+	c.widenLoopAssigned(s.Body)
 	for _, name := range s.Names {
 		// We don't model iterator-result types in v1; bind each name to
 		// `any` so subsequent code in the loop body type-checks loosely.
@@ -603,6 +695,19 @@ func (c *checker) walkFunctionBody(fe *ast.FunctionExpression, shape *FunctionSh
 
 	c.env.push()
 	defer c.env.pop()
+	// A closure body must not trust a refinement of a captured variable that
+	// can be reassigned: the closure may run after the mutation. Re-bind such
+	// names to their declared types for the duration of the body walk.
+	// Variables never assigned anywhere keep their narrowing (the common
+	// `if x ~= nil then use(function() return x end) end` idiom).
+	for _, name := range c.env.visiblyRefinedNames() {
+		if !c.assignedSomewhere[name] {
+			continue
+		}
+		if declared, ok := c.env.lookupDeclared(name); ok {
+			c.env.define(name, declared)
+		}
+	}
 	for i, p := range fe.Params {
 		bound := shape.Params[i]
 		if p.Default != nil && p.Type != nil {
@@ -781,6 +886,10 @@ func (c *checker) typeOfCall(call *ast.CallExpression) *Type {
 	for i, a := range call.Args {
 		args[i] = c.typeOfExpression(a)
 	}
+	// Any call can reach a closure that mutates a refined upvalue; the
+	// narrowing must not survive it. (Args were typed above, under the
+	// pre-call refinements — evaluation order matches the runtime.)
+	c.invalidateCallRefinements()
 	// Look through unions for a callable shape. Lua programmers routinely
 	// call values of type `function | nil` (e.g. `loadfile()` results)
 	// without explicit nil checks; the runtime handles the bad case.
@@ -847,6 +956,7 @@ func (c *checker) typeOfMethodCall(call *ast.MethodCallExpression) *Type {
 	for _, a := range call.Args {
 		c.walkExpressionDiscard(a)
 	}
+	c.invalidateCallRefinements()
 	return anyT
 }
 

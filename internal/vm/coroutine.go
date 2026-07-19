@@ -51,6 +51,20 @@ type yieldMsg struct {
 	errVal Value // the propagated error value when failed
 }
 
+// closeSignal is the panic value used by coroutine.close to unwind a
+// suspended coroutine's goroutine. It must reach goroutineBody's terminal
+// recover no matter what the coroutine body does, so every intermediate
+// recover point (pcall's safeCall, try/catch's execCatching) re-panics it
+// instead of treating it as a catchable Lua error.
+type closeSignal struct{}
+
+// isCloseSignal reports whether a recovered panic value is the coroutine
+// close sentinel.
+func isCloseSignal(r any) bool {
+	_, ok := r.(closeSignal)
+	return ok
+}
+
 // newCoroutine allocates a coroutine wrapping fn. The goroutine isn't
 // spawned until the first resume.
 func newCoroutine(fn *Closure) *Coroutine {
@@ -71,7 +85,13 @@ func (co *Coroutine) goroutineBody(v *VM) {
 			// Any panic — a Lua error() or a Go runtime panic (nil deref,
 			// etc.) — terminates the coroutine with a failure. Carry the
 			// value through so resume reports false + the real error
-			// instead of silently looking like a normal completion.
+			// instead of silently looking like a normal completion. The
+			// close sentinel is kept as-is so close can tell a clean
+			// unwind from a genuine error.
+			if isCloseSignal(r) {
+				co.yieldCh <- yieldMsg{done: true, failed: true, errVal: closeSignal{}}
+				return
+			}
 			co.yieldCh <- yieldMsg{done: true, failed: true, errVal: recoverValue(r)}
 		}
 	}()
@@ -121,6 +141,8 @@ func registerCoroutineLibrary(v *VM) {
 	mod.Set("status", &GoFunc{Name: "coroutine.status", Fn: builtinCoroutineStatus})
 	mod.Set("wrap", &GoFunc{Name: "coroutine.wrap", Fn: builtinCoroutineWrap})
 	mod.Set("isyieldable", &GoFunc{Name: "coroutine.isyieldable", Fn: builtinCoroutineIsyieldable})
+	mod.Set("running", &GoFunc{Name: "coroutine.running", Fn: builtinCoroutineRunning})
+	mod.Set("close", &GoFunc{Name: "coroutine.close", Fn: builtinCoroutineClose})
 	v.Globals.Set("coroutine", mod)
 }
 
@@ -180,6 +202,11 @@ func builtinCoroutineYield(v *VM, args []Value) []Value {
 	co := v.currentCo
 	co.yieldCh <- yieldMsg{values: args}
 	resumeArgs := <-co.resumeCh
+	// coroutine.close resumes the parked yield with the close sentinel;
+	// panic it up through the coroutine's frames to goroutineBody.
+	if len(resumeArgs) == 1 && isCloseSignal(resumeArgs[0]) {
+		panic(closeSignal{})
+	}
 	return resumeArgs
 }
 
@@ -218,6 +245,58 @@ func builtinCoroutineWrap(v *VM, args []Value) []Value {
 
 func builtinCoroutineIsyieldable(v *VM, _ []Value) []Value {
 	return []Value{v.currentCo != nil}
+}
+
+// builtinCoroutineRunning returns the running coroutine plus a boolean that
+// is true when called from the main thread. The main thread has no Coroutine
+// wrapper in this VM, so the first result is nil there (the boolean is the
+// reliable signal, as in Lua idiom `select(2, coroutine.running())`).
+func builtinCoroutineRunning(v *VM, _ []Value) []Value {
+	if v.currentCo == nil {
+		return []Value{nil, true}
+	}
+	return []Value{v.currentCo, false}
+}
+
+// builtinCoroutineClose kills a suspended (or dead) coroutine. A started
+// coroutine's goroutine is parked inside yield waiting on resumeCh; it is
+// resumed with the close sentinel, which yield panics with, unwinding the
+// coroutine's frames (running nothing user-visible) back to goroutineBody.
+// Returns true, or false + the error if the unwind itself raised one.
+func builtinCoroutineClose(v *VM, args []Value) []Value {
+	co := CoroutineArg("close", 1, args)
+	switch co.status {
+	case "dead":
+		return []Value{true}
+	case "running":
+		panic(LuaError("cannot close a running coroutine"))
+	}
+	if !co.started {
+		co.status = "dead"
+		return []Value{true}
+	}
+
+	// Same state-swap dance as resume: the unwinding goroutine touches the
+	// VM's live Stack/frames while it runs, so those must be the coroutine's.
+	prev := v.currentCo
+	prevThread := v.activeThread()
+	v.saveActiveTo(prevThread)
+	v.loadActiveFrom(co.thread)
+	v.currentCo = co
+	co.status = "running"
+
+	co.resumeCh <- []Value{closeSignal{}}
+	msg := <-co.yieldCh
+
+	v.saveActiveTo(co.thread)
+	v.loadActiveFrom(prevThread)
+	v.currentCo = prev
+	co.status = "dead"
+
+	if msg.failed && !isCloseSignal(msg.errVal) {
+		return []Value{false, msg.errVal}
+	}
+	return []Value{true}
 }
 
 // activeThread returns the currently-active Thread snapshot — the main

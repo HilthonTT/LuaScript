@@ -97,6 +97,18 @@ func newMath() *vm.Table {
 	}})
 
 	methods.Set("fmod", &vm.GoFunc{Name: "math:fmod", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
+		// Two integer operands keep the integer subtype (truncated
+		// remainder, sign of x — Go's % matches C fmod here).
+		if len(args) >= 2 {
+			if xi, okx := args[0].(int64); okx {
+				if yi, oky := args[1].(int64); oky {
+					if yi == 0 {
+						panic(vm.LuaError("bad argument #2 to 'fmod' (zero)"))
+					}
+					return []vm.Value{xi % yi}
+				}
+			}
+		}
 		x := vm.FloatArg("x", 1, args)
 		y := vm.FloatArg("y", 2, args)
 		return []vm.Value{math.Mod(x, y)}

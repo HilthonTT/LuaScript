@@ -2,6 +2,7 @@ package bytecode
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/hilthontt/luascript/internal/compiler/ast"
@@ -32,6 +33,40 @@ func (g *Generator) compileBlock(is *InstructionSet, block *ast.Block) {
 	g.current.locals.closeScope()
 }
 
+// compileScopedBlock compiles a block whose exit ends its locals' lifetimes
+// mid-function (do-end, if/else branches, try bodies) and emits CloseUpvalues
+// over the block's slots when the block both declared locals and created a
+// closure — the same proto-count heuristic emitLoopClose uses. Without it, a
+// closure that captured a block local keeps an open upvalue into a slot a
+// later block reuses, and writes to the *new* variable leak through the old
+// capture. A trailing return needs no close (the frame unwind closes
+// everything above base).
+//
+// It returns the scope's base slot and whether the block hit the heuristic,
+// so a caller with a second, non-fall-through path into the block's slots
+// (try's error path into catch) can emit its own close.
+func (g *Generator) compileScopedBlock(is *InstructionSet, block *ast.Block, line int) (base int, captured bool) {
+	base = g.current.locals.nextSlot
+	if block == nil {
+		return base, false
+	}
+	protosBefore := len(is.Protos)
+	g.current.locals.openScope()
+	for _, s := range block.Statements {
+		g.compileStatement(is, s)
+	}
+	if block.Return != nil {
+		g.compileReturn(is, block.Return)
+	}
+	declared := g.current.locals.nextSlot > base
+	g.current.locals.closeScope()
+	captured = declared && len(is.Protos) > protosBefore
+	if captured && block.Return == nil {
+		is.define(CloseUpvalues, line, base)
+	}
+	return base, captured
+}
+
 func (g *Generator) compileStatement(is *InstructionSet, stmt ast.Statement) {
 	switch s := stmt.(type) {
 	case *ast.AssignStatement:
@@ -57,7 +92,7 @@ func (g *Generator) compileStatement(is *InstructionSet, stmt ast.Statement) {
 	case *ast.GenericForStatement:
 		g.compileGenericFor(is, s)
 	case *ast.DoStatement:
-		g.compileBlock(is, s.Body)
+		g.compileScopedBlock(is, s.Body, s.Line())
 	case *ast.ReturnStatement:
 		g.compileReturn(is, s)
 	case *ast.BreakStatement:
@@ -324,7 +359,7 @@ func (g *Generator) compileIf(is *InstructionSet, s *ast.IfStatement) {
 		nextAnchor := &anchor{}
 		jf := is.define(JumpIfFalse, s.Line(), nextAnchor)
 		g.current.recordPending(jf)
-		g.compileBlock(is, c.Body)
+		g.compileScopedBlock(is, c.Body, s.Line())
 		// After the branch, jump past every remaining clause and the else.
 		// The very last clause + no else may be optimized, but for clarity
 		// we always emit the jump-to-end and then resolve it.
@@ -335,7 +370,7 @@ func (g *Generator) compileIf(is *InstructionSet, s *ast.IfStatement) {
 		nextAnchor.line = is.count
 	}
 	if s.Else != nil {
-		g.compileBlock(is, s.Else)
+		g.compileScopedBlock(is, s.Else, s.Line())
 	}
 	endAnchor.line = is.count
 }
@@ -641,7 +676,7 @@ func (g *Generator) checkRepeatContinueLocals(is *InstructionSet, frame *loopFra
 func (g *Generator) compileGoto(is *InstructionSet, s *ast.GotoStatement) {
 	if lbl, ok := g.current.labels[s.Label]; ok {
 		// Backwards goto — known label.
-		g.checkGotoTryDepth(s.Label, s.Line(), g.current.tryDepth, lbl.tryDepth)
+		g.checkGotoTryRegions(s.Label, s.Line(), g.current.tryRegions, lbl.tryRegions)
 		is.define(Jump, s.Line(), lbl.line)
 		return
 	}
@@ -652,28 +687,35 @@ func (g *Generator) compileGoto(is *InstructionSet, s *ast.GotoStatement) {
 	j := is.define(Jump, s.Line(), a)
 	g.current.recordPending(j)
 	g.current.pendingGotos = append(g.current.pendingGotos, pendingGoto{
-		label: s.Label, line: s.Line(), anchor: a, tryDepth: g.current.tryDepth,
+		label: s.Label, line: s.Line(), anchor: a,
+		tryRegions: slices.Clone(g.current.tryRegions),
 	})
 }
 
-// checkGotoTryDepth rejects a `goto` whose label sits at a different
-// try-nesting depth than the jump. Jumping *out* of a protected region would
-// leave its handler installed (so a later error would land in a catch the
-// program already left); jumping *in* would run the region with no handler
-// installed at all. Rather than miscompile either, report it — the same call
-// checkRepeatContinueLocals makes for its analogous case. Lua's own rule that
-// a goto may not jump into the scope of a local is the closest analogue.
-func (g *Generator) checkGotoTryDepth(label string, line, gotoDepth, labelDepth int) {
-	if gotoDepth == labelDepth {
+// checkGotoTryRegions rejects a `goto` whose label does not sit inside the
+// exact same `try` regions as the jump. Jumping *out* of a protected region
+// would leave its handler installed (so a later error would land in a catch
+// the program already left); jumping *in* would run the region with no handler
+// installed at all; and a jump between two *sibling* regions — same nesting
+// depth, different regions — does both at once, which is why identity is
+// compared rather than depth. Rather than miscompile any of these, report it —
+// the same call checkRepeatContinueLocals makes for its analogous case. Lua's
+// own rule that a goto may not jump into the scope of a local is the closest
+// analogue.
+func (g *Generator) checkGotoTryRegions(label string, line int, gotoRegions, labelRegions []int) {
+	if slices.Equal(gotoRegions, labelRegions) {
 		return
 	}
-	dir := "out of"
-	if gotoDepth < labelDepth {
-		dir = "into"
+	what := "jumps out of a 'try' block"
+	switch {
+	case len(gotoRegions) < len(labelRegions):
+		what = "jumps into a 'try' block"
+	case len(gotoRegions) == len(labelRegions):
+		what = "jumps between two sibling 'try' blocks"
 	}
 	g.errs = append(g.errs, fmt.Errorf(
-		"line %d: 'goto %s' jumps %s a 'try' block — use 'break', 'return', or restructure the control flow",
-		line, label, dir))
+		"line %d: 'goto %s' %s — use 'break', 'return', or restructure the control flow",
+		line, label, what))
 }
 
 // compileDefer lowers `defer <call>` by wrapping the call in a zero-arg
@@ -724,7 +766,10 @@ func (g *Generator) compileTryCatch(is *InstructionSet, s *ast.TryCatchStatement
 	g.current.recordPending(t)
 
 	g.current.tryDepth++
-	g.compileBlock(is, s.Try)
+	g.nextTryRegion++
+	g.current.tryRegions = append(g.current.tryRegions, g.nextTryRegion)
+	bodyBase, bodyCaptured := g.compileScopedBlock(is, s.Try, s.Line())
+	g.current.tryRegions = g.current.tryRegions[:len(g.current.tryRegions)-1]
 	g.current.tryDepth--
 
 	is.define(EndTry, s.Line(), 1)
@@ -732,6 +777,16 @@ func (g *Generator) compileTryCatch(is *InstructionSet, s *ast.TryCatchStatement
 	g.current.recordPending(j)
 
 	catchAnchor.line = is.count
+	if bodyCaptured {
+		// The unwind jumped here from mid-body, skipping the body's normal
+		// scope-exit CloseUpvalues. Close any upvalue still open over the
+		// body's slots before the catch binding (or anything after) reuses
+		// them — otherwise a closure that captured a body local reads the
+		// value later written into the recycled slot.
+		is.define(CloseUpvalues, s.Line(), bodyBase)
+	}
+	catchBase := g.current.locals.nextSlot
+	catchProtos := len(is.Protos)
 	g.current.locals.openScope()
 	if s.CatchVar != nil {
 		// The binding is a normal local of the enclosing function: its slot is
@@ -743,7 +798,11 @@ func (g *Generator) compileTryCatch(is *InstructionSet, s *ast.TryCatchStatement
 		is.define(Pop, s.Line(), 1)
 	}
 	g.compileBlock(is, s.Catch)
+	declared := g.current.locals.nextSlot > catchBase
 	g.current.locals.closeScope()
+	if declared && len(is.Protos) > catchProtos {
+		is.define(CloseUpvalues, s.Line(), catchBase)
+	}
 
 	doneAnchor.line = is.count
 }
@@ -761,11 +820,11 @@ func (g *Generator) compileLabel(_ *InstructionSet, s *ast.LabelStatement) {
 	// A label is purely a jump target — emits no instruction; record its
 	// position and resolve any pending forward gotos that name it.
 	pos := g.current.is.count
-	g.current.labels[s.Name] = labelInfo{line: pos, tryDepth: g.current.tryDepth}
+	g.current.labels[s.Name] = labelInfo{line: pos, tryRegions: slices.Clone(g.current.tryRegions)}
 	keep := g.current.pendingGotos[:0]
 	for _, p := range g.current.pendingGotos {
 		if p.label == s.Name {
-			g.checkGotoTryDepth(p.label, p.line, p.tryDepth, g.current.tryDepth)
+			g.checkGotoTryRegions(p.label, p.line, p.tryRegions, g.current.tryRegions)
 			p.anchor.line = pos
 			continue
 		}

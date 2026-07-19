@@ -50,6 +50,7 @@ func registerStdlib(v *VM) {
 	g("next", builtinNext)
 	g("error", builtinError)
 	g("pcall", builtinPcall)
+	g("xpcall", builtinXpcall)
 	g("assert", builtinAssert)
 	g("select", builtinSelect)
 	g("collectgarbage", builtinCollectgarbage)
@@ -312,15 +313,44 @@ func builtinNext(_ *VM, args []Value) []Value {
 	return []Value{k, val}
 }
 
-func builtinError(_ *VM, args []Value) []Value {
+func builtinError(v *VM, args []Value) []Value {
 	var msg Value
 	if len(args) > 0 {
 		msg = args[0]
 	}
-	// Lua's error(v) propagates the value v unchanged (strings, tables,
-	// numbers, …); pcall/xpcall return it verbatim. Carry it through the
-	// unwind rather than stringifying it here.
+	level := int64(1)
+	if len(args) > 1 {
+		if l, ok := ToInteger(args[1]); ok {
+			level = l
+		}
+	}
+	// Lua prefixes a *string* message with the raising position unless
+	// level is 0: level 1 is where error was called, level 2 its caller, …
+	// Non-string values propagate unchanged (tables, numbers, …);
+	// pcall/xpcall return them verbatim.
+	if s, ok := msg.(string); ok && level > 0 {
+		if line := v.sourceLineAt(int(level)); line > 0 {
+			msg = fmt.Sprintf("script:%d: %s", line, s)
+		}
+	}
 	panic(luaError{value: msg})
+}
+
+// sourceLineAt resolves an error level to a source line: level 1 is the Lua
+// frame that called the erroring builtin (the top frame — GoFuncs don't push
+// frames), level 2 its caller, and so on. Returns 0 when the level has no
+// Lua frame or no line info.
+func (v *VM) sourceLineAt(level int) int {
+	idx := len(v.frames) - level
+	if idx < 0 || idx >= len(v.frames) {
+		return 0
+	}
+	f := v.frames[idx]
+	ip := f.IP - 1
+	if ip < 0 || ip >= len(f.Closure.Proto.Instructions) {
+		return 0
+	}
+	return f.Closure.Proto.Instructions[ip].SourceLine()
 }
 
 func builtinPcall(v *VM, args []Value) []Value {
@@ -331,6 +361,26 @@ func builtinPcall(v *VM, args []Value) []Value {
 		return []Value{false, errVal}
 	}
 	return append([]Value{true}, results...)
+}
+
+func builtinXpcall(v *VM, args []Value) []Value {
+	fn := AnyArg("xpcall", 1, args)
+	handler := AnyArg("xpcall", 2, args)
+	results, errVal, failed := safeCall(v, fn, args[2:])
+	if !failed {
+		return append([]Value{true}, results...)
+	}
+	// The message handler runs protected as well; an error inside it
+	// replaces the original one rather than escaping the xpcall.
+	hres, herr, hfailed := safeCall(v, handler, []Value{errVal})
+	if hfailed {
+		return []Value{false, herr}
+	}
+	var hv Value
+	if len(hres) > 0 {
+		hv = hres[0]
+	}
+	return []Value{false, hv}
 }
 
 // SafeCall invokes fn with args, recovering any Lua error or runtime panic and
@@ -353,6 +403,11 @@ func safeCall(v *VM, fn Value, args []Value) (rs []Value, errVal Value, failed b
 
 	defer func() {
 		if r := recover(); r != nil {
+			// coroutine.close's unwind sentinel must not be catchable by
+			// pcall; let it keep unwinding to the coroutine's goroutine body.
+			if isCloseSignal(r) {
+				panic(r)
+			}
 			// Run deferred calls for every frame abandoned by this unwind,
 			// innermost first, so `defer` cleanup still happens when an error
 			// propagates and not only on a normal return. runDeferredSafely

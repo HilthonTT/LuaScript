@@ -75,6 +75,11 @@ func newStdModule() *vm.Table {
 		if maxKeys < 3 {
 			panic(vm.Errorf("bad argument #1 to 'std.new_btree' (max_keys must be >= 3)"))
 		}
+		// Each node preallocates maxKeys keys + maxKeys+1 children, so an
+		// absurd capacity would OOM on the first insert.
+		if maxKeys > 1<<16 {
+			panic(vm.Errorf("bad argument #1 to 'std.new_btree' (max_keys must be <= %d)", 1<<16))
+		}
 		return []vm.Value{wrapBTree(&btreeBox{maxKeys: maxKeys})}
 	}})
 	// std.new_trie() — a string-keyed prefix tree. insert/find/remove accept
@@ -139,6 +144,13 @@ func btreeKey(fname string, idx int, v vm.Value) (f float64, s string, isNum boo
 	case int64:
 		return float64(k), "", true
 	case float64:
+		// NaN compares false against everything, so it would break the
+		// sorted invariant on insert and be unfindable/unremovable after —
+		// silently corrupting the tree. Reject it like Lua rejects NaN
+		// table keys.
+		if math.IsNaN(k) {
+			panic(vm.Errorf("bad argument #%d to '%s' (key is NaN)", idx, fname))
+		}
 		return k, "", true
 	case string:
 		return 0, k, false

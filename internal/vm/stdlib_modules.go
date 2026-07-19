@@ -111,6 +111,18 @@ func buildMathLibrary() *Table {
 		return []Value{best}
 	})
 	add("fmod", func(_ *VM, args []Value) []Value {
+		// Two integer operands keep the integer subtype (truncated
+		// remainder, sign of x — Go's % matches C fmod here).
+		if len(args) >= 2 {
+			if xi, okx := args[0].(int64); okx {
+				if yi, oky := args[1].(int64); oky {
+					if yi == 0 {
+						panic(LuaError("bad argument #2 to 'fmod' (zero)"))
+					}
+					return []Value{xi % yi}
+				}
+			}
+		}
 		x := FloatArg("math.fmod", 1, args)
 		y := FloatArg("math.fmod", 2, args)
 		return []Value{math.Mod(x, y)}
@@ -751,6 +763,34 @@ func buildTableLibrary() *Table {
 			tbl.Set(int64(i)+1, e)
 		}
 		return nil
+	})
+	add("move", func(_ *VM, args []Value) []Value {
+		a1 := TableArg("move", 1, args)
+		f := IntArg("table.move", 2, args)
+		e := IntArg("table.move", 3, args)
+		d := IntArg("table.move", 4, args)
+		a2 := a1
+		if len(args) >= 5 && args[4] != nil {
+			a2 = TableArg("move", 5, args)
+		}
+		if e >= f {
+			// Same wide-span overflow guard as unpack: hi-lo+1 can wrap.
+			if uint64(e)-uint64(f) >= 1<<24 {
+				panic(LuaError("too many elements to move"))
+			}
+			if d > e || d <= f || a1 != a2 {
+				for i := int64(0); i <= e-f; i++ {
+					a2.Set(d+i, a1.Get(f+i))
+				}
+			} else {
+				// Overlapping shift within one table: copy back-to-front
+				// so sources aren't overwritten before they're read.
+				for i := e - f; i >= 0; i-- {
+					a2.Set(d+i, a1.Get(f+i))
+				}
+			}
+		}
+		return []Value{a2}
 	})
 	add("unpack", func(_ *VM, args []Value) []Value {
 		if len(args) == 0 {

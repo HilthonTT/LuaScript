@@ -63,7 +63,9 @@ end
 	}
 }
 
-// TestTryCatchesErrorBuiltin — `throw` and `error` raise the same thing.
+// TestTryCatchesErrorBuiltin — `error` raises are caught like `throw`, but
+// error() prefixes string messages with the raising position (Lua 5.4
+// semantics); `throw` stays verbatim.
 func TestTryCatchesErrorBuiltin(t *testing.T) {
 	v := run(t, `
 try
@@ -72,7 +74,7 @@ catch e do
     caught = e
 end
 `)
-	assertGlobalEqual(t, v, "caught", "via error")
+	assertGlobalEqual(t, v, "caught", "script:3: via error")
 }
 
 // TestThrowPropagatesNonStringValues — any Lua value may be thrown, and it
@@ -334,7 +336,7 @@ ok, err = pcall(function()
 end)
 `)
 	assertGlobalEqual(t, v, "ok", false)
-	assertGlobalEqual(t, v, "err", "rethrown:inner")
+	assertGlobalEqual(t, v, "err", "script:6: rethrown:inner")
 }
 
 func TestPcallInsideTryDoesNotReachCatch(t *testing.T) {

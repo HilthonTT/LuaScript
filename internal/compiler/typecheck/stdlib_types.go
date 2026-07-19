@@ -25,6 +25,15 @@ func stdlibGlobals() map[string]*Type {
 	// type(any) -> string
 	g["type"] = NewFunction([]*Type{anyT}, []*Type{stringT}, false, nil)
 
+	// typeof(any) -> string — Luau-style alias of type() (vm/stdlib.go)
+	g["typeof"] = NewFunction([]*Type{anyT}, []*Type{stringT}, false, nil)
+
+	// sizeof(any) -> number (vm/stdlib.go)
+	g["sizeof"] = NewFunction([]*Type{anyT}, []*Type{numberT}, false, nil)
+
+	// collectgarbage([opt [, arg]]) -> any (vm/stdlib.go)
+	g["collectgarbage"] = NewFunction([]*Type{Optional(stringT), Optional(numberT)}, []*Type{anyT}, false, nil)
+
 	// tostring(any) -> string
 	g["tostring"] = NewFunction([]*Type{anyT}, []*Type{stringT}, false, nil)
 
@@ -46,6 +55,10 @@ func stdlibGlobals() map[string]*Type {
 	// pcall(f, ...) -> (boolean, ...) — returns success flag plus either
 	// the call's results or its error.
 	g["pcall"] = NewFunction([]*Type{anyT}, []*Type{booleanT, anyT}, true, anyT)
+
+	// xpcall(f, msgh, ...) -> (boolean, ...) — like pcall, but a failure
+	// routes the error through the message handler first.
+	g["xpcall"] = NewFunction([]*Type{anyT, anyT}, []*Type{booleanT, anyT}, true, anyT)
 
 	// assert(v, [msg]) -> (v) — passes through truthy values; we model
 	// the result as `any` because untyped flow is the common case.
@@ -204,6 +217,11 @@ func tableModule() *Type {
 			[]*Type{anyT, Optional(NewFunction([]*Type{anyT, anyT}, []*Type{booleanT}, false, nil))},
 			nil, false, nil)},
 
+		// table.move(a1, f, e, t [, a2]) -> a2
+		{Key: "move", Type: NewFunction(
+			[]*Type{anyT, numberT, numberT, numberT, Optional(anyT)},
+			[]*Type{anyT}, false, nil)},
+
 		// table.unpack(t [, i [, j]]) -> ...any
 		{Key: "unpack", Type: NewFunction([]*Type{anyT, Optional(numberT), Optional(numberT)},
 			[]*Type{anyT}, true, anyT)},
@@ -242,6 +260,10 @@ func coroutineModule() *Type {
 			[]*Type{NewFunction(nil, []*Type{anyT}, true, anyT)}, false, nil)},
 		// isyieldable() -> boolean
 		{Key: "isyieldable", Type: NewFunction(nil, []*Type{booleanT}, false, nil)},
+		// running() -> (thread?, boolean) — thread modeled as `any`
+		{Key: "running", Type: NewFunction(nil, []*Type{anyT, booleanT}, false, nil)},
+		// close(co) -> (boolean, any?)
+		{Key: "close", Type: NewFunction([]*Type{anyT}, []*Type{booleanT, anyT}, false, nil)},
 	}, nil)
 }
 

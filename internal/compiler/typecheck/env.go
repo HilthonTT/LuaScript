@@ -41,6 +41,13 @@ type frame struct {
 	// assignment widens them in place (widenRefined) so a stale narrowing
 	// can't outlive the value it described. Lazily allocated.
 	refined map[string]bool
+
+	// declared preserves a declaration that a refinement shadow overwrote in
+	// this same frame. Block-level narrowing (assert, early-exit persistence)
+	// lands in the frame that also holds the declaration, and without this
+	// the declared type would be destroyed — later legal assignments would be
+	// checked against the narrowed shadow. Lazily allocated.
+	declared map[string]*Type
 }
 
 func newEnv() *env {
@@ -73,16 +80,25 @@ func (e *env) define(name string, t *Type) {
 	f := &e.frames[len(e.frames)-1]
 	f.bindings[name] = t
 	delete(f.refined, name)
+	delete(f.declared, name)
 }
 
 // defineRefined binds a narrowing shadow in the innermost frame. It types
 // exactly like define for lookup, but is invisible to lookupDeclared and
-// mutable by widenRefined.
+// mutable by widenRefined. When the shadow overwrites a declaration made in
+// this same frame, the declared type is preserved on the side so assignment
+// checking can still see it.
 func (e *env) defineRefined(name string, t *Type) {
 	if len(e.frames) == 0 {
 		return
 	}
 	f := &e.frames[len(e.frames)-1]
+	if prev, exists := f.bindings[name]; exists && !f.refined[name] {
+		if f.declared == nil {
+			f.declared = map[string]*Type{}
+		}
+		f.declared[name] = prev
+	}
 	f.bindings[name] = t
 	if f.refined == nil {
 		f.refined = map[string]bool{}
@@ -91,7 +107,8 @@ func (e *env) defineRefined(name string, t *Type) {
 }
 
 // lookupDeclared returns the innermost binding that is a declaration,
-// seeing through refinement shadows. Assignments are checked against this —
+// seeing through refinement shadows (including a shadow that overwrote the
+// declaration in its own frame). Assignments are checked against this —
 // `s = nil` inside `if s ~= nil then` is legal because the *declared* type
 // is `string?`, whatever the branch narrowed `s` to.
 func (e *env) lookupDeclared(name string) (*Type, bool) {
@@ -99,25 +116,92 @@ func (e *env) lookupDeclared(name string) (*Type, bool) {
 		f := e.frames[i]
 		if t, ok := f.bindings[name]; ok {
 			if f.refined[name] {
+				if d, ok := f.declared[name]; ok {
+					return d, true
+				}
 				continue
 			}
 			return t, true
 		}
 	}
-	return e.lookup(name)
+	return nil, false
 }
 
-// widenRefined folds an assigned type into every refinement shadow of
-// `name`, so a narrowing can't keep claiming the pre-assignment type after
-// `s = nil`. Widening with a union (rather than replacing) keeps outer
-// shadows sound when the assignment sits in a deeper branch that may not
-// execute on every path that reaches them.
+// widenRefined folds an assigned type into every refinement shadow of the
+// variable being assigned — the *innermost* declaration of `name` — so a
+// narrowing can't keep claiming the pre-assignment type after `s = nil`.
+// The walk stops at that declaration: shadows in outer frames belong to a
+// different, shadowed variable of the same name and must not be poisoned.
+// Widening with a union (rather than replacing) keeps outer shadows sound
+// when the assignment sits in a deeper branch that may not execute on every
+// path that reaches them.
 func (e *env) widenRefined(name string, t *Type) {
-	for i := range e.frames {
+	for i := len(e.frames) - 1; i >= 0; i-- {
 		f := &e.frames[i]
-		if f.refined[name] {
-			f.bindings[name] = NewUnion(f.bindings[name], t)
+		if _, ok := f.bindings[name]; !ok {
+			continue
 		}
+		if !f.refined[name] {
+			// Reached the assigned variable's declaration.
+			return
+		}
+		f.bindings[name] = NewUnion(f.bindings[name], t)
+		if _, hasDecl := f.declared[name]; hasDecl {
+			// The shadow sits in the declaring frame itself — done.
+			return
+		}
+	}
+}
+
+// visiblyRefinedNames returns every name whose current visible binding is a
+// refinement shadow (innermost frame containing the name decides).
+func (e *env) visiblyRefinedNames() []string {
+	var out []string
+	seen := map[string]bool{}
+	for i := len(e.frames) - 1; i >= 0; i-- {
+		f := e.frames[i]
+		for name := range f.bindings {
+			if seen[name] {
+				continue
+			}
+			seen[name] = true
+			if f.refined[name] {
+				out = append(out, name)
+			}
+		}
+	}
+	return out
+}
+
+// visiblyRefined reports whether the binding `name` currently resolves to
+// is a refinement shadow rather than a declaration.
+func (e *env) visiblyRefined(name string) bool {
+	for i := len(e.frames) - 1; i >= 0; i-- {
+		f := e.frames[i]
+		if _, ok := f.bindings[name]; ok {
+			return f.refined[name]
+		}
+	}
+	return false
+}
+
+// dropRefinedInTop discards every refinement shadow installed in the
+// innermost frame, restoring any declaration a shadow overwrote. Used by the
+// repeat walker: a `continue` jumps straight to the `until` condition, so
+// narrowings established by the body's fall-through path can't vouch there.
+func (e *env) dropRefinedInTop() {
+	if len(e.frames) == 0 {
+		return
+	}
+	f := &e.frames[len(e.frames)-1]
+	for name := range f.refined {
+		if d, ok := f.declared[name]; ok {
+			f.bindings[name] = d
+			delete(f.declared, name)
+		} else {
+			delete(f.bindings, name)
+		}
+		delete(f.refined, name)
 	}
 }
 

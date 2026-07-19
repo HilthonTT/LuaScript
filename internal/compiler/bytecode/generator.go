@@ -22,20 +22,26 @@ type funcCtx struct {
 	// in this function. Jumps that leave a protected region must pop the
 	// handlers they escape (see compileBreak / compileTryCatch).
 	tryDepth int
+
+	// tryRegions is the stack of unique ids of those enclosing `try` regions,
+	// innermost last. Depth alone can't tell two *sibling* regions apart, so
+	// goto checking compares these: a jump is legal only when the goto and its
+	// label sit inside the exact same regions (see checkGotoTryRegions).
+	tryRegions []int
 }
 
-// labelInfo is a resolved `::label::` position plus the try-nesting depth it
-// sits at, so compileGoto can reject a jump that would cross a `try` boundary.
+// labelInfo is a resolved `::label::` position plus the `try` regions it sits
+// inside, so compileGoto can reject a jump that would cross a `try` boundary.
 type labelInfo struct {
-	line     int
-	tryDepth int
+	line       int
+	tryRegions []int // snapshot of funcCtx.tryRegions at the label
 }
 
 type pendingGoto struct {
-	label    string
-	line     int
-	anchor   *anchor
-	tryDepth int // depth at the goto site; compared against the label's
+	label      string
+	line       int
+	anchor     *anchor
+	tryRegions []int // snapshot at the goto site; compared against the label's
 }
 
 // loopFrame collects the break and continue targets for a single active
@@ -92,6 +98,9 @@ type Generator struct {
 	chunks  []*InstructionSet // every emitted instruction set, main chunk first
 	current *funcCtx
 	errs    []error // generation errors (e.g. goto to an undefined label)
+
+	// nextTryRegion hands out the program-unique ids funcCtx.tryRegions holds.
+	nextTryRegion int
 }
 
 // Err returns the first generation error, or nil. An unresolved forward

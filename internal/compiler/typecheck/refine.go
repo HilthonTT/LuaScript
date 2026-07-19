@@ -140,13 +140,14 @@ func (c *checker) refineBinary(n *ast.BinaryExpression, positive bool) refinemen
 //	type(x) == "T"   /   typeof(x) == "T"
 //	x == nil
 func (c *checker) refineEquality(a, b ast.Expression, eq bool) refinement {
-	// type(x) == "T"
-	if name, ok := typeGuardTarget(a); ok {
+	// type(x) == "T" — trusted only while `type`/`typeof` still denotes the
+	// builtin; a shadowing local of the same name proves nothing.
+	if name, guard, ok := typeGuardTarget(a); ok && c.builtinInScope(guard) {
 		if lit, ok := stringLitValue(b); ok {
 			return c.refineTypeGuard(name, lit, eq)
 		}
 	}
-	if name, ok := typeGuardTarget(b); ok {
+	if name, guard, ok := typeGuardTarget(b); ok && c.builtinInScope(guard) {
 		if lit, ok := stringLitValue(a); ok {
 			return c.refineTypeGuard(name, lit, eq)
 		}
@@ -362,10 +363,23 @@ func kindForTypeString(s string) (Kind, bool) {
 // Used by walkIfStatement to persist a clause's negation past the `end` —
 // `if s == nil then return end` leaves s non-nil for the rest of the block.
 //
-// goto is deliberately NOT a terminator: its label may sit later in the
-// same block, and statements after the label would then be reached with the
-// persisted narrowing wrongly in force.
-func blockTerminates(b *ast.Block) bool {
+// goto is not a terminator — and worse, a goto *anywhere* in the block can
+// escape to a label after the `end` from a path that never reaches the
+// block's terminating last statement, so any goto disqualifies the whole
+// block rather than just its final position.
+func (c *checker) blockTerminates(b *ast.Block) bool {
+	if b == nil {
+		return false
+	}
+	if blockContainsGoto(b) {
+		return false
+	}
+	return c.blockTerminatesNoGoto(b)
+}
+
+// blockTerminatesNoGoto is blockTerminates without the (recursive) goto
+// scan, which the entry point has already performed for the whole subtree.
+func (c *checker) blockTerminatesNoGoto(b *ast.Block) bool {
 	if b == nil {
 		return false
 	}
@@ -375,26 +389,26 @@ func blockTerminates(b *ast.Block) bool {
 	if len(b.Statements) == 0 {
 		return false
 	}
-	return statementTerminates(b.Statements[len(b.Statements)-1])
+	return c.statementTerminates(b.Statements[len(b.Statements)-1])
 }
 
-func statementTerminates(s ast.Statement) bool {
+func (c *checker) statementTerminates(s ast.Statement) bool {
 	switch n := s.(type) {
 	case *ast.ReturnStatement, *ast.BreakStatement, *ast.ContinueStatement,
 		*ast.ThrowStatement:
 		return true
 	case *ast.ExpressionStatement:
-		return isErrorCall(n.Expression)
+		return c.isErrorCall(n.Expression)
 	case *ast.DoStatement:
-		return blockTerminates(n.Body)
+		return c.blockTerminatesNoGoto(n.Body)
 	case *ast.IfStatement:
 		// An if terminates only when every arm does — which requires an
 		// else, or the fall-through path escapes.
-		if n.Else == nil || !blockTerminates(n.Else) {
+		if n.Else == nil || !c.blockTerminatesNoGoto(n.Else) {
 			return false
 		}
 		for _, cl := range n.Clauses {
-			if !blockTerminates(cl.Body) {
+			if !c.blockTerminatesNoGoto(cl.Body) {
 				return false
 			}
 		}
@@ -403,14 +417,91 @@ func statementTerminates(s ast.Statement) bool {
 	return false
 }
 
-// isErrorCall matches a bare `error(...)` call statement.
-func isErrorCall(e ast.Expression) bool {
+// isErrorCall matches a bare `error(...)` call statement — but only while
+// `error` still denotes the builtin: a shadowing local that happens to be
+// named error need not terminate.
+func (c *checker) isErrorCall(e ast.Expression) bool {
 	call, ok := e.(*ast.CallExpression)
 	if !ok {
 		return false
 	}
 	fn, ok := call.Func.(*ast.Identifier)
-	return ok && fn.Name == "error"
+	return ok && fn.Name == "error" && c.builtinInScope("error")
+}
+
+// blockContainsGoto reports whether any statement in the block subtree is a
+// goto. Function-literal bodies are not entered: a goto cannot cross a
+// function boundary, so their gotos are irrelevant to this block.
+func blockContainsGoto(b *ast.Block) bool {
+	if b == nil {
+		return false
+	}
+	for _, s := range b.Statements {
+		if statementContainsGoto(s) {
+			return true
+		}
+	}
+	return false
+}
+
+func statementContainsGoto(s ast.Statement) bool {
+	switch n := s.(type) {
+	case *ast.GotoStatement:
+		return true
+	case *ast.DoStatement:
+		return blockContainsGoto(n.Body)
+	case *ast.WhileStatement:
+		return blockContainsGoto(n.Body)
+	case *ast.RepeatStatement:
+		return blockContainsGoto(n.Body)
+	case *ast.NumericForStatement:
+		return blockContainsGoto(n.Body)
+	case *ast.GenericForStatement:
+		return blockContainsGoto(n.Body)
+	case *ast.TryCatchStatement:
+		return blockContainsGoto(n.Try) || blockContainsGoto(n.Catch)
+	case *ast.IfStatement:
+		for _, cl := range n.Clauses {
+			if blockContainsGoto(cl.Body) {
+				return true
+			}
+		}
+		return blockContainsGoto(n.Else)
+	}
+	return false
+}
+
+// blockHasDirectContinue reports whether the block contains a `continue`
+// belonging to the enclosing loop — i.e. not inside a nested loop (whose
+// continue targets that loop) or a function literal.
+func blockHasDirectContinue(b *ast.Block) bool {
+	if b == nil {
+		return false
+	}
+	for _, s := range b.Statements {
+		switch n := s.(type) {
+		case *ast.ContinueStatement:
+			return true
+		case *ast.DoStatement:
+			if blockHasDirectContinue(n.Body) {
+				return true
+			}
+		case *ast.TryCatchStatement:
+			if blockHasDirectContinue(n.Try) || blockHasDirectContinue(n.Catch) {
+				return true
+			}
+		case *ast.IfStatement:
+			for _, cl := range n.Clauses {
+				if blockHasDirectContinue(cl.Body) {
+					return true
+				}
+			}
+			if blockHasDirectContinue(n.Else) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // assertCondition returns the condition argument when `e` is a call of the
@@ -429,20 +520,190 @@ func assertCondition(e ast.Expression) (ast.Expression, bool) {
 	return call.Args[0], true
 }
 
+// Mutation pre-scan
+//
+// Two soundness holes need whole-program knowledge of assignments:
+//
+//   - a closure created inside a narrowed branch must not keep the narrowed
+//     type if the variable can be reassigned (the closure may run after the
+//     mutation), and
+//   - a refinement must not survive a function call when some closure
+//     assigns the refined variable as an upvalue (the call may reach it).
+//
+// scanMutations walks the program once and fills the checker's two
+// name sets. Matching is by name (not by binding identity), which
+// over-approximates in the presence of same-named distinct variables — the
+// conservative direction: at worst a valid narrowing is dropped.
+
+// scanMutations populates c.assignedSomewhere and c.upvalMutated from the
+// program body.
+func (c *checker) scanMutations(b *ast.Block) {
+	c.assignedSomewhere = map[string]bool{}
+	c.upvalMutated = map[string]bool{}
+	scanBlockMutations(b, c.assignedSomewhere, c.upvalMutated, false, nil)
+}
+
+// scanBlockMutations records every identifier assigned in the subtree into
+// `assigned`. When `insideFn` is true, an assigned name that is not among
+// the enclosing function literal's own declarations (`fnLocals`) is also an
+// upvalue mutation. fnLocals is a name set accumulated per function literal;
+// block scoping inside one function is deliberately ignored (name-based
+// approximation).
+func scanBlockMutations(b *ast.Block, assigned, upval map[string]bool, insideFn bool, fnLocals map[string]bool) {
+	if b == nil {
+		return
+	}
+	for _, s := range b.Statements {
+		scanStatementMutations(s, assigned, upval, insideFn, fnLocals)
+	}
+}
+
+func scanStatementMutations(s ast.Statement, assigned, upval map[string]bool, insideFn bool, fnLocals map[string]bool) {
+	recurseExpr := func(e ast.Expression) {
+		scanExprMutations(e, assigned, upval, insideFn, fnLocals)
+	}
+	switch n := s.(type) {
+	case *ast.AssignStatement:
+		for _, t := range n.Targets {
+			if name, ok := identName(t); ok {
+				assigned[name] = true
+				if insideFn && !fnLocals[name] {
+					upval[name] = true
+				}
+			}
+		}
+		for _, v := range n.Values {
+			recurseExpr(v)
+		}
+	case *ast.LocalStatement:
+		for _, name := range n.Names {
+			if insideFn {
+				fnLocals[name.Name] = true
+			}
+		}
+		for _, v := range n.Values {
+			recurseExpr(v)
+		}
+	case *ast.LocalFunctionStatement:
+		if insideFn {
+			fnLocals[n.Name] = true
+		}
+		scanFnMutations(n.Func, assigned, upval)
+	case *ast.FunctionDeclaration:
+		scanFnMutations(n.Func, assigned, upval)
+	case *ast.ExpressionStatement:
+		recurseExpr(n.Expression)
+	case *ast.ReturnStatement:
+		for _, v := range n.Values {
+			recurseExpr(v)
+		}
+	case *ast.DoStatement:
+		scanBlockMutations(n.Body, assigned, upval, insideFn, fnLocals)
+	case *ast.WhileStatement:
+		recurseExpr(n.Condition)
+		scanBlockMutations(n.Body, assigned, upval, insideFn, fnLocals)
+	case *ast.RepeatStatement:
+		scanBlockMutations(n.Body, assigned, upval, insideFn, fnLocals)
+		recurseExpr(n.Condition)
+	case *ast.NumericForStatement:
+		recurseExpr(n.Start)
+		recurseExpr(n.Limit)
+		recurseExpr(n.Step)
+		scanBlockMutations(n.Body, assigned, upval, insideFn, fnLocals)
+	case *ast.GenericForStatement:
+		for _, e := range n.Exprs {
+			recurseExpr(e)
+		}
+		scanBlockMutations(n.Body, assigned, upval, insideFn, fnLocals)
+	case *ast.IfStatement:
+		for _, cl := range n.Clauses {
+			recurseExpr(cl.Condition)
+			scanBlockMutations(cl.Body, assigned, upval, insideFn, fnLocals)
+		}
+		scanBlockMutations(n.Else, assigned, upval, insideFn, fnLocals)
+	case *ast.TryCatchStatement:
+		scanBlockMutations(n.Try, assigned, upval, insideFn, fnLocals)
+		scanBlockMutations(n.Catch, assigned, upval, insideFn, fnLocals)
+	case *ast.ThrowStatement:
+		recurseExpr(n.Value)
+	case *ast.DeferStatement:
+		recurseExpr(n.Call)
+	}
+}
+
+// scanFnMutations enters a function literal: its body scans with a fresh
+// local-name set seeded with the parameters, and everything assigned there
+// that isn't function-local counts as an upvalue mutation.
+func scanFnMutations(fe *ast.FunctionExpression, assigned, upval map[string]bool) {
+	if fe == nil {
+		return
+	}
+	locals := map[string]bool{}
+	for _, p := range fe.Params {
+		locals[p.Name.Name] = true
+	}
+	scanBlockMutations(fe.Body, assigned, upval, true, locals)
+}
+
+// scanExprMutations descends into expressions only to find nested function
+// literals (the one expression form that contains statements).
+func scanExprMutations(e ast.Expression, assigned, upval map[string]bool, insideFn bool, fnLocals map[string]bool) {
+	switch n := e.(type) {
+	case *ast.FunctionExpression:
+		scanFnMutations(n, assigned, upval)
+	case *ast.ParenExpression:
+		scanExprMutations(n.Inner, assigned, upval, insideFn, fnLocals)
+	case *ast.UnaryExpression:
+		scanExprMutations(n.Operand, assigned, upval, insideFn, fnLocals)
+	case *ast.BinaryExpression:
+		scanExprMutations(n.Left, assigned, upval, insideFn, fnLocals)
+		scanExprMutations(n.Right, assigned, upval, insideFn, fnLocals)
+	case *ast.CallExpression:
+		scanExprMutations(n.Func, assigned, upval, insideFn, fnLocals)
+		for _, a := range n.Args {
+			scanExprMutations(a, assigned, upval, insideFn, fnLocals)
+		}
+	case *ast.MethodCallExpression:
+		scanExprMutations(n.Object, assigned, upval, insideFn, fnLocals)
+		for _, a := range n.Args {
+			scanExprMutations(a, assigned, upval, insideFn, fnLocals)
+		}
+	case *ast.IndexExpression:
+		scanExprMutations(n.Object, assigned, upval, insideFn, fnLocals)
+		scanExprMutations(n.Index, assigned, upval, insideFn, fnLocals)
+	case *ast.TableConstructor:
+		for _, f := range n.Fields {
+			scanExprMutations(f.Key, assigned, upval, insideFn, fnLocals)
+			scanExprMutations(f.Value, assigned, upval, insideFn, fnLocals)
+		}
+	case *ast.IfExpression:
+		for _, cl := range n.Clauses {
+			scanExprMutations(cl.Condition, assigned, upval, insideFn, fnLocals)
+			scanExprMutations(cl.Value, assigned, upval, insideFn, fnLocals)
+		}
+		scanExprMutations(n.Else, assigned, upval, insideFn, fnLocals)
+	case *ast.TypeAssertionExpression:
+		scanExprMutations(n.Expr, assigned, upval, insideFn, fnLocals)
+	}
+}
+
 // AST shape helpers
 
 // typeGuardTarget returns the identifier name `x` when `e` is a call of the
-// form `type(x)` or `typeof(x)` with a single identifier argument.
-func typeGuardTarget(e ast.Expression) (string, bool) {
-	call, ok := e.(*ast.CallExpression)
-	if !ok || len(call.Args) != 1 {
-		return "", false
+// form `type(x)` or `typeof(x)` with a single identifier argument, plus the
+// guard function's own name so the caller can verify it still denotes the
+// builtin.
+func typeGuardTarget(e ast.Expression) (target, guardFn string, ok bool) {
+	call, isCall := e.(*ast.CallExpression)
+	if !isCall || len(call.Args) != 1 {
+		return "", "", false
 	}
-	fn, ok := call.Func.(*ast.Identifier)
-	if !ok || (fn.Name != "type" && fn.Name != "typeof") {
-		return "", false
+	fn, isIdent := call.Func.(*ast.Identifier)
+	if !isIdent || (fn.Name != "type" && fn.Name != "typeof") {
+		return "", "", false
 	}
-	return identName(call.Args[0])
+	target, ok = identName(call.Args[0])
+	return target, fn.Name, ok
 }
 
 // identName returns the name of an identifier expression (peeling a
