@@ -141,16 +141,22 @@ func TestMatchOnFalseSubject(t *testing.T) {
 }
 
 // Destructuring a REAL enum/struct value is not testable here: constructing
-// one needs `__enum_freeze` from internal/native/stdlib/enumrt, and that
-// package imports this one. The positive path is covered end-to-end by
+// one needs `__enum_adt` from internal/native/stdlib/enumrt, and that package
+// imports this one. The positive path is covered end-to-end by
 // examples/43_tagged_enums.lsc and examples/44_match.lsc. What is testable
 // here is the shape check that must run before any projection.
+//
+// The stub below stands in for that helper. A payload-carrying enum lowers to
+// `__enum_adt(name, arities)` (NOT `__enum_freeze`, which is the nullary-enum
+// path), and a positional pattern only ever compares the subject's `__tag`
+// against the variant name — the namespace the declaration binds is never
+// consulted at match time. So returning a bare table is enough.
 
 // A positional pattern probes `__tag` on a plain table, so a hand-rolled
 // value with the right tag destructures like the real thing.
 func TestMatchPositionalDestructureReadsTagAndPayload(t *testing.T) {
 	v := run(t, `
-		function __enum_freeze(t, n) return t end
+		function __enum_adt(n, arities) return {} end
 		enum Shape Circle(number), Rect(number, number) end
 		local fake = { __tag = "Rect", 3, 4 }
 		match fake do
@@ -165,7 +171,7 @@ func TestMatchPositionalDestructureReadsTagAndPayload(t *testing.T) {
 // must still read the correct payload index.
 func TestMatchPositionalUnderscoreSkipsSlot(t *testing.T) {
 	v := run(t, `
-		function __enum_freeze(t, n) return t end
+		function __enum_adt(n, arities) return {} end
 		enum Shape Rect(number, number) end
 		local fake = { __tag = "Rect", 3, 4 }
 		match fake do
@@ -178,7 +184,7 @@ func TestMatchPositionalUnderscoreSkipsSlot(t *testing.T) {
 // A tag mismatch must fall through without projecting.
 func TestMatchPositionalRejectsWrongTag(t *testing.T) {
 	v := run(t, `
-		function __enum_freeze(t, n) return t end
+		function __enum_adt(n, arities) return {} end
 		enum Shape Circle(number), Rect(number, number) end
 		local fake = { __tag = "Circle", 5 }
 		match fake do
