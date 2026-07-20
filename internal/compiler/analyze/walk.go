@@ -70,6 +70,14 @@ func (w *walker) walkStmt(s ast.Statement) {
 		w.walkBlock(n.Body)
 	case *ast.DoStatement:
 		w.walkBlock(n.Body)
+	case *ast.MatchStatement:
+		w.walkExpr(n.Subject)
+		for i := range n.Arms {
+			arm := &n.Arms[i]
+			w.walkExprs(arm.Pattern.Values)
+			w.walkExpr(arm.Guard)
+			w.walkStmt(arm.Body)
+		}
 	case *ast.TryCatchStatement:
 		w.walkBlock(n.Try)
 		w.walkBlock(n.Catch)

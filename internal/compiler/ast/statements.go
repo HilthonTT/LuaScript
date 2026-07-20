@@ -550,3 +550,157 @@ func (ts *ThrowStatement) TokenLiteral() string { return ts.Token.Literal }
 func (ts *ThrowStatement) String() string {
 	return "throw " + ts.Value.String()
 }
+
+// MatchPatternKind tags the shape of a match-statement arm pattern.
+type MatchPatternKind int
+
+const (
+	// MatchValue compares the scrutinee with `==` against each entry of
+	// Values (comma-separated alternatives OR together).
+	MatchValue MatchPatternKind = iota
+	// MatchWildcard is `_` — matches anything, binds nothing.
+	MatchWildcard
+	// MatchTyped is `name : Type` — matches when the runtime type matches,
+	// binding name to the scrutinee (`_ : T` tests without binding).
+	MatchTyped
+	// MatchDestructurePos is `Variant(a, b, _)` — positional destructure of
+	// a payload-carrying tagged-enum variant.
+	MatchDestructurePos
+	// MatchDestructureNamed is `Struct{ f = a }` — named destructure of a
+	// struct instance.
+	MatchDestructureNamed
+)
+
+// MatchFieldBind is one `field = binder` entry of a named destructure.
+// Bind == "_" matches the field without binding it.
+type MatchFieldBind struct {
+	Field string
+	Bind  string
+}
+
+// MatchPattern is the pattern of one match-statement arm. Kind selects which
+// of the remaining fields are meaningful (see the per-kind comments above).
+type MatchPattern struct {
+	Kind       MatchPatternKind
+	Values     []Expression     // MatchValue: one or more alternatives
+	Bind       string           // MatchTyped: binder name ("" / "_" = none)
+	Type       TypeNode         // MatchTyped
+	Tag        string           // destructures: variant/struct name (last path segment)
+	PosBinds   []string         // MatchDestructurePos: binders ("_" = skip)
+	NamedBinds []MatchFieldBind // MatchDestructureNamed
+}
+
+// Binders returns the names this pattern introduces into its arm's scope, in
+// declaration order. `_` is a hole, not a name, so it is never returned.
+// Value and wildcard patterns bind nothing.
+func (mp *MatchPattern) Binders() []string {
+	var out []string
+	add := func(name string) {
+		if name != "" && name != "_" {
+			out = append(out, name)
+		}
+	}
+	switch mp.Kind {
+	case MatchTyped:
+		add(mp.Bind)
+	case MatchDestructurePos:
+		for _, b := range mp.PosBinds {
+			add(b)
+		}
+	case MatchDestructureNamed:
+		for _, nb := range mp.NamedBinds {
+			add(nb.Bind)
+		}
+	}
+	return out
+}
+
+func (mp *MatchPattern) String() string {
+	var out bytes.Buffer
+	switch mp.Kind {
+	case MatchValue:
+		for i, v := range mp.Values {
+			if i > 0 {
+				out.WriteString(", ")
+			}
+			out.WriteString(v.String())
+		}
+	case MatchWildcard:
+		out.WriteString("_")
+	case MatchTyped:
+		name := mp.Bind
+		if name == "" {
+			name = "_"
+		}
+		out.WriteString(name)
+		out.WriteString(": ")
+		out.WriteString(mp.Type.String())
+	case MatchDestructurePos:
+		out.WriteString(mp.Tag)
+		out.WriteString("(")
+		for i, b := range mp.PosBinds {
+			if i > 0 {
+				out.WriteString(", ")
+			}
+			out.WriteString(b)
+		}
+		out.WriteString(")")
+	case MatchDestructureNamed:
+		out.WriteString(mp.Tag)
+		out.WriteString("{ ")
+		for i, nb := range mp.NamedBinds {
+			if i > 0 {
+				out.WriteString(", ")
+			}
+			out.WriteString(nb.Field)
+			out.WriteString(" = ")
+			out.WriteString(nb.Bind)
+		}
+		out.WriteString(" }")
+	}
+	return out.String()
+}
+
+// MatchStmtArm is one `pattern [if guard] -> body` clause of a match
+// statement. Token points at the first token of the pattern so later passes
+// can report arm-specific errors.
+type MatchStmtArm struct {
+	BaseNode
+	Pattern MatchPattern
+	Guard   Expression // optional `if expr` between pattern and `->`; nil when absent
+	Body    Statement  // exactly one statement (wrap several in `do ... end`)
+}
+
+// MatchStatement is the first-class `match <expr> do <arm>... end` statement.
+// Arms are tried in order; the first whose pattern matches (and whose guard,
+// if any, is truthy) runs. It is NOT exhaustive — when no arm matches, the
+// statement is a no-op. The scrutinee is evaluated exactly once.
+type MatchStatement struct {
+	BaseNode
+	Subject Expression
+	Arms    []MatchStmtArm
+}
+
+func (*MatchStatement) statementNode()          {}
+func (ms *MatchStatement) TokenLiteral() string { return ms.Token.Literal }
+func (ms *MatchStatement) String() string {
+	var out bytes.Buffer
+	out.WriteString("match ")
+	out.WriteString(ms.Subject.String())
+	out.WriteString(" do ")
+	for i := range ms.Arms {
+		arm := &ms.Arms[i]
+		if i > 0 {
+			out.WriteString(" ")
+		}
+		out.WriteString(arm.Pattern.String())
+		if arm.Guard != nil {
+			out.WriteString(" if ")
+			out.WriteString(arm.Guard.String())
+		}
+		out.WriteString(" -> ")
+		out.WriteString(arm.Body.String())
+	}
+	out.WriteString(" end")
+	return out.String()
+}

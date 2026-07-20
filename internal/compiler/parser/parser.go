@@ -43,12 +43,6 @@ type Parser struct {
 	// vs goto-label disambiguation needs to look two tokens past `::`.
 	peek2 *token.Token
 
-	// matchCounter generates unique scrutinee-binding names for the
-	// parser-level `match` desugar (compiler/parser/match_statement.go).
-	// Each `match` rewrites its scrutinee to a fresh `__match_N` local so
-	// nested matches don't shadow each other in a confusing way.
-	matchCounter int
-
 	// compoundCounter generates unique temp-local names for the compound
 	// assignment desugar (compiler/parser/statement_parsing.go). An index
 	// target like `t[f()] += 1` hoists its object and key into fresh

@@ -170,6 +170,8 @@ func (e *emitter) statement(stmt ast.Statement, opts Options) Doc {
 		return e.genericFor(s, opts)
 	case *ast.DoStatement:
 		return e.doStmt(s, opts)
+	case *ast.MatchStatement:
+		return e.matchStmt(s, opts)
 	case *ast.TryCatchStatement:
 		return e.tryCatchStmt(s, opts)
 	case *ast.ThrowStatement:
@@ -449,7 +451,62 @@ func (e *emitter) enumStmt(s *ast.EnumStatement, opts Options) Doc {
 	return concat(text("enum "), text(s.Name.Name), body, hardLine(), text("end"))
 }
 
-// --- expressions -------------------------------------------------------
+// matchStmt renders
+//
+//	match subject do
+//	    <pattern> [if <guard>] -> <stmt>
+//	    ...
+//	end
+//
+// One arm per line, like enumStmt's variants. Arms are not a Block, so (also
+// like enumStmt) comments written between them are not anchored here and get
+// re-emitted by the enclosing block rather than staying put.
+func (e *emitter) matchStmt(s *ast.MatchStatement, opts Options) Doc {
+	head := concat(text("match "), e.expr(s.Subject, opts), text(" do"))
+	if len(s.Arms) == 0 {
+		return concat(head, hardLine(), text("end"))
+	}
+	var lines []Doc
+	for i := range s.Arms {
+		arm := &s.Arms[i]
+		parts := []Doc{e.matchPattern(&arm.Pattern, opts)}
+		if arm.Guard != nil {
+			parts = append(parts, text(" if "), e.expr(arm.Guard, opts))
+		}
+		parts = append(parts, text(" -> "), e.statement(arm.Body, opts))
+		lines = append(lines, concat(parts...))
+	}
+	body := nest(opts.indent(), concat(hardLine(), join(hardLine(), lines...)))
+	return concat(head, body, hardLine(), text("end"))
+}
+
+func (e *emitter) matchPattern(p *ast.MatchPattern, opts Options) Doc {
+	switch p.Kind {
+	case ast.MatchValue:
+		vs := make([]Doc, len(p.Values))
+		for i, v := range p.Values {
+			vs[i] = e.expr(v, opts)
+		}
+		return join(text(", "), vs...)
+	case ast.MatchWildcard:
+		return text("_")
+	case ast.MatchTyped:
+		name := p.Bind
+		if name == "" {
+			name = "_"
+		}
+		return concat(text(name), text(": "), e.typeNode(p.Type, opts))
+	case ast.MatchDestructurePos:
+		return concat(text(p.Tag), text("("), text(strings.Join(p.PosBinds, ", ")), text(")"))
+	case ast.MatchDestructureNamed:
+		fs := make([]Doc, len(p.NamedBinds))
+		for i, nb := range p.NamedBinds {
+			fs[i] = concat(text(nb.Field), text(" = "), text(nb.Bind))
+		}
+		return concat(text(p.Tag), text("{ "), join(text(", "), fs...), text(" }"))
+	}
+	return nilDoc()
+}
 
 func (e *emitter) expr(x ast.Expression, opts Options) Doc {
 	switch v := x.(type) {
@@ -619,8 +676,6 @@ func (e *emitter) table(t *ast.TableConstructor, opts Options) Doc {
 // always-present softLine — we don't yet have a real `ifBreak` primitive.
 // For now, omit the trailing comma; it can be added when ifBreak lands.
 func trailingCommaIfBreak() Doc { return nilDoc() }
-
-// --- type nodes --------------------------------------------------------
 
 func (e *emitter) typeNode(t ast.TypeNode, opts Options) Doc {
 	switch v := t.(type) {

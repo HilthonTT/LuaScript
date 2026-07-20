@@ -503,145 +503,140 @@ return fib(10)
 	}
 }
 
-// match statement (parser-level desugar)
+// match statement (first-class ast.MatchStatement)
 
-// matchArms returns the scrutinee LocalStatement and the per-arm gated
-// IfStatements produced by the match desugar. The v2 desugar shape is:
-//
-//	do
-//	  local __match_N   = <scrutinee>
-//	  local __matched_N = false           -- only when there is ≥1 arm
-//	  if not __matched_N [and <test>] then ... end   -- one per arm
-//	end
-func matchArms(t *testing.T, src string) (*ast.LocalStatement, []*ast.IfStatement) {
+// matchStmt returns the ast.MatchStatement parsed from src. The statement is
+// the LAST one in the chunk: src may open with enum/struct declarations,
+// since destructure patterns only engage for names declared in the chunk.
+func matchStmt(t *testing.T, src string) *ast.MatchStatement {
 	t.Helper()
-	// src may open with enum/struct declarations (destructure patterns only
-	// engage for names declared in the chunk); the match desugar is the
-	// LAST statement.
 	prog := parse(t, src)
 	if len(prog.Block.Statements) == 0 {
 		t.Fatalf("no statements parsed for %q", src)
 	}
 	stmt := prog.Block.Statements[len(prog.Block.Statements)-1]
-	do, ok := stmt.(*ast.DoStatement)
+	ms, ok := stmt.(*ast.MatchStatement)
 	if !ok {
-		t.Fatalf("match did not desugar to DoStatement, got %T", stmt)
+		t.Fatalf("match did not parse to *ast.MatchStatement, got %T", stmt)
 	}
-	if do.Body == nil || len(do.Body.Statements) < 1 {
-		t.Fatalf("match desugar produced empty do-body")
-	}
-	ls, ok := do.Body.Statements[0].(*ast.LocalStatement)
-	if !ok {
-		t.Fatalf("first stmt in match desugar is %T, want scrutinee LocalStatement", do.Body.Statements[0])
-	}
-	var arms []*ast.IfStatement
-	for _, s := range do.Body.Statements[1:] {
-		if is, ok := s.(*ast.IfStatement); ok {
-			arms = append(arms, is)
-		}
-	}
-	return ls, arms
+	return ms
 }
 
-// armTest returns the arm's full `if` condition string. The condition is a
-// left-associative chain `(not __matched) and <conjunct> [and <conjunct>...]`,
-// so tests assert on the pattern-specific conjunct(s) via contains().
-func armTest(arm *ast.IfStatement) string {
-	return arm.Clauses[0].Condition.String()
+// armPattern returns the pattern of the i-th arm, failing if it is absent.
+func armPattern(t *testing.T, ms *ast.MatchStatement, i int) *ast.MatchPattern {
+	t.Helper()
+	if i >= len(ms.Arms) {
+		t.Fatalf("arm %d out of range (%d arms)", i, len(ms.Arms))
+	}
+	return &ms.Arms[i].Pattern
 }
 
 func TestMatchSingleArm(t *testing.T) {
-	ls, arms := matchArms(t, "match x do 1 -> print(\"one\") end")
-	if ls.Names[0].Name != "__match_1" {
-		t.Errorf("scrutinee local = %q, want __match_1", ls.Names[0].Name)
+	ms := matchStmt(t, "match x do 1 -> print(\"one\") end")
+	if ms.Subject.String() != "x" {
+		t.Errorf("subject = %q, want x", ms.Subject.String())
 	}
-	if len(arms) != 1 {
-		t.Fatalf("arms = %d, want 1", len(arms))
+	if len(ms.Arms) != 1 {
+		t.Fatalf("arms = %d, want 1", len(ms.Arms))
 	}
-	if got := armTest(arms[0]); !contains(got, "(__match_1 == 1)") {
-		t.Errorf("test = %q, want it to contain (__match_1 == 1)", got)
+	p := armPattern(t, ms, 0)
+	if p.Kind != ast.MatchValue {
+		t.Fatalf("kind = %v, want MatchValue", p.Kind)
+	}
+	if len(p.Values) != 1 || p.Values[0].String() != "1" {
+		t.Errorf("values = %v, want [1]", p.Values)
 	}
 }
 
 func TestMatchMultipleArms(t *testing.T) {
-	_, arms := matchArms(t, `match x do
+	ms := matchStmt(t, `match x do
 1 -> print("one")
 2 -> print("two")
 3 -> print("three")
 end`)
-	if len(arms) != 3 {
-		t.Fatalf("arms = %d, want 3", len(arms))
+	if len(ms.Arms) != 3 {
+		t.Fatalf("arms = %d, want 3", len(ms.Arms))
 	}
 }
 
 func TestMatchMultiPatternArm(t *testing.T) {
-	_, arms := matchArms(t, `match x do
+	ms := matchStmt(t, `match x do
 1, 2, 3 -> print("small")
 end`)
-	if len(arms) != 1 {
-		t.Fatalf("arms = %d, want 1", len(arms))
+	if len(ms.Arms) != 1 {
+		t.Fatalf("arms = %d, want 1", len(ms.Arms))
 	}
-	want := "(((__match_1 == 1) or (__match_1 == 2)) or (__match_1 == 3))"
-	if got := armTest(arms[0]); !contains(got, want) {
-		t.Errorf("test = %q, want it to contain %q", got, want)
+	// Comma-separated alternatives collapse into ONE value pattern.
+	p := armPattern(t, ms, 0)
+	if p.Kind != ast.MatchValue {
+		t.Fatalf("kind = %v, want MatchValue", p.Kind)
+	}
+	if len(p.Values) != 3 {
+		t.Fatalf("values = %d, want 3", len(p.Values))
+	}
+	for i, want := range []string{"1", "2", "3"} {
+		if got := p.Values[i].String(); got != want {
+			t.Errorf("value %d = %q, want %q", i, got, want)
+		}
 	}
 }
 
 func TestMatchWildcard(t *testing.T) {
-	_, arms := matchArms(t, `match x do
+	ms := matchStmt(t, `match x do
 1 -> print("one")
 _ -> print("other")
 end`)
-	if len(arms) != 2 {
-		t.Fatalf("arms = %d, want 2", len(arms))
+	if len(ms.Arms) != 2 {
+		t.Fatalf("arms = %d, want 2", len(ms.Arms))
 	}
-	// The wildcard arm has no pattern test: its condition is just `not flag`.
-	if got := arms[1].Clauses[0].Condition.String(); got != "(not __matched_1)" {
-		t.Errorf("wildcard condition = %q, want (not __matched_1)", got)
+	if k := armPattern(t, ms, 1).Kind; k != ast.MatchWildcard {
+		t.Errorf("second arm kind = %v, want MatchWildcard", k)
 	}
 }
 
 func TestMatchWildcardOnlyArm(t *testing.T) {
-	_, arms := matchArms(t, "match x do _ -> print(\"any\") end")
-	if len(arms) != 1 {
-		t.Fatalf("arms = %d, want 1", len(arms))
+	ms := matchStmt(t, "match x do _ -> print(\"any\") end")
+	if len(ms.Arms) != 1 {
+		t.Fatalf("arms = %d, want 1", len(ms.Arms))
 	}
-	if got := arms[0].Clauses[0].Condition.String(); got != "(not __matched_1)" {
-		t.Errorf("condition = %q, want (not __matched_1)", got)
+	if k := armPattern(t, ms, 0).Kind; k != ast.MatchWildcard {
+		t.Errorf("kind = %v, want MatchWildcard", k)
 	}
 }
 
 func TestMatchEmpty(t *testing.T) {
-	// Empty match: still binds scrutinee for side-effect parity, but emits
-	// no arms (and no flag).
-	ls, arms := matchArms(t, "match f() do end")
-	if ls.Values[0].String() != "f()" {
-		t.Errorf("scrutinee = %q, want f()", ls.Values[0].String())
+	// An arm-less match still evaluates its scrutinee for side effects.
+	ms := matchStmt(t, "match f() do end")
+	if ms.Subject.String() != "f()" {
+		t.Errorf("subject = %q, want f()", ms.Subject.String())
 	}
-	if len(arms) != 0 {
-		t.Errorf("expected no arms for empty match, got %d", len(arms))
+	if len(ms.Arms) != 0 {
+		t.Errorf("expected no arms for empty match, got %d", len(ms.Arms))
 	}
 }
 
-func TestMatchNestedCountersAreUnique(t *testing.T) {
-	_, arms := matchArms(t, `match x do
+func TestMatchNests(t *testing.T) {
+	// A nested match is just the outer arm's body statement — no generated
+	// names to collide, which is what the old __match_N counter guarded.
+	ms := matchStmt(t, `match x do
 1 -> match y do
   10 -> print("a")
 end
 end`)
-	// The outer arm body is `<flag> = true; <inner match>`; the inner match
-	// is the second statement of the then-block.
-	innerDo := arms[0].Clauses[0].Body.Statements[1].(*ast.DoStatement)
-	innerLocal := innerDo.Body.Statements[0].(*ast.LocalStatement)
-	if innerLocal.Names[0].Name == "__match_1" {
-		t.Errorf("nested matches share scrutinee name %q", innerLocal.Names[0].Name)
+	inner, ok := ms.Arms[0].Body.(*ast.MatchStatement)
+	if !ok {
+		t.Fatalf("outer arm body = %T, want *ast.MatchStatement", ms.Arms[0].Body)
+	}
+	if inner.Subject.String() != "y" {
+		t.Errorf("inner subject = %q, want y", inner.Subject.String())
 	}
 }
 
 func TestMatchStringPattern(t *testing.T) {
-	_, arms := matchArms(t, `match s do "hi" -> print(1) end`)
-	if got := armTest(arms[0]); !contains(got, `(__match_1 == "hi")`) {
-		t.Errorf("test = %q, want it to contain (__match_1 == \"hi\")", got)
+	ms := matchStmt(t, `match s do "hi" -> print(1) end`)
+	p := armPattern(t, ms, 0)
+	if p.Kind != ast.MatchValue || len(p.Values) != 1 || p.Values[0].String() != `"hi"` {
+		t.Errorf("pattern = %s, want value pattern \"hi\"", p.String())
 	}
 }
 
@@ -659,12 +654,12 @@ func TestMatchSemicolonBetweenArms(t *testing.T) {
 	// `print("a") "b"` would chain as call-sugar in Lua; the explicit
 	// `;` between arms must terminate the body and let the next pattern
 	// start cleanly.
-	_, arms := matchArms(t, `match s do
+	ms := matchStmt(t, `match s do
 "hi" -> print("greeting");
 "bye" -> print("farewell")
 end`)
-	if len(arms) != 2 {
-		t.Errorf("arms = %d, want 2", len(arms))
+	if len(ms.Arms) != 2 {
+		t.Errorf("arms = %d, want 2", len(ms.Arms))
 	}
 }
 
@@ -825,94 +820,113 @@ func TestParseTaggedEnumErrors(t *testing.T) {
 	}
 }
 
-func TestMatchTypedBindingDesugar(t *testing.T) {
-	_, arms := matchArms(t, `match v do
+func TestMatchTypedBinding(t *testing.T) {
+	ms := matchStmt(t, `match v do
 n: number -> print(n)
 end`)
-	if len(arms) != 1 {
-		t.Fatalf("arms = %d, want 1", len(arms))
+	if len(ms.Arms) != 1 {
+		t.Fatalf("arms = %d, want 1", len(ms.Arms))
 	}
-	// Test uses type(subject) == "number".
-	if got := armTest(arms[0]); !contains(got, `(type(__match_1) == "number")`) {
-		t.Errorf("test = %q, want type() check on __match_1", got)
+	p := armPattern(t, ms, 0)
+	if p.Kind != ast.MatchTyped {
+		t.Fatalf("kind = %v, want MatchTyped", p.Kind)
 	}
-	// The then-block binds `local n = __match_1` before the flag/body.
-	binds := arms[0].Clauses[0].Body.Statements[0].(*ast.LocalStatement)
-	if binds.Names[0].Name != "n" || binds.Values[0].String() != "__match_1" {
-		t.Errorf("binding = %s = %s, want n = __match_1", binds.Names[0].Name, binds.Values[0].String())
+	if p.Bind != "n" {
+		t.Errorf("bind = %q, want n", p.Bind)
+	}
+	if _, ok := p.Type.(*ast.TypePrimitive); !ok {
+		t.Errorf("type = %T, want *ast.TypePrimitive", p.Type)
+	}
+	if p.Type.String() != "number" {
+		t.Errorf("type = %q, want number", p.Type.String())
 	}
 }
 
-func TestMatchNominalTypedBindingUsesTypeof(t *testing.T) {
-	_, arms := matchArms(t, `match v do
+func TestMatchNominalTypedBindingKeepsTypeName(t *testing.T) {
+	// A nominal type stays a TypeName; codegen is what turns it into a
+	// `typeof()` probe rather than a `type()` one.
+	ms := matchStmt(t, `match v do
 p: Point -> print(p)
 end`)
-	if got := armTest(arms[0]); !contains(got, `(typeof(__match_1) == "Point")`) {
-		t.Errorf("test = %q, want typeof() check on __match_1", got)
+	p := armPattern(t, ms, 0)
+	if p.Kind != ast.MatchTyped {
+		t.Fatalf("kind = %v, want MatchTyped", p.Kind)
+	}
+	if _, ok := p.Type.(*ast.TypeName); !ok {
+		t.Errorf("type = %T, want *ast.TypeName", p.Type)
+	}
+	if p.Type.String() != "Point" {
+		t.Errorf("type = %q, want Point", p.Type.String())
 	}
 }
 
-func TestMatchAnyBindingHasNoTest(t *testing.T) {
-	_, arms := matchArms(t, `match v do
-x: any -> print(x)
-end`)
-	// `: any` always matches, so the only condition is the flag guard.
-	if got := arms[0].Clauses[0].Condition.String(); got != "(not __matched_1)" {
-		t.Errorf("condition = %q, want (not __matched_1)", got)
-	}
-}
-
-func TestMatchPositionalDestructureDesugar(t *testing.T) {
-	_, arms := matchArms(t, `enum Shape Circle(number), Rect(number, number) end
+func TestMatchPositionalDestructure(t *testing.T) {
+	ms := matchStmt(t, `enum Shape Circle(number), Rect(number, number) end
 match s do
 Shape.Circle(r) -> print(r)
 end`)
-	if got := armTest(arms[0]); !contains(got, `(type(__match_1) == "table")`) || !contains(got, `(__match_1.__tag == "Circle")`) {
-		t.Errorf("test = %q, want table+tag checks on __match_1", got)
+	p := armPattern(t, ms, 0)
+	if p.Kind != ast.MatchDestructurePos {
+		t.Fatalf("kind = %v, want MatchDestructurePos", p.Kind)
 	}
-	binds := arms[0].Clauses[0].Body.Statements[0].(*ast.LocalStatement)
-	if binds.Names[0].Name != "r" || binds.Values[0].String() != "__match_1[1]" {
-		t.Errorf("binding = %s = %s, want r = __match_1[1]",
-			binds.Names[0].Name, binds.Values[0].String())
+	// The dotted path collapses to its last segment — the __tag value.
+	if p.Tag != "Circle" {
+		t.Errorf("tag = %q, want Circle", p.Tag)
+	}
+	if len(p.PosBinds) != 1 || p.PosBinds[0] != "r" {
+		t.Errorf("posBinds = %v, want [r]", p.PosBinds)
 	}
 }
 
-func TestMatchNamedDestructureDesugar(t *testing.T) {
-	_, arms := matchArms(t, `struct Point { x: number, y: number }
+func TestMatchNamedDestructure(t *testing.T) {
+	ms := matchStmt(t, `struct Point { x: number, y: number }
 match p do
 Point{ x = px, y = py } -> print(px, py)
 end`)
-	if got := armTest(arms[0]); !contains(got, `(typeof(__match_1) == "Point")`) {
-		t.Errorf("test = %q, want typeof() check on __match_1", got)
+	pat := armPattern(t, ms, 0)
+	if pat.Kind != ast.MatchDestructureNamed {
+		t.Fatalf("kind = %v, want MatchDestructureNamed", pat.Kind)
 	}
-	first := arms[0].Clauses[0].Body.Statements[0].(*ast.LocalStatement)
-	if first.Values[0].String() != "__match_1.x" {
-		t.Errorf("first binding value = %q, want __match_1.x", first.Values[0].String())
+	if pat.Tag != "Point" {
+		t.Errorf("tag = %q, want Point", pat.Tag)
+	}
+	want := []ast.MatchFieldBind{{Field: "x", Bind: "px"}, {Field: "y", Bind: "py"}}
+	if len(pat.NamedBinds) != len(want) {
+		t.Fatalf("namedBinds = %v, want %v", pat.NamedBinds, want)
+	}
+	for i, w := range want {
+		if pat.NamedBinds[i] != w {
+			t.Errorf("namedBind %d = %+v, want %+v", i, pat.NamedBinds[i], w)
+		}
 	}
 }
 
-func TestMatchGuardWrapsBody(t *testing.T) {
-	_, arms := matchArms(t, `match n do
+func TestMatchGuardIsOnTheArm(t *testing.T) {
+	ms := matchStmt(t, `match n do
 x: number if x > 0 -> print("pos")
 end`)
-	// then-block: local x = subject; if (x > 0) then flag=true; body end
-	body := arms[0].Clauses[0].Body.Statements
-	if _, ok := body[len(body)-1].(*ast.IfStatement); !ok {
-		t.Fatalf("expected a guard IfStatement as last then-stmt, got %T", body[len(body)-1])
+	arm := &ms.Arms[0]
+	if arm.Guard == nil {
+		t.Fatalf("arm has no guard")
+	}
+	if got := arm.Guard.String(); got != "(x > 0)" {
+		t.Errorf("guard = %q, want (x > 0)", got)
 	}
 }
 
-func TestMatchUnderscoreSkipsBinding(t *testing.T) {
-	_, arms := matchArms(t, `enum Shape Circle(number), Rect(number, number) end
+func TestMatchUnderscoreIsNotABinder(t *testing.T) {
+	ms := matchStmt(t, `enum Shape Circle(number), Rect(number, number) end
 match s do
 Shape.Rect(_, h) -> print(h)
 end`)
-	// Only `h` is bound; the `_` position produces no local.
-	stmts := arms[0].Clauses[0].Body.Statements
-	local := stmts[0].(*ast.LocalStatement)
-	if local.Names[0].Name != "h" || local.Values[0].String() != "__match_1[2]" {
-		t.Errorf("binding = %s = %s, want h = __match_1[2]",
-			local.Names[0].Name, local.Values[0].String())
+	p := armPattern(t, ms, 0)
+	// `_` is kept in PosBinds to hold the position...
+	if len(p.PosBinds) != 2 || p.PosBinds[0] != "_" || p.PosBinds[1] != "h" {
+		t.Fatalf("posBinds = %v, want [_ h]", p.PosBinds)
+	}
+	// ...but it never becomes a name in scope.
+	if got := p.Binders(); len(got) != 1 || got[0] != "h" {
+		t.Errorf("binders = %v, want [h]", got)
 	}
 }
 

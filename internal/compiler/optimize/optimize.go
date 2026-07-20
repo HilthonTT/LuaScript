@@ -71,6 +71,18 @@ func foldStmt(s ast.Statement) {
 		if n.Call != nil {
 			n.Call = foldExpr(n.Call)
 		}
+	case *ast.MatchStatement:
+		n.Subject = foldExpr(n.Subject)
+		for i := range n.Arms {
+			arm := &n.Arms[i]
+			// Only value patterns hold expressions; the other kinds carry
+			// names and type nodes, which fold to themselves.
+			foldExprSlice(arm.Pattern.Values)
+			if arm.Guard != nil {
+				arm.Guard = foldExpr(arm.Guard)
+			}
+			foldStmt(arm.Body)
+		}
 	case *ast.TryCatchStatement:
 		foldBlock(n.Try)
 		foldBlock(n.Catch)

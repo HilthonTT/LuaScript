@@ -75,8 +75,6 @@ func (s *Server) Initialized(context.Context, *protocol.InitializedParams) error
 	return nil
 }
 
-// --- Text document synchronisation -----------------------------------------
-
 func (s *Server) DidOpen(ctx context.Context, params *protocol.DidOpenTextDocumentParams) error {
 	uri := string(params.TextDocument.URI)
 	s.docs.open(uri, params.TextDocument.Text, params.TextDocument.Version)

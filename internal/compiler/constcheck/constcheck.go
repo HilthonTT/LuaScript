@@ -176,6 +176,21 @@ func (c *checker) stmt(s ast.Statement) {
 		c.expr(n.Expression)
 	case *ast.DeferStatement:
 		c.expr(n.Call)
+	case *ast.MatchStatement:
+		c.expr(n.Subject)
+		for i := range n.Arms {
+			arm := &n.Arms[i]
+			c.exprs(arm.Pattern.Values)
+			// Pattern binders are ordinary assignable locals scoped to the
+			// arm, so each arm needs a scope of its own around guard + body.
+			c.pushScope()
+			for _, name := range arm.Pattern.Binders() {
+				c.define(name, "")
+			}
+			c.expr(arm.Guard)
+			c.stmt(arm.Body)
+			c.popScope()
+		}
 	case *ast.TryCatchStatement:
 		c.block(n.Try)
 		// The catch binding is an ordinary assignable local scoped to the

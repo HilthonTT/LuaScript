@@ -375,6 +375,8 @@ func (c *checker) walkStatement(s ast.Statement) {
 		// The deferred call is checked like any other call statement; it
 		// produces no value the surrounding scope can observe.
 		c.walkExpressionDiscard(n.Call)
+	case *ast.MatchStatement:
+		c.walkMatchStatement(n)
 	case *ast.TryCatchStatement:
 		c.env.push()
 		c.walkBlock(n.Try)
@@ -499,6 +501,49 @@ func (c *checker) walkAssignStatement(s *ast.AssignStatement) {
 					"cannot index a value of type %q", base.String())
 			}
 		}
+	}
+}
+
+// walkMatchStatement checks a `match`. Arms are independent: each gets its
+// own scope holding that arm's binders, so a binder can never leak into a
+// sibling arm or past the `end`. Nothing narrows the *subject* — patterns
+// test a value the checker cannot re-associate with the scrutinee expression
+// unless it is a simple name, and v1 does not track that.
+func (c *checker) walkMatchStatement(s *ast.MatchStatement) {
+	c.walkExpressionDiscard(s.Subject)
+
+	for i := range s.Arms {
+		arm := &s.Arms[i]
+
+		// Value-pattern alternatives are compared with `==` against the
+		// subject; walk them for their own errors.
+		for _, v := range arm.Pattern.Values {
+			c.walkExpressionDiscard(v)
+		}
+
+		c.env.push()
+
+		// A typed pattern is the one form that proves something about what it
+		// binds, so its binder gets the declared type; every other binder is
+		// a projection out of a value of unknown shape.
+		bindT := anyT
+		if arm.Pattern.Kind == ast.MatchTyped && arm.Pattern.Type != nil {
+			if t := c.resolveAST(arm.Pattern.Type); t != nil {
+				bindT = t
+			}
+		}
+		for _, name := range arm.Pattern.Binders() {
+			c.env.define(name, bindT)
+		}
+
+		if arm.Guard != nil {
+			c.walkExpressionDiscard(arm.Guard)
+			// The body only runs when the guard held.
+			c.applyRefinement(c.refine(arm.Guard, true))
+		}
+		c.walkStatement(arm.Body)
+
+		c.env.pop()
 	}
 }
 

@@ -109,6 +109,8 @@ func (g *Generator) compileStatement(is *InstructionSet, stmt ast.Statement) {
 		g.compileStructStatement(is, s)
 	case *ast.DeferStatement:
 		g.compileDefer(is, s)
+	case *ast.MatchStatement:
+		g.compileMatch(is, s)
 	case *ast.TryCatchStatement:
 		g.compileTryCatch(is, s)
 	case *ast.ThrowStatement:

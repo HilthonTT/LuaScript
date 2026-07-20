@@ -458,6 +458,13 @@ func statementContainsGoto(s ast.Statement) bool {
 		return blockContainsGoto(n.Body)
 	case *ast.GenericForStatement:
 		return blockContainsGoto(n.Body)
+	case *ast.MatchStatement:
+		for i := range n.Arms {
+			if statementContainsGoto(n.Arms[i].Body) {
+				return true
+			}
+		}
+		return false
 	case *ast.TryCatchStatement:
 		return blockContainsGoto(n.Try) || blockContainsGoto(n.Catch)
 	case *ast.IfStatement:
@@ -479,27 +486,38 @@ func blockHasDirectContinue(b *ast.Block) bool {
 		return false
 	}
 	for _, s := range b.Statements {
-		switch n := s.(type) {
-		case *ast.ContinueStatement:
+		if stmtHasDirectContinue(s) {
 			return true
-		case *ast.DoStatement:
-			if blockHasDirectContinue(n.Body) {
-				return true
-			}
-		case *ast.TryCatchStatement:
-			if blockHasDirectContinue(n.Try) || blockHasDirectContinue(n.Catch) {
-				return true
-			}
-		case *ast.IfStatement:
-			for _, cl := range n.Clauses {
-				if blockHasDirectContinue(cl.Body) {
-					return true
-				}
-			}
-			if blockHasDirectContinue(n.Else) {
+		}
+	}
+	return false
+}
+
+// stmtHasDirectContinue is blockHasDirectContinue's per-statement half. It
+// exists as its own function because a match arm's body is a single
+// statement rather than a block.
+func stmtHasDirectContinue(s ast.Statement) bool {
+	switch n := s.(type) {
+	case *ast.ContinueStatement:
+		return true
+	case *ast.DoStatement:
+		return blockHasDirectContinue(n.Body)
+	case *ast.TryCatchStatement:
+		return blockHasDirectContinue(n.Try) || blockHasDirectContinue(n.Catch)
+	case *ast.MatchStatement:
+		for i := range n.Arms {
+			if stmtHasDirectContinue(n.Arms[i].Body) {
 				return true
 			}
 		}
+		return false
+	case *ast.IfStatement:
+		for _, cl := range n.Clauses {
+			if blockHasDirectContinue(cl.Body) {
+				return true
+			}
+		}
+		return blockHasDirectContinue(n.Else)
 	}
 	return false
 }
@@ -621,6 +639,18 @@ func scanStatementMutations(s ast.Statement, assigned, upval map[string]bool, in
 			scanBlockMutations(cl.Body, assigned, upval, insideFn, fnLocals)
 		}
 		scanBlockMutations(n.Else, assigned, upval, insideFn, fnLocals)
+	case *ast.MatchStatement:
+		recurseExpr(n.Subject)
+		for i := range n.Arms {
+			arm := &n.Arms[i]
+			for _, v := range arm.Pattern.Values {
+				recurseExpr(v)
+			}
+			if arm.Guard != nil {
+				recurseExpr(arm.Guard)
+			}
+			scanStatementMutations(arm.Body, assigned, upval, insideFn, fnLocals)
+		}
 	case *ast.TryCatchStatement:
 		scanBlockMutations(n.Try, assigned, upval, insideFn, fnLocals)
 		scanBlockMutations(n.Catch, assigned, upval, insideFn, fnLocals)
