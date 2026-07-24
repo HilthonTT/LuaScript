@@ -15,13 +15,11 @@ func RegisterMathPreload(v *vm.VM) {
 func mathLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
 	mod := newMath()
 	mod.Set("VERSION", "0.1.0")
-	mod.Set("huge", math.Inf(1))
-	mod.Set("maxinteger", int64(math.MaxInt64))
-	mod.Set("mininteger", int64(math.MinInt64))
-	mod.Set("pi", float64(math.Pi))
-	mod.Set("phi", float64(math.Phi))
-	mod.Set("e", float64(math.E))
-	mod.Set("nan", math.NaN())
+
+	// Mathematical constants
+	mod.Set("e", math.E)
+	mod.Set("pi", math.Pi)
+	mod.Set("phi", math.Phi)
 
 	mod.Set("sqrt2", math.Sqrt2)
 	mod.Set("sqrte", math.SqrtE)
@@ -31,7 +29,32 @@ func mathLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
 	mod.Set("ln2", math.Ln2)
 	mod.Set("log2e", math.Log2E)
 	mod.Set("ln10", math.Ln10)
-	mod.Set("ln10e", math.Log10E)
+	mod.Set("log10e", math.Log10E) // Note: math.Log10E in Go
+
+	// Floating-point limits
+	mod.Set("maxfloat32", math.MaxFloat32)
+	mod.Set("smallestnonzerofloat32", math.SmallestNonzeroFloat32)
+	mod.Set("maxfloat64", math.MaxFloat64)
+	mod.Set("smallestnonzerofloat64", math.SmallestNonzeroFloat64)
+
+	// Integer limits (already had some, added the rest for completeness)
+	mod.Set("maxint", math.MaxInt)
+	mod.Set("minint", math.MinInt)
+	mod.Set("maxint8", math.MaxInt8)
+	mod.Set("minint8", math.MinInt8)
+	mod.Set("maxint16", math.MaxInt16)
+	mod.Set("minint16", math.MinInt16)
+	mod.Set("maxint32", math.MaxInt32)
+	mod.Set("minint32", math.MinInt32)
+	mod.Set("maxint64", math.MaxInt64)
+	mod.Set("minint64", math.MinInt64)
+	mod.Set("maxuint8", math.MaxUint8)
+	mod.Set("maxuint16", math.MaxUint16)
+	mod.Set("maxuint32", math.MaxUint32)
+
+	// Special values
+	mod.Set("huge", math.Inf(1))
+	mod.Set("nan", math.NaN())
 
 	return []vm.Value{mod}
 }
