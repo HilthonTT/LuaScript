@@ -90,6 +90,10 @@ const (
 	Return // params: count (-1 = all from base to top)
 
 	// --- numeric for ---
+	// baseSlot..baseSlot+2 are hidden control slots (index, limit, step);
+	// baseSlot+3 is the visible loop variable, which both opcodes refresh from
+	// the hidden index at the top of each iteration. Keeping the counter hidden
+	// is what makes assigning to the loop variable inside the body harmless.
 	ForPrep // params: baseSlot, targetLine ; uses 3 stack values: start, limit, step
 	ForLoop // params: baseSlot, targetLine
 

@@ -178,8 +178,9 @@ func (v *VM) callClosure(cl *Closure, args []Value, nresults int) {
 // LocalsResolved, so this runs at most once per prototype.
 //
 // numLocals is the largest local slot referenced (either via Set/GetLocal or
-// implicitly by the for-loop opcodes, which use baseSlot..baseSlot+2 for
-// numeric for and baseSlot..baseSlot+2+nresults for the generic for), plus one
+// implicitly by the for-loop opcodes, which use baseSlot..baseSlot+3 for
+// numeric for — three hidden control slots plus the visible variable — and
+// baseSlot..baseSlot+2+nresults for the generic for), plus one
 // — i.e. the count of slots to reserve at frame entry. It is needed because the
 // generator leaves the main chunk's NumLocals at 0.
 //
@@ -197,7 +198,7 @@ func scanProto(p *bytecode.InstructionSet) (numLocals int, hasTry bool) {
 		case bytecode.SetLocal, bytecode.GetLocal:
 			bump(int(ins.A))
 		case bytecode.ForPrep, bytecode.ForLoop:
-			bump(int(ins.A) + 2)
+			bump(int(ins.A) + 3)
 		case bytecode.TForCall:
 			bump(int(ins.A) + 2 + int(ins.B))
 		case bytecode.TForLoop:
@@ -1150,6 +1151,7 @@ func (v *VM) forPrep(f *CallFrame, baseSlot, exitTarget int) {
 		*v.localAt(f, baseSlot) = s
 		*v.localAt(f, baseSlot+1) = l
 		*v.localAt(f, baseSlot+2) = st
+		*v.localAt(f, baseSlot+3) = s
 		return
 	}
 	s, ok1 := ToInteger(startV)
@@ -1171,9 +1173,11 @@ func (v *VM) forPrep(f *CallFrame, baseSlot, exitTarget int) {
 		f.IP = exitTarget
 		return
 	}
-	*v.localAt(f, baseSlot) = internInt(s)
+	sv := internInt(s)
+	*v.localAt(f, baseSlot) = sv
 	*v.localAt(f, baseSlot+1) = internInt(l)
 	*v.localAt(f, baseSlot+2) = internInt(st)
+	*v.localAt(f, baseSlot+3) = sv
 }
 
 // forLimitInt resolves an integer `for` loop's limit (which may be a float) to
@@ -1239,6 +1243,7 @@ func (v *VM) forLoop(f *CallFrame, baseSlot, target int) {
 		i += s
 		if (s > 0 && i <= l) || (s < 0 && i >= l) {
 			*v.localAt(f, baseSlot) = i
+			*v.localAt(f, baseSlot+3) = i
 			f.IP = target
 		}
 		return
@@ -1250,13 +1255,17 @@ func (v *VM) forLoop(f *CallFrame, baseSlot, target int) {
 	if s > 0 {
 		// ni >= i ⟺ the add didn't overflow past math.maxinteger.
 		if ni >= i && ni <= l {
-			*v.localAt(f, baseSlot) = internInt(ni)
+			nv := internInt(ni)
+			*v.localAt(f, baseSlot) = nv
+			*v.localAt(f, baseSlot+3) = nv
 			f.IP = target
 		}
 	} else {
 		// ni <= i ⟺ the add didn't underflow past math.mininteger.
 		if ni <= i && ni >= l {
-			*v.localAt(f, baseSlot) = internInt(ni)
+			nv := internInt(ni)
+			*v.localAt(f, baseSlot) = nv
+			*v.localAt(f, baseSlot+3) = nv
 			f.IP = target
 		}
 	}

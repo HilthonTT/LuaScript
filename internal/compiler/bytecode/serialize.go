@@ -31,9 +31,11 @@ import (
 // serialMagic identifies a serialized luascript chunk.
 const serialMagic = "LSCB"
 
-// SerialVersion is the on-disk bytecode layout version. Bump on any change
-// to the encoding below.
-const SerialVersion = 1
+// SerialVersion is the on-disk bytecode layout version. Bump on any change to
+// the encoding below — and on any change to what an existing opcode's operands
+// mean, since a cached chunk carries no other record of that. Version 2 moved
+// the numeric-for loop variable to baseSlot+3 (behind the hidden counter).
+const SerialVersion = 2
 
 // Sanity caps against corrupt/truncated input. Generous compared to any real
 // chunk, tiny compared to what a hostile length prefix could ask for.

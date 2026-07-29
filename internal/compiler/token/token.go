@@ -11,6 +11,12 @@ type Token struct {
 	Literal string
 	Line    int
 	Column  int
+	// Raw is the token's source text with escape sequences still intact.
+	// Set only for InterpString, whose `{expr}` spans the parser has to
+	// re-scan: Literal has already been unescaped, so a `\"` inside an
+	// interpolated expression (or a `\u{7B}` anywhere) would be
+	// indistinguishable from real interpolation structure.
+	Raw string
 }
 
 const (

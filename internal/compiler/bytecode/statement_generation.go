@@ -479,9 +479,15 @@ func (g *Generator) compileNumericFor(is *InstructionSet, s *ast.NumericForState
 	}
 
 	g.current.locals.openScope()
-	indexSlot := g.current.locals.define(s.Name)
+	// Four slots: three hidden control slots followed by the visible variable.
+	// The loop counter lives in the hidden slot, so assigning to the visible
+	// variable inside the body cannot perturb the iteration (Lua 5.4 §3.3.5:
+	// "The loop variable v is local to the loop body"). ForPrep/ForLoop copy
+	// the counter into the visible slot at the top of every iteration.
+	indexSlot := g.current.locals.define("(for index)")
 	g.current.locals.define("(for limit)")
 	g.current.locals.define("(for step)")
+	varSlot := g.current.locals.define(s.Name)
 	is.define(SetLocal, s.Line(), indexSlot+2) // step
 	is.define(SetLocal, s.Line(), indexSlot+1) // limit
 	is.define(SetLocal, s.Line(), indexSlot)   // start
@@ -500,15 +506,16 @@ func (g *Generator) compileNumericFor(is *InstructionSet, s *ast.NumericForState
 	g.popLoop()
 	// `continue` lands just before the per-iteration upvalue close + ForLoop.
 	contAnchor.line = is.count
-	// Close upvalues over the loop variable (indexSlot) and any captured body
-	// locals so each iteration captures a fresh `i`.
-	g.emitLoopClose(is, indexSlot, protos, s.Line())
+	// Close upvalues over the loop variable (varSlot) and any captured body
+	// locals so each iteration captures a fresh `i`. The hidden control slots
+	// below it are never captured, so the close starts at varSlot.
+	g.emitLoopClose(is, varSlot, protos, s.Line())
 
 	fl := is.define(ForLoop, s.Line(), indexSlot, bodyTop)
 	g.current.recordPending(fl)
 	exitAnchor.line = is.count
 	// `break` jumps here without passing the close above (see compileWhile).
-	g.emitLoopClose(is, indexSlot, protos, s.Line())
+	g.emitLoopClose(is, varSlot, protos, s.Line())
 
 	g.current.locals.closeScope()
 }

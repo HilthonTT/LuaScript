@@ -284,3 +284,29 @@ func TestConstFieldWriteAllowed(t *testing.T) {
 		r = t.x`)
 	assertGlobalEqual(t, v, "r", int64(42))
 }
+
+// --- string interpolation ----------------------------------------------------
+
+// TestInterpolationEscapes pins the split-on-raw-source rule for backtick
+// strings. The lexer decodes escapes before the parser re-scans for `{expr}`
+// spans, so scanning the decoded literal made `\u{7B}` look like the start of
+// an interpolation and ended a nested `"..."` early at its escaped quote.
+func TestInterpolationEscapes(t *testing.T) {
+	v := run(t, "\n"+`
+		local a = 5
+		brace   = ` + "`" + `\u{7B}x\u{7D}` + "`" + `
+		quoted  = ` + "`" + `v={"a\"b"}` + "`" + `
+		json    = ` + "`" + `{'{"k":1}'}` + "`" + `
+		mixed   = ` + "`" + `tab\tv={a}\u{7D}` + "`" + `
+		esc     = ` + "`" + `back\slash {a}` + "`" + `
+		tick    = ` + "`" + `\` + "`" + ` {a}` + "`" + `
+		plain   = ` + "`" + `no interpolation here` + "`" + `
+	`)
+	assertGlobalEqual(t, v, "brace", "{x}")
+	assertGlobalEqual(t, v, "quoted", `v=a"b`)
+	assertGlobalEqual(t, v, "json", `{"k":1}`)
+	assertGlobalEqual(t, v, "mixed", "tab\tv=5}")
+	assertGlobalEqual(t, v, "esc", `back\slash 5`)
+	assertGlobalEqual(t, v, "tick", "` 5")
+	assertGlobalEqual(t, v, "plain", "no interpolation here")
+}

@@ -60,6 +60,37 @@ func TestNumericForFloatLimitNaN(t *testing.T) {
 	assertGlobalEqual(t, v, "n", int64(0))
 }
 
+// TestNumericForControlVariableIsInternal pins Lua 5.4 §3.3.5: the visible
+// loop variable is a per-iteration local, so assigning to it inside the body
+// must not perturb the iteration. The counter lives in a hidden slot the body
+// cannot name.
+func TestNumericForControlVariableIsInternal(t *testing.T) {
+	v := run(t, `
+		seen = {}
+		for i = 1, 3 do seen[#seen + 1] = i; i = 100 end
+		n = #seen
+
+		-- same for a float loop, and for a decrementing one
+		fsum = 0
+		for x = 1.0, 2.0, 0.5 do fsum = fsum + x; x = -99 end
+
+		down = 0
+		for j = 3, 1, -1 do down = down + 1; j = 0 end
+
+		-- a body that captures the variable still sees the per-iteration value,
+		-- even after the body reassigns it
+		fns = {}
+		for k = 1, 3 do fns[k] = function() return k end; k = 50 end
+		c1, c2, c3 = fns[1](), fns[2](), fns[3]()
+	`)
+	assertGlobalEqual(t, v, "n", int64(3))
+	assertGlobalEqual(t, v, "fsum", 4.5)
+	assertGlobalEqual(t, v, "down", int64(3))
+	assertGlobalEqual(t, v, "c1", int64(50))
+	assertGlobalEqual(t, v, "c2", int64(50))
+	assertGlobalEqual(t, v, "c3", int64(50))
+}
+
 // TestTonumberWithBase covers the tonumber(s, base) path.
 func TestTonumberWithBase(t *testing.T) {
 	v := run(t, `

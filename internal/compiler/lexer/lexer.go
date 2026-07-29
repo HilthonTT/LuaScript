@@ -207,15 +207,14 @@ func (l *Lexer) nextToken() token.Token {
 		return l.singleToken(token.LBracket, "[")
 	case '"', '\'', '`':
 		quote := l.ch
-		lit, ok := l.readString(quote)
+		lit, raw, ok := l.readString(quote)
 		if !ok {
 			return token.Token{Type: token.Illegal, Literal: "unfinished string", Line: line, Column: l.tokenCol}
 		}
-		typ := token.String
 		if quote == '`' {
-			typ = token.InterpString
+			return token.Token{Type: token.InterpString, Literal: lit, Raw: raw, Line: line, Column: l.tokenCol}
 		}
-		return token.Token{Type: typ, Literal: lit, Line: line, Column: l.tokenCol}
+		return token.Token{Type: token.String, Literal: lit, Line: line, Column: l.tokenCol}
 	case 0:
 		return token.Token{Type: token.EOF, Literal: "", Line: line, Column: l.tokenCol}
 	default:
@@ -446,13 +445,18 @@ func (l *Lexer) readIdentifier() []rune {
 // readString reads a quoted string. terminated is false when EOF arrived
 // before the closing quote — silently accepting that would swallow the rest
 // of the file into the literal and compile a truncated program.
-func (l *Lexer) readString(ch rune) (lit string, terminated bool) {
+//
+// raw is the body exactly as written, escapes not yet decoded. Backtick
+// strings need it: the parser re-scans them for `{expr}` spans, and on the
+// decoded form a `\"` or a `\u{7B}` is indistinguishable from the real thing.
+func (l *Lexer) readString(ch rune) (lit, raw string, terminated bool) {
 	l.readChar() // skip opening quote
+	bodyStart := l.position
 
 	var b strings.Builder
 	for l.ch != ch {
 		if l.ch == 0 {
-			return b.String(), false
+			return b.String(), string(l.input[bodyStart:l.position]), false
 		}
 		if l.ch == '\\' {
 			l.readChar() // consume the backslash
@@ -465,10 +469,30 @@ func (l *Lexer) readString(ch rune) (lit string, terminated bool) {
 		b.WriteRune(l.ch)
 		l.readChar()
 	}
+	raw = string(l.input[bodyStart:l.position])
 
 	l.readChar() // move past closing quote
 
-	return b.String(), true
+	return b.String(), raw, true
+}
+
+// Unescape decodes the escape sequences in a string-literal body (the text
+// between the quotes) exactly as readString does. It is the inverse view of
+// Token.Raw: the parser splits an interpolated string on the raw text, then
+// decodes each literal segment through here.
+func Unescape(body string) string {
+	l := New(body)
+	var b strings.Builder
+	for l.ch != 0 {
+		if l.ch == '\\' {
+			l.readChar()
+			l.readEscape(&b)
+			continue
+		}
+		b.WriteRune(l.ch)
+		l.readChar()
+	}
+	return b.String()
 }
 
 // readEscape consumes one escape sequence (the cursor is on the char after the

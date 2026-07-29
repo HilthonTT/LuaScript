@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/hilthontt/luascript/internal/compiler"
+	"github.com/hilthontt/luascript/internal/compiler/parser"
 )
 
 // TestFormat_Idempotence asserts that running Format twice produces the
@@ -84,6 +87,33 @@ func TestFormat_KnownSnippets(t *testing.T) {
 			in:   "--!strict\nlocal x: number = 1\n",
 			want: "--!strict\nlocal x: number = 1\n",
 		},
+		// The cases below all round-tripped through code that dropped
+		// information, producing output that no longer compiled.
+		{
+			name: "generic_function_type_params",
+			in:   "local function identity<T>(x: T): T return x end\n",
+			want: "local function identity<T>(x: T): T\n  return x\nend\n",
+		},
+		{
+			name: "generic_type_alias",
+			in:   "type Pair<A,B> = {first:A, second:B}\n",
+			want: "type Pair<A, B> = { first: A, second: B }\n",
+		},
+		{
+			name: "tagged_enum_payloads",
+			in:   "enum Shape Circle(number), Rect(number, number), Unit end\n",
+			want: "enum Shape\n  Circle(number),\n  Rect(number, number),\n  Unit,\nend\n",
+		},
+		{
+			name: "match_arm_return_not_parenthesized",
+			in:   "match v do\n1 -> return \"a\" .. b\nend\n",
+			want: "match v do\n  1 -> return \"a\" .. b\nend\n",
+		},
+		{
+			name: "match_arm_semicolon_before_string_pattern",
+			in:   "match s do\n\"hi\" -> print(\"g\");\n\"bye\" -> print(\"f\")\nend\n",
+			want: "match s do\n  \"hi\" -> print(\"g\");\n  \"bye\" -> print(\"f\")\nend\n",
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -118,6 +148,28 @@ func TestFormat_ExamplesParseUnchanged(t *testing.T) {
 	}
 }
 
+// TestFormat_ExamplesStillCompile is the stronger sibling of the test above:
+// it runs the formatted output through the whole front end, typecheck
+// included. Parsing alone is too weak a check — dropping a generic parameter
+// list or a tagged enum's payload types yields output that parses perfectly
+// and then fails to typecheck, which is exactly how those bugs shipped.
+func TestFormat_ExamplesStillCompile(t *testing.T) {
+	for _, ex := range goldenExamples(t) {
+		t.Run(ex.name, func(t *testing.T) {
+			if _, err := compiler.CompileToInstructions(ex.text, parser.NormalMode); err != nil {
+				t.Skipf("example does not compile as-is: %v", err)
+			}
+			out, err := Format(ex.text, Options{})
+			if err != nil {
+				t.Fatalf("Format: %v", err)
+			}
+			if _, err := compiler.CompileToInstructions(out, parser.NormalMode); err != nil {
+				t.Fatalf("formatted output failed to compile: %v\n%s", err, out)
+			}
+		})
+	}
+}
+
 type goldenFile struct {
 	name string
 	text string
@@ -128,7 +180,8 @@ type goldenFile struct {
 // package is testable in isolation.
 func goldenExamples(t *testing.T) []goldenFile {
 	t.Helper()
-	dir := filepath.Join("..", "examples")
+	// examples/ lives at the repo root, two levels up from internal/formatter.
+	dir := filepath.Join("..", "..", "examples")
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Skipf("examples dir unavailable: %v", err)

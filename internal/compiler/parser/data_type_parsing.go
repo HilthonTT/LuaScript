@@ -100,6 +100,16 @@ func (p *Parser) parseStringLiteral() ast.Expression {
 		return exp
 	}
 
+	// Interpolation structure is decided on the RAW source text: Literal has
+	// already had its escapes decoded, so `\u{7B}` would look like the start
+	// of an interpolation and a `\"` inside `{...}` would end the nested
+	// string early. Older tokens (hand-built in tests) may carry no Raw; fall
+	// back to Literal, which is exact whenever the string has no escapes.
+	raw = tok.Raw
+	if raw == "" {
+		raw = tok.Literal
+	}
+
 	// Fast path: backtick string with no `{` — just a plain string.
 	if !strings.Contains(raw, "{") && !strings.Contains(raw, "}") {
 		exp := &ast.StringLiteral{BaseNode: baseAt(p.curToken), Value: p.curToken.Literal}
@@ -108,6 +118,37 @@ func (p *Parser) parseStringLiteral() ast.Expression {
 	}
 
 	return p.buildInterpolation(tok, raw)
+}
+
+// skipEscape returns the index just past the escape sequence that starts at
+// s[i] (which must be a backslash). Only `\u{XXXX}` spans more than two bytes,
+// and it is the one that matters here: its braces are part of the escape, not
+// interpolation structure. Every other sequence (`\n`, `\{`, `\xHH`, `\65`)
+// is safe to leave to the ordinary scan once its first byte is consumed.
+func skipEscape(s string, i int) int {
+	if i+2 < len(s) && s[i+1] == 'u' && s[i+2] == '{' {
+		if end := strings.IndexByte(s[i+2:], '}'); end >= 0 {
+			return i + 2 + end + 1
+		}
+	}
+	return i + 2
+}
+
+// unescapedIndexOfBrace returns the index of the first `{` in s that is not
+// part of an escape sequence, or -1. `\{` and `\u{7B}` both produce a literal
+// brace in the output and must not open an interpolation.
+func unescapedIndexOfBrace(s string) int {
+	for i := 0; i < len(s); {
+		switch s[i] {
+		case '\\':
+			i = skipEscape(s, i)
+		case '{':
+			return i
+		default:
+			i++
+		}
+	}
+	return -1
 }
 
 func (p *Parser) buildInterpolation(tok token.Token, raw string) ast.Expression {
@@ -127,7 +168,7 @@ func (p *Parser) buildInterpolation(tok token.Token, raw string) ast.Expression 
 	s := raw
 
 	for len(s) > 0 {
-		idx := strings.Index(s, "{")
+		idx := unescapedIndexOfBrace(s)
 
 		if idx == -1 {
 			if len(s) > 0 {
@@ -142,6 +183,11 @@ func (p *Parser) buildInterpolation(tok token.Token, raw string) ast.Expression 
 		depth, end := 1, 0
 		for end < len(s) && depth > 0 {
 			switch s[end] {
+			case '\\':
+				// An escape sequence is opaque: the braces in `\u{7B}`, and a
+				// `\{` / `\}` / `\"`, are data rather than structure.
+				end = skipEscape(s, end)
+				continue
 			case '{':
 				depth++
 			case '}':
@@ -203,7 +249,10 @@ func (p *Parser) buildInterpolation(tok token.Token, raw string) ast.Expression 
 				Args:     []ast.Expression{inner},
 			}
 		} else {
-			expr = &ast.StringLiteral{BaseNode: baseAt(tok), Value: pt.text}
+			// Literal segments come off the raw text with escapes intact, so
+			// decode them here — the lexer's own decoding was discarded when
+			// we switched to scanning Raw.
+			expr = &ast.StringLiteral{BaseNode: baseAt(tok), Value: lexer.Unescape(pt.text)}
 		}
 		if result == nil {
 			result = expr

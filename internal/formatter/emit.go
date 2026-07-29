@@ -172,6 +172,13 @@ func (e *emitter) statement(stmt ast.Statement, opts Options) Doc {
 		return e.doStmt(s, opts)
 	case *ast.MatchStatement:
 		return e.matchStmt(s, opts)
+	case *ast.ReturnStatement:
+		// Normally a return lives in Block.Return and is emitted by block(),
+		// but a match arm body is a single statement and may be a bare
+		// `return`. Without this case it would fall through to stmt.String(),
+		// whose fully-parenthesized rendering (`"a" .. b` -> `("a" .. b)`)
+		// grows another paren layer on every format pass.
+		return e.returnStmt(s, opts)
 	case *ast.TryCatchStatement:
 		return e.tryCatchStmt(s, opts)
 	case *ast.ThrowStatement:
@@ -252,6 +259,9 @@ func (e *emitter) funcDecl(s *ast.FunctionDeclaration, opts Options) Doc {
 // name` is the caller's responsibility (because anonymous and declaration
 // forms differ).
 func (e *emitter) funcSig(fe *ast.FunctionExpression, opts Options) Doc {
+	// `<T, U>` sits between the name and `(` in every function form, including
+	// the anonymous one (parseFunctionBody reads it before the parameter list).
+	tp := typeParamList(fe.TypeParams)
 	var ps []Doc
 	for _, p := range fe.Params {
 		d := text(p.Name.Name)
@@ -271,6 +281,7 @@ func (e *emitter) funcSig(fe *ast.FunctionExpression, opts Options) Doc {
 		}
 	}
 	params := group(concat(
+		tp,
 		text("("),
 		nest(opts.indent(), concat(softLine(), join(concat(text(","), line()), ps...))),
 		softLine(),
@@ -417,7 +428,18 @@ func (e *emitter) returnStmt(s *ast.ReturnStatement, opts Options) Doc {
 }
 
 func (e *emitter) typeAlias(s *ast.TypeAliasStatement, opts Options) Doc {
-	return concat(text("type "), text(s.Name), text(" = "), e.typeNode(s.Target, opts))
+	return concat(text("type "), text(s.Name), typeParamList(s.TypeParams), text(" = "), e.typeNode(s.Target, opts))
+}
+
+// typeParamList renders a generic parameter list `<T, U>`, or nothing when the
+// declaration has none. Every declaration form that accepts type parameters
+// must route through this — omitting them turns a generic declaration into a
+// non-generic one whose body references undefined type names.
+func typeParamList(params []string) Doc {
+	if len(params) == 0 {
+		return nilDoc()
+	}
+	return text("<" + strings.Join(params, ", ") + ">")
 }
 
 // enumStmt renders
@@ -445,7 +467,18 @@ func (e *emitter) enumStmt(s *ast.EnumStatement, opts Options) Doc {
 	}
 	var lines []Doc
 	for _, v := range s.Variants {
-		lines = append(lines, concat(text(v.Name), text(",")))
+		d := text(v.Name)
+		// A tagged variant carries positional payload types — `Circle(number)`.
+		// Dropping them silently demotes the enum to the integer-constant form
+		// and breaks every constructor call.
+		if len(v.Payload) > 0 {
+			ps := make([]Doc, len(v.Payload))
+			for i, p := range v.Payload {
+				ps[i] = e.typeNode(p, opts)
+			}
+			d = concat(d, text("("), join(text(", "), ps...), text(")"))
+		}
+		lines = append(lines, concat(d, text(",")))
 	}
 	body := nest(opts.indent(), concat(hardLine(), join(hardLine(), lines...)))
 	return concat(text("enum "), text(s.Name.Name), body, hardLine(), text("end"))
@@ -474,10 +507,33 @@ func (e *emitter) matchStmt(s *ast.MatchStatement, opts Options) Doc {
 			parts = append(parts, text(" if "), e.expr(arm.Guard, opts))
 		}
 		parts = append(parts, text(" -> "), e.statement(arm.Body, opts))
+		// Arms are separated by a newline only, so an arm body ending in a call
+		// would swallow the next arm's pattern when that pattern starts with a
+		// token that continues a prefix expression (`f("x")` newline `"bye"`
+		// parses as `f("x")("bye")`). A terminating `;` closes the body.
+		if i+1 < len(s.Arms) && patternCanChain(&s.Arms[i+1].Pattern) {
+			parts = append(parts, text(";"))
+		}
 		lines = append(lines, concat(parts...))
 	}
 	body := nest(opts.indent(), concat(hardLine(), join(hardLine(), lines...)))
 	return concat(head, body, hardLine(), text("end"))
+}
+
+// patternCanChain reports whether p renders starting with a token that Lua
+// would attach to a preceding prefix expression: a string literal or a table
+// constructor (call sugar), or a parenthesized expression. Only value patterns
+// can; `_`, `x: T`, and `Tag(...)` / `Tag{...}` all start with a name, which
+// cannot continue an expression.
+func patternCanChain(p *ast.MatchPattern) bool {
+	if p.Kind != ast.MatchValue || len(p.Values) == 0 {
+		return false
+	}
+	switch p.Values[0].(type) {
+	case *ast.StringLiteral, *ast.TableConstructor, *ast.ParenExpression:
+		return true
+	}
+	return false
 }
 
 func (e *emitter) matchPattern(p *ast.MatchPattern, opts Options) Doc {
