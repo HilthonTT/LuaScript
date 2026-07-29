@@ -294,13 +294,13 @@ func TestConstFieldWriteAllowed(t *testing.T) {
 func TestInterpolationEscapes(t *testing.T) {
 	v := run(t, "\n"+`
 		local a = 5
-		brace   = ` + "`" + `\u{7B}x\u{7D}` + "`" + `
-		quoted  = ` + "`" + `v={"a\"b"}` + "`" + `
-		json    = ` + "`" + `{'{"k":1}'}` + "`" + `
-		mixed   = ` + "`" + `tab\tv={a}\u{7D}` + "`" + `
-		esc     = ` + "`" + `back\slash {a}` + "`" + `
-		tick    = ` + "`" + `\` + "`" + ` {a}` + "`" + `
-		plain   = ` + "`" + `no interpolation here` + "`" + `
+		brace   = `+"`"+`\u{7B}x\u{7D}`+"`"+`
+		quoted  = `+"`"+`v={"a\"b"}`+"`"+`
+		json    = `+"`"+`{'{"k":1}'}`+"`"+`
+		mixed   = `+"`"+`tab\tv={a}\u{7D}`+"`"+`
+		esc     = `+"`"+`back\slash {a}`+"`"+`
+		tick    = `+"`"+`\`+"`"+` {a}`+"`"+`
+		plain   = `+"`"+`no interpolation here`+"`"+`
 	`)
 	assertGlobalEqual(t, v, "brace", "{x}")
 	assertGlobalEqual(t, v, "quoted", `v=a"b`)
