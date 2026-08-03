@@ -22,8 +22,10 @@ bench_*.txt
 
 # PGO artifacts produced by scripts/build-pgo.sh
 cpu.pgo
-luascript
-luascript-stage1
+# Anchored: an unanchored "luascript" also matches the cmd/luascript/ directory,
+# which silently kept new source files there out of the repo.
+/luascript
+/luascript-stage1
 *.prof
 *.pgo
 
