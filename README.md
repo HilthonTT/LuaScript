@@ -85,6 +85,7 @@ The CLI dispatches a few subcommands before flag parsing:
 
 | Subcommand                                            | What it does                                                                |
 | ----------------------------------------------------- | --------------------------------------------------------------------------- |
+| `luascript doc [TOPIC]`                               | Man pages for the stdlib. Bare = index; `doc math.floor` = one entry; `-k` searches. |
 | `luascript fmt [-w] FILE.lsc`                         | Format a source file (trivia-preserving). `-w` writes in place.             |
 | `luascript build -o OUT.exe FILE.lsc`                 | Bundle script + interpreter into a single .exe (see next section).          |
 | `luascript analyze FILE.lsc`                          | AST-level static analyzer with pluggable passes (complexity, lint, …).      |
@@ -593,6 +594,7 @@ type-error: Type "string" could not be converted into "number" at line 1
 │   │   ├── stdlib/    runtime modules (db, os, http, json, std, queue, log, …)
 │   │   └── datascience/  ndarray, dataframe, stats, linalg, ml, plot, …
 │   ├── plugin/        `plugin` module — load Go packages at run time (cgo, non-Windows)
+│   ├── docs/          stdlib reference data + man-page renderer (`luascript doc`)
 │   ├── lsp/           language server (protocol, jsonrpc2, uri + server/)
 │   ├── formatter/     `luascript fmt` — trivia-preserving formatter
 │   ├── bonsai/        ASCII bonsai tree side mode (cbonsai/gobonsai fork)

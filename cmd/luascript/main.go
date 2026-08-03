@@ -52,8 +52,33 @@ func run(argv []string) int {
 	if len(argv) >= 1 && argv[0] == "lsp" {
 		return runLSP(argv[1:])
 	}
+	// `man` is an alias so muscle memory works: luascript man string.gsub.
+	if len(argv) >= 1 && (argv[0] == "doc" || argv[0] == "man") {
+		return runDoc(argv[1:])
+	}
 
 	fs := flag.NewFlagSet("luascript", flag.ContinueOnError)
+	// Subcommands are routed above, before flag parsing, so the flag
+	// package never learns about them — list them by hand or `-h` gives no
+	// hint that `luascript doc` exists.
+	fs.Usage = func() {
+		fmt.Fprint(os.Stderr, `usage: luascript [flags] [script.lsc]
+
+With no script, starts the REPL.
+
+Subcommands:
+  doc [topic]     stdlib reference (alias: man); "doc -k text" searches
+  fmt [-w] file   format a source file
+  build -o out    bundle a script and the interpreter into one executable
+  analyze file    static analysis
+  profile file    collect a CPU profile for PGO
+  pkg             package manifest / lockfile commands
+  lsp             run the language server on stdio
+
+Flags:
+`)
+		fs.PrintDefaults()
+	}
 	interactive := fs.Bool("i", false, "start the interactive REPL even if a script is given")
 	showVersion := fs.Bool("v", false, "print version and exit")
 	growBonsai := fs.Bool("bonsai", false, "grow an ASCII bonsai tree and exit")

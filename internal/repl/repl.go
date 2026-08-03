@@ -15,6 +15,7 @@ import (
 	"github.com/hilthontt/luascript/internal/compiler/parser"
 	parserrors "github.com/hilthontt/luascript/internal/compiler/parser/errors"
 	"github.com/hilthontt/luascript/internal/compiler/typecheck"
+	"github.com/hilthontt/luascript/internal/docs"
 	"github.com/hilthontt/luascript/internal/version"
 	"github.com/hilthontt/luascript/internal/vm"
 )
@@ -179,6 +180,13 @@ func (r *REPL) runREPL() {
 			continue
 		}
 
+		// `doc <topic>` is a command rather than an expression: it takes an
+		// argument, so it cannot be matched by the exact-match switch below.
+		if query, ok := docCommand(line); ok {
+			r.printDoc(query)
+			continue
+		}
+
 		switch line {
 		case cmdExit, cmdQuit:
 			r.bye()
@@ -324,6 +332,50 @@ func (r *REPL) printResults(results []vm.Value) {
 	fmt.Fprintf(r.out, "%s=>%s %s\n", colorOK, colorReset, strings.Join(parts, "\t"))
 }
 
+// docCommand recognises the `doc [topic]` REPL command and returns the
+// topic asked for — empty for a bare `doc`, which prints the index. It
+// deliberately does NOT match `doc(...)` or `doc = 1`: those are ordinary
+// luascript, and a user who defines their own `doc` should keep it.
+func docCommand(line string) (query string, ok bool) {
+	if line == cmdDoc {
+		return "", true
+	}
+	rest, found := strings.CutPrefix(line, cmdDoc+" ")
+	if !found {
+		return "", false
+	}
+	rest = strings.TrimSpace(rest)
+	if rest == "" || strings.ContainsAny(rest, "=(){}\"'") {
+		return "", false
+	}
+	return rest, true
+}
+
+// printDoc renders a stdlib page inside the REPL — the same pages
+// `luascript doc` prints, from the same registry. A bare `doc` shows the
+// index; `doc math.floor` shows one entry.
+func (r *REPL) printDoc(query string) {
+	opts := docs.Options{Width: 80, Color: true}
+	if query == "" {
+		fmt.Fprint(r.out, docs.RenderIndex(opts))
+		return
+	}
+	topic, entry, ok := docs.Lookup(query)
+	if !ok {
+		fmt.Fprintf(r.out, "%sno documentation for %q%s\n", colorErr, query, colorReset)
+		if sugg := docs.Suggest(query); len(sugg) > 0 {
+			fmt.Fprintf(r.out, "%sdid you mean: %s%s\n",
+				colorDim, strings.Join(sugg, ", "), colorReset)
+		}
+		return
+	}
+	if entry != nil {
+		fmt.Fprint(r.out, docs.RenderEntry(topic, entry, opts))
+		return
+	}
+	fmt.Fprint(r.out, docs.RenderTopic(topic, opts))
+}
+
 func (r *REPL) printHelp() {
 	fmt.Fprint(r.out, Logo)
 	fmt.Fprintf(r.out, "  %sluascript REPL %s%s\n\n", colorBold, version.Version, colorReset)
@@ -331,6 +383,7 @@ func (r *REPL) printHelp() {
 	fmt.Fprintf(r.out, "%sCommands%s\n", colorBold, colorReset)
 	rows := []struct{ name, desc string }{
 		{cmdHelp, "show this help"},
+		{cmdDoc + " <topic>", "stdlib reference; bare " + cmdDoc + " lists every topic"},
 		{cmdExit + ", " + cmdQuit, "exit the REPL"},
 		{cmdReset, "rebuild the VM (clears all globals and user state)"},
 		{cmdClear, "clear the screen"},

@@ -40,11 +40,12 @@ const (
 	cmdReset = "reset"
 	cmdClear = "clear"
 	cmdHelp  = "help"
+	cmdDoc   = "doc"
 )
 
 var luaKeywords = []string{
 	"and", "break", "do", "else", "elseif", "end", "false", "for",
 	"function", "goto", "if", "in", "local", "nil", "not", "or",
 	"repeat", "return", "then", "true", "until", "while",
-	cmdHelp, cmdReset, cmdExit, cmdQuit,
+	cmdHelp, cmdReset, cmdExit, cmdQuit, cmdDoc,
 }

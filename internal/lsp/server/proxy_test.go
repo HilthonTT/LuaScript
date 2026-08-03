@@ -148,7 +148,7 @@ func TestMemberCompletion(t *testing.T) {
 }
 
 func TestQualifiedHoverDocs(t *testing.T) {
-	if !strings.Contains(hoverDocs["math.floor"], "Largest integer") {
+	if !strings.Contains(hoverDocs["math.floor"], "largest integer") {
 		t.Errorf("qualified hover for math.floor missing, got %q", hoverDocs["math.floor"])
 	}
 	if !strings.Contains(hoverDocs["string.format"], "printf") {
