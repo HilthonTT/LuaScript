@@ -1,7 +1,7 @@
 package parser
 
 import (
-	"math/bits"
+	"math"
 	"strconv"
 	"strings"
 
@@ -14,8 +14,12 @@ import (
 func int64FromUint64Bits(u uint64) int64 {
 	// Reinterpret the 64-bit pattern as signed, preserving Lua's modulo 2^64
 	// integer literal semantics without relying on a direct narrowing cast.
-	hi, lo := bits.Add64(u, 0, 0)
-	return int64((hi << 63 << 1) | lo)
+	// For u > MaxInt64 the value is u - 2^64 == -(^u + 1), and ^u is then
+	// <= MaxInt64, so every conversion below is in range.
+	if u > math.MaxInt64 {
+		return -int64(^u) - 1
+	}
+	return int64(u)
 }
 
 func (p *Parser) parseIntegerLiteral() ast.Expression {
