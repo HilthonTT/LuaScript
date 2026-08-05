@@ -14,8 +14,8 @@ You need Go (the version in `go.mod`; `go build` will tell you if yours is too
 old) and nothing else for the default build.
 
 ```sh
-git clone https://github.com/HilthonTT/sakura-lang.git
-cd sakura-lang
+git clone https://github.com/HilthonTT/LuaScript.git
+cd LuaScript
 go build ./...
 go test ./...
 ```

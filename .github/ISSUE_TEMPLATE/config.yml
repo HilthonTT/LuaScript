@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Question / usage help
-    url: https://github.com/HilthonTT/sakura-lang/discussions
+    url: https://github.com/HilthonTT/LuaScript/discussions
     about: Ask about the language, the type system, or a stdlib module.
   - name: Security vulnerability
-    url: https://github.com/HilthonTT/sakura-lang/security/advisories/new
+    url: https://github.com/HilthonTT/LuaScript/security/advisories/new
     about: Report a vulnerability privately — please do not open a public issue.

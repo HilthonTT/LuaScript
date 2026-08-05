@@ -4,8 +4,8 @@
 
 # luascript
 
-[![CI](https://github.com/HilthonTT/sakura-lang/actions/workflows/ci.yml/badge.svg)](https://github.com/HilthonTT/sakura-lang/actions/workflows/ci.yml)
-[![CodeQL](https://github.com/HilthonTT/sakura-lang/actions/workflows/codeql.yml/badge.svg)](https://github.com/HilthonTT/sakura-lang/actions/workflows/codeql.yml)
+[![CI](https://github.com/HilthonTT/LuaScript/actions/workflows/ci.yml/badge.svg)](https://github.com/HilthonTT/LuaScript/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/HilthonTT/LuaScript/actions/workflows/codeql.yml/badge.svg)](https://github.com/HilthonTT/LuaScript/actions/workflows/codeql.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Go](https://img.shields.io/badge/go-1.26-00ADD8?logo=go&logoColor=white)
 

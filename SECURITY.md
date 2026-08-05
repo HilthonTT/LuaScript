@@ -15,7 +15,7 @@ no maintained release branches yet.
 **Please do not open a public issue for a security problem.**
 
 Report it privately through GitHub:
-[**Report a vulnerability**](https://github.com/HilthonTT/sakura-lang/security/advisories/new)
+[**Report a vulnerability**](https://github.com/HilthonTT/LuaScript/security/advisories/new)
 (Security → Advisories → Report a vulnerability).
 
 If that is not available to you, email <hans.tandt@gmail.com> with `[luascript
