@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"math/bits"
 	"strconv"
 	"strings"
 
@@ -10,6 +11,13 @@ import (
 	"github.com/hilthontt/luascript/internal/compiler/token"
 )
 
+func int64FromUint64Bits(u uint64) int64 {
+	// Reinterpret the 64-bit pattern as signed, preserving Lua's modulo 2^64
+	// integer literal semantics without relying on a direct narrowing cast.
+	hi, lo := bits.Add64(u, 0, 0)
+	return int64((hi << 63 << 1) | lo)
+}
+
 func (p *Parser) parseIntegerLiteral() ast.Expression {
 	tok := p.curToken
 	lit := tok.Literal
@@ -18,7 +26,7 @@ func (p *Parser) parseIntegerLiteral() ast.Expression {
 		// (0xFFFFFFFFFFFFFFFF == -1), so parse unsigned and reinterpret.
 		if u, err := strconv.ParseUint(lit[2:], 16, 64); err == nil {
 			p.nextToken()
-			return &ast.IntegerLiteral{BaseNode: baseAt(tok), Value: int64(u)}
+			return &ast.IntegerLiteral{BaseNode: baseAt(tok), Value: int64FromUint64Bits(u)}
 		}
 		p.error = errors.NewTypeParsingError(lit, "Integer", tok.Line)
 		return nil
