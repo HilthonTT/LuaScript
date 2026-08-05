@@ -92,13 +92,22 @@ func (lp *loadedPlugin) lookup(name string) (reflect.Value, error) {
 // the compiler entirely, and a changed one lands somewhere new instead of
 // racing the old artifact. Its own directory (rather than one shared one) is
 // what keeps `func main` from being declared twice in a single package.
+//
+// The directory name also carries the race flavour. A race artifact and a
+// non-race one are not interchangeable (see raceEnabled), and the two would
+// otherwise share a name — leaving the cache to hand a race-enabled host an
+// .so plugin.Open refuses to load.
 func buildPlugin(name string, s *spec) (string, error) {
 	src, err := generateSource(s)
 	if err != nil {
 		return "", err
 	}
 
-	dir := filepath.Join(pluginDir(), name+"-"+sourceHash(src))
+	flavour := ""
+	if raceEnabled {
+		flavour = "-race"
+	}
+	dir := filepath.Join(pluginDir(), name+"-"+sourceHash(src)+flavour)
 	so := filepath.Join(dir, "plugin.so")
 	if _, err := os.Stat(so); err == nil {
 		return so, nil
@@ -122,7 +131,14 @@ func buildPlugin(name string, s *spec) (string, error) {
 		}
 	}
 
-	if out, err := goCmd(dir, "build", "-buildmode=plugin", "-o", "plugin.so", "main.go"); err != nil {
+	// -race has to match the host: see raceEnabled.
+	args := []string{"build", "-buildmode=plugin"}
+	if raceEnabled {
+		args = append(args, "-race")
+	}
+	args = append(args, "-o", "plugin.so", "main.go")
+
+	if out, err := goCmd(dir, args...); err != nil {
 		return "", fmt.Errorf("go build -buildmode=plugin failed:\n%s", out)
 	}
 	return so, nil
