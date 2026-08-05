@@ -1,0 +1,82 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  # Lets you rehearse the build without publishing anything.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64 }
+          - { goos: linux, goarch: arm64 }
+          - { goos: darwin, goarch: amd64 }
+          - { goos: darwin, goarch: arm64 }
+          - { goos: windows, goarch: amd64, ext: .exe }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # CGO_ENABLED=0 keeps the cross-compile toolchain-free: the default build
+      # already compiles the headless `ui` stub, and `plugin` reports
+      # supported = false without cgo.
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          mkdir -p dist
+          go build -trimpath -ldflags "-s -w" \
+            -o "dist/luascript-${GOOS}-${GOARCH}${{ matrix.ext }}" ./cmd/luascript
+
+      - name: Package
+        working-directory: dist
+        run: |
+          name="luascript-${{ matrix.goos }}-${{ matrix.goarch }}"
+          cp ../LICENSE ../README.md .
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            zip "${name}.zip" "${name}${{ matrix.ext }}" LICENSE README.md
+          else
+            tar czf "${name}.tar.gz" "${name}" LICENSE README.md
+          fi
+          rm -f LICENSE README.md "${name}${{ matrix.ext }}"
+          sha256sum * > "${name}.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+          retention-days: 7
+
+  release:
+    name: publish
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: dist-*
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          draft: true

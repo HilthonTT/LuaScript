@@ -8,6 +8,11 @@ on:
 permissions:
   contents: read
 
+# A new push to a PR cancels the run still in flight for the previous one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: build & test (${{ matrix.os }})
@@ -58,3 +63,50 @@ jobs:
             echo "$unformatted"
             exit 1
           fi
+
+  race:
+    name: race detector
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # Coroutines are goroutines and the queue/httpserver modules hand work
+      # between them, so the race detector earns its slot here.
+      - name: Test with -race
+        run: go test -race ./...
+
+  tidy:
+    name: go.mod tidy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Check go.mod / go.sum are tidy
+        run: |
+          go mod tidy
+          if ! git diff --exit-code -- go.mod go.sum; then
+            echo "go.mod / go.sum are not tidy — run 'go mod tidy' and commit the result."
+            exit 1
+          fi
+
+  govulncheck:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Scan for known vulnerabilities
+        run: |
+          go run golang.org/x/vuln/cmd/govulncheck@latest ./...

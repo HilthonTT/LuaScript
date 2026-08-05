@@ -1,0 +1,65 @@
+version: 2
+
+updates:
+  # Go modules for the interpreter itself.
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - dependencies
+      - go
+    groups:
+      # Fyne drags in a whole OpenGL/cgo tree behind -tags luascript_ui; bumping
+      # those one PR at a time is pure noise, so keep them together.
+      fyne:
+        patterns:
+          - "fyne.io/*"
+          - "github.com/fyne-io/*"
+          - "github.com/go-gl/*"
+          - "github.com/go-text/*"
+      golang-x:
+        patterns:
+          - "golang.org/x/*"
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # GitHub Actions used by the workflows in this directory.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "ci(deps)"
+    labels:
+      - dependencies
+      - github-actions
+    groups:
+      actions:
+        patterns:
+          - "*"
+
+  # The VS Code extension / language client under client/.
+  - package-ecosystem: npm
+    directory: "/client"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - dependencies
+      - javascript
+    groups:
+      npm-minor-and-patch:
+        update-types:
+          - minor
+          - patch

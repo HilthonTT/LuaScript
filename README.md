@@ -4,6 +4,11 @@
 
 # luascript
 
+[![CI](https://github.com/HilthonTT/sakura-lang/actions/workflows/ci.yml/badge.svg)](https://github.com/HilthonTT/sakura-lang/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/HilthonTT/sakura-lang/actions/workflows/codeql.yml/badge.svg)](https://github.com/HilthonTT/sakura-lang/actions/workflows/codeql.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Go](https://img.shields.io/badge/go-1.26-00ADD8?logo=go&logoColor=white)
+
 A Lua-flavored language with a stack-based virtual machine and **Luau-style gradual types**, written in Go.
 
 The surface syntax tracks **Lua 5.4** as closely as possible — the same chunks, the same scoping rules, the same metatables, coroutines, and standard library shape. Optional type annotations on top, à la [Luau](https://luau.org), check at compile time and erase before bytecode so the runtime is unchanged.
@@ -611,13 +616,15 @@ The compiler is designed so each stage is independently testable and the AST is 
 
 ## Contributing
 
-Run the full test suite before sending a change:
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide — setup, testing conventions, how to add a native module or stdlib entry, and commit-message style. The short version, before sending a change:
 
 ```sh
-go test ./...
+make check     # gofmt -l . + go vet ./... + go test ./...
 ```
 
 Tests live next to the code they cover (`*_test.go`). The bytecode tests in particular are useful: they assert exact opcode sequences for representative source snippets, which catches accidental codegen drift early. The type checker has its own focused suite under `internal/compiler/typecheck/checker_test.go`.
+
+Participation is governed by the [Code of Conduct](CODE_OF_CONDUCT.md). To report a security problem, follow [SECURITY.md](SECURITY.md) rather than opening a public issue.
 
 ## Inspirations
 
