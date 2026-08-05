@@ -278,14 +278,8 @@ func (v *VM) localAt(f *CallFrame, i int) *Value {
 // and let GC reclaim them. 256 covers normal recursion depths cheaply.
 const framePoolMax = 256
 
-// maxCallDepth bounds the number of nested Lua call frames. Every LuaScript
-// call consumes real Go stack (there is no tail-call elimination), so runaway
-// or infinite recursion would otherwise blow the goroutine stack and trigger a
-// fatal, pcall-uncatchable `stack overflow`. Empirically the Go stack overflows
-// somewhere past ~400k frames on the reference build; 200k leaves a comfortable
-// margin while sitting far above any legitimate non-tail recursion. Hitting it
-// raises an ordinary (catchable) LuaError, matching Lua 5.4's "stack overflow".
-const maxCallDepth = 200_000
+// maxCallDepth bounds the number of nested Lua call frames; see calldepth.go
+// and calldepth_race.go for the value and the reasoning behind it.
 
 // acquireFrame returns a CallFrame for a new activation, drawing from the
 // recycle pool when one is available. Every field is overwritten so a
