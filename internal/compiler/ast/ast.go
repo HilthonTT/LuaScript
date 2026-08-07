@@ -72,8 +72,3 @@ func (p *Program) Line() int {
 	}
 	return p.Block.Line()
 }
-
-type Pattern interface {
-	node
-	patternNode()
-}

@@ -98,24 +98,9 @@ func HuffEncode(codes map[rune][]bool, in string) []bool {
 	return out
 }
 
-// HuffDecode recursively decodes the binary code in, by traversing the Huffman compression tree pointed by root.
-// current stores the current node of the traversing algorithm.
-// out stores the current decoded string.
-func HuffDecode(root, current *Node, in []bool, out string) string {
-	if current.symbol != -1 {
-		// Symbols are bytes (see HuffEncode); string(rune) would UTF-8
-		// encode values >= 128 into two bytes and corrupt the round-trip.
-		out += string([]byte{byte(current.symbol)})
-		return HuffDecode(root, root, in, out)
-	}
-	if len(in) == 0 {
-		return out
-	}
-	if in[0] {
-		return HuffDecode(root, current.right, in[1:], out)
-	}
-	return HuffDecode(root, current.left, in[1:], out)
-}
+// Decoding does not walk this tree: the `decode` method in compression.go
+// matches against the codebook instead (see decodeBits), so the tree is only
+// ever built to derive the codes.
 
 // SymbolCountOrd computes the sorted symbol-frequency list of the input
 // message, counting BYTES (symbols are byte values 0..255 — see HuffEncode).

@@ -9,351 +9,36 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Go](https://img.shields.io/badge/go-1.26-00ADD8?logo=go&logoColor=white)
 
-A Lua-flavored language with a stack-based virtual machine and **Luau-style gradual types**, written in Go.
+A Lua-flavored language with a stack-based virtual machine and **Luau-style
+gradual types**, written in Go.
 
-The surface syntax tracks **Lua 5.4** as closely as possible — the same chunks, the same scoping rules, the same metatables, coroutines, and standard library shape. Optional type annotations on top, à la [Luau](https://luau.org), check at compile time and erase before bytecode so the runtime is unchanged.
+The surface syntax tracks **Lua 5.4** closely — same chunks, same scoping rules,
+same metatables, coroutines and standard-library shape. Optional type
+annotations à la [Luau](https://luau.org) check at compile time and are erased
+before bytecode, so the runtime is unchanged. The implementation is a clean-room
+rewrite meant to be readable end-to-end: lex → parse → constcheck → typecheck →
+constant-fold → bytecode → stack VM. No LLVM, no JIT, no surprises.
 
-The implementation is a clean-room rewrite focused on being readable end-to-end: lex → parse → constcheck → typecheck → constant-fold → bytecode → stack VM. No LLVM, no JIT, no surprises.
-
-## Contents
-
-- [Status](#status)
-- [Quick start](#quick-start)
-- [Bundling a script into a standalone .exe](#bundling-a-script-into-a-standalone-exe)
-- [Jobs and channels (the `queue` module)](#jobs-and-channels-the-queue-module)
-- [Desktop UI module (opt-in)](#desktop-ui-module-opt-in)
-- [Bonsai mode](#bonsai-mode)
-- [Examples](#examples)
-- [Type system](#type-system)
-- [REPL](#repl)
-- [Project layout](#project-layout)
-- [Not in v1 (deliberately)](#not-in-v1-deliberately)
-- [Contributing](#contributing)
-- [Inspirations](#inspirations)
-- [License](#license)
-
-## Status
-
-- **Lexer** — Lua 5.4 tokens, long-bracket strings/comments, hex/exponent numbers, `--!strict` / `--!nonstrict` / `--!nocheck` mode directives.
-- **Parser** — full Lua 5.4 grammar including `goto`/labels, attributes (`<const>`, `<close>`), method-call sugar, numeric and generic `for`, plus Luau type-syntax (annotations, type aliases, type assertions, optionals, unions, function types, structural table types).
-- **Type checker** — gradual: untyped code is implicitly `any`; annotations opt in. Primitives, function types, optionals, unions, type aliases (including structural table shapes), type assertions, **generics** (parametric functions, type aliases, and structs with call-site inference), **structs**, and **tagged enums**. Stdlib has hand-written signatures so `math.sqrt(true)` is a compile error.
-- **Bytecode** — stack-based with closure upvalues, vararg passing, generic-`for` iteration, and a one-time scan that fills `NumLocals` at runtime where the generator left it blank. Types are erased before this stage — the VM never sees them.
-- **VM** — closures, metatables, coroutines (via goroutines + channels), `pcall`/`error` unwinding.
-- **Standard library** — `print`/`tostring`/`tonumber`, `ipairs`/`pairs`/`next`, `pcall`/`assert`/`error`, `type` plus the `typeof`/`sizeof` reflection builtins, raw and metatable helpers, plus `math`, `string` (full Lua pattern surface: `find`/`match`/`gmatch`/`gsub`), `table`, `io.write`/`read`, `coroutine`, and `package`/`require`. `__tostring` is honoured by `tostring`, `print`, `io.write`, `error`, and the REPL.
-- **Native modules** — `require("…")` for `db`, `os`, `math`, `json`, `http` (client), `httpserver`, `crypto`, `time`, `regexp`, `uuid`, `sort`, `compression`, `bit32`, `utf8`, `io`, `log`, `debug`, `queue` (priority job queue + channels), `std` (stack/queue/deque/set/list/heap/hashmap/trie), `clustering` (k-means/DBSCAN/hierarchical/mean-shift), `classification` (Naive Bayes/KNN/perceptron/logistic/SVM), and the data-science set: `stats` (descriptive/inferential statistics), `linalg` (vectors/matrices), `csv` (read/write), `dataframe` (column-oriented tables), `ndarray` (dense N-D arrays with broadcasting), `plot` (dependency-free SVG charting), and `ml` (feed-forward neural nets). All ship by default; `cmd/luascript/natives.go::nativeRegistrars` is the single source of truth. Two modules are platform- or toolchain-gated: the Fyne-backed `ui` GUI module is **opt-in** behind the `luascript_ui` build tag (it pulls in OpenGL/cgo — see [Desktop UI module](#desktop-ui-module-opt-in)), and `plugin` (load Go packages at run time) needs cgo and a platform where Go supports plugins, so it **never runs on Windows** — `require("plugin")` resolves everywhere but reports `supported = false` there.
-- **Enums** — `enum Name V1, V2 end` declares an int-auto-increment, frozen-via-`__newindex`-proxy table (typecheck treats the alias as `number`). Add a payload to any variant — `enum Shape Circle(number), Rect(number, number), Unit end` — to make it a **tagged sum type**: payload variants become constructors, nullary variants become singletons, and every value carries a `__tag` plus a `typeof`-visible nominal type. Bare-variant enums keep the original behaviour.
-- **Structs** — `struct Point { x: number, y: number }` declares a nominal product type: a constructor value plus a type alias for the structural shape. Construct positionally (`Point(1, 2)`) or by name (`Point{ x = 1, y = 2 }`); instances report their name via `typeof`. `struct` is a soft keyword, so existing `struct` variables still compile.
-- **Match** — `match subject do ... end` dispatches over an expression. Value/literal arms (`0`, `1, 2, 3`, `_`), typed binding arms (`n: number ->`, `x: any ->`), destructuring arms for tagged enums (`Shape.Circle(r) ->`) and structs (`Point{ x = px } ->`), and `if` guards. A pure parser-level desugar — no runtime machinery, no new VM opcodes.
-- **Generics** — `<T, U>` type parameters on functions, type aliases, and structs (`function map<T, U>(xs: {T}, f: (T) -> U): {U}`, `type Box<T> = { value: T }`, `struct Pair<A, B> { ... }`). Instantiated with `Name<Args>` (nested `Box<Box<number>>` works). Fully erased before bytecode; the checker infers type variables from call arguments and substitutes them into return types.
-- **Defer** — `defer cleanup()` schedules a call to run when the enclosing function exits, in last-in-first-out order, on normal return **and** when an error unwinds the frame (caught by `pcall`). Lowered to a frame-local closure list; ideal for paired acquire/release. Capture is by upvalue, so a deferred call sees a variable's value at exit time (unlike Go, which snapshots arguments eagerly).
-- **`continue`** — a real statement (not a `goto` desugar) that jumps to the loop's per-iteration anchor, closing upvalues on the way. A contextual keyword like Luau's, so `continue = 1` still parses as an identifier. In `repeat`, an `until` condition that reads a local declared after a `continue` is a compile error (matching Luau).
-- **If expressions** — `local x = if cond then a elseif c2 then b else z` — Luau-style, no `end`, arms are single expressions, `else` mandatory. Literal conditions are pruned by the constant folder.
-- **Default parameters** — `function f(x: number = 10)`. Applied by a codegen prologue equivalent to `if x == nil then x = 10 end`, so `false` does not trigger the default and defaults can see earlier parameters.
-- **Attributes** — `local x <const> = 1` and `local h <close> = …` are parsed and enforced by an always-on `constcheck` pass (it runs even under `--!nocheck`), which rejects assignment to a const local — including through a compound assignment, a `function x() end` redefinition, or a captured upvalue. `<close>`'s runtime `__close` semantics are a non-goal; the attribute is parse- and const-checked only.
-- **REPL** — readline-driven, history-backed, with continuation prompts for incomplete input. Top-level `local` declarations persist across REPL chunks (a deliberate convenience deviation from `lua`). Type-check errors are surfaced with a distinct `type-error:` prefix.
+> **Docs:** [DESIGN.md](DESIGN.md) for architecture and internals ·
+> [examples/](examples/README.md) for the tutorial series ·
+> [CONTRIBUTING.md](CONTRIBUTING.md) to contribute
 
 ## Quick start
 
-The `main` package lives in `./cmd/luascript`, so run the interpreter with `go run ./cmd/luascript`:
-
 ```sh
-# Run the REPL
-go run ./cmd/luascript
-
-# Run a script
-go run ./cmd/luascript examples/05_types.lsc
-
-# Force the REPL even when a script is supplied
-go run ./cmd/luascript -i examples/05_types.lsc
-
-# Print version
-go run ./cmd/luascript -v
-
-# Disassemble a script (bytecode dump)
-go run ./cmd/luascript -dis examples/01_basics.lsc
-
-# Time the run, or re-run on every save
-go run ./cmd/luascript -time  examples/02_functions.lsc
-go run ./cmd/luascript -watch examples/02_functions.lsc
+go run ./cmd/luascript                          # REPL
+go run ./cmd/luascript examples/05_types.lsc    # run a script
+go build -o luascript ./cmd/luascript           # build a binary
 ```
-
-Build a binary:
-
-```sh
-go build -o luascript ./cmd/luascript
-./luascript examples/01_basics.lsc
-```
-
-### Subcommands
-
-The CLI dispatches a few subcommands before flag parsing:
-
-| Subcommand                                            | What it does                                                                |
-| ----------------------------------------------------- | --------------------------------------------------------------------------- |
-| `luascript doc [TOPIC]`                               | Man pages for the stdlib. Bare = index; `doc math.floor` = one entry; `-k` searches. |
-| `luascript fmt [-w] FILE.lsc`                         | Format a source file (trivia-preserving). `-w` writes in place.             |
-| `luascript build -o OUT.exe FILE.lsc`                 | Bundle script + interpreter into a single .exe (see next section).          |
-| `luascript analyze FILE.lsc`                          | AST-level static analyzer with pluggable passes (complexity, lint, …).      |
-| `luascript profile -cpu cpu.pgo -count 50 FILE.lsc`   | Collect a CPU profile suitable for PGO (`scripts/build-pgo.sh` consumes it).|
-
-## Bundling a script into a standalone .exe
-
-`luascript build` produces a single executable that contains both the interpreter and your script — drop it on a machine that doesn't have `luascript` installed and double-click it.
-
-```sh
-# Build luascript first, then have it bundle your script:
-go build -o luascript ./cmd/luascript
-./luascript build -o hello.exe examples/01_basics.lsc
-./hello.exe                # runs the embedded script
-```
-
-| Flag      | Effect                                         |
-| --------- | ---------------------------------------------- |
-| `-o PATH` | Output path for the bundled binary (required). |
-
-Mechanics: the script is appended to a copy of the `luascript` binary along with a magic trailer. On startup the bundled .exe inspects its own tail, detects the trailer, and runs the embedded script in `parser.NormalMode` with the same VM and native modules the interpreter uses. Syntax is checked at bundle time, so you can't ship a broken .exe by accident.
-
-Limitations (v1):
-
-- The bundled binary matches the host platform — no cross-compilation flag yet.
-- Bundled scripts don't see `os.Args`.
-- Antivirus heuristics occasionally flag self-modifying-style .exes; code-signing fixes it. This is the same trade-off PyInstaller and Bun's `--compile` have.
-
-## Jobs and channels (the `queue` module)
-
-`require("queue")` gives you a priority job queue and Go-backed channels.
 
 ```lua
-local queue = require("queue")
-
-local q = queue.new{ capacity = 1000, on_error = function(msg, info)
-    print("job " .. info.id .. " failed: " .. msg)
-end }
-
-q:push(function() cleanup() end)                                    -- priority 0
-q:push(function() page_oncall() end, { priority = 100 })            -- runs first
-q:push(sync, { retries = 3, backoff_ms = 250, id = "sync-users" })  -- retried on error
-q:push(reap, { delay_ms = 5000 })                                   -- runs later
-
-q:run()   -- drains the queue on this goroutine; returns how many jobs ran
-```
-
-| Method                  | Effect                                                                                 |
-| ----------------------- | -------------------------------------------------------------------------------------- |
-| `q:push(fn, opts?)`     | Enqueue. Returns a job id, or `nil, "queue is full"` when a bounded queue is at capacity. |
-| `q:run()`               | Drain until empty (waiting out any delays) or until `:stop()`. Returns the count run.  |
-| `q:poll(max?)`          | Run only jobs already due, at most `max`. Never sleeps.                                |
-| `q:stop()` / `q:clear()`| Halt the drain (safe from inside a job) / drop everything pending.                      |
-| `q:metrics()`           | `enqueued`, `processed`, `succeeded`, `failed`, `retried`, `expired`, `dropped`, `pending`, `avg_wait_ms`, `avg_exec_ms`, `max_wait_ms`, `max_exec_ms`. |
-
-`push` options: `priority` (higher runs first; ties break FIFO), `delay_ms`, `retries`, `backoff_ms`, `timeout_ms`, `id`, `args`, `payload`.
-
-Channels carry Lua values between goroutines, with Go's semantics:
-
-```lua
-local ch = queue.channel(16)          -- 0 (the default) is unbuffered
-ch:send("work")                       -- blocks; ch:send(v, 250) times out
-local v, ok = ch:receive(1000)        -- -> value, true  |  nil, false, "timeout"|"closed"
-ch:close()                            -- receivers drain the buffer, then see "closed"
-
-local t = queue.tick(500)             -- a timer goroutine feeding a channel
-t:receive(); t:stop()
-```
-
-### The one rule
-
-**Jobs always run on the VM goroutine, one at a time.** The VM is single-threaded and has no locks, so running Lua on two goroutines at once is a data race, not a speedup. The queue therefore buys you *ordering, delays, retries, backpressure, deadline-shedding and metrics* — **not parallelism**, which this runtime cannot offer for Lua code and does not pretend to.
-
-Two consequences worth internalising:
-
-- `timeout_ms` is a deadline on **starting**, not on running: a job that sits past its deadline is dropped unrun (and counted in `expired`). It cannot abort a job already in progress, because there is no way to preempt a Lua call mid-flight.
-- The only goroutines in the module are `queue.after` and `queue.tick`, which run a timer and push a value into a channel. They never touch the VM, which is exactly why they are safe.
-
-See [`54_queue_module.lsc`](examples/54_queue_module.lsc) for a full tour.
-
-## Desktop UI module (opt-in)
-
-The `ui` native module is a thin Lua binding over [Fyne v2](https://fyne.io) for building desktop windows and widgets. Because Fyne drags in OpenGL via **cgo**, it is **not compiled by default** — a plain `go run ./cmd/luascript` stays pure-Go and needs no C toolchain. `require("ui")` still resolves in a default build; it only errors if a script actually constructs a widget, telling you to rebuild with the tag.
-
-To enable the real GUI, build or run with the `luascript_ui` build tag:
-
-```sh
-# Run a UI script with the Fyne backend compiled in
-go run -tags luascript_ui ./cmd/luascript examples/31_ui_module.lsc
-
-# Build a GUI-capable binary
-go build -tags luascript_ui -o luascript ./cmd/luascript
-./luascript examples/31_ui_module.lsc
-```
-
-**Prerequisites for the tagged build:** cgo enabled (`CGO_ENABLED=1`, the default when a C compiler is present) and a working C toolchain plus OpenGL development headers:
-
-- **Windows** — a MinGW-w64 GCC, e.g. via [MSYS2](https://www.msys2.org): `pacman -S mingw-w64-x86_64-gcc mingw-w64-x86_64-headers mingw-w64-x86_64-crt`, then ensure `…\mingw64\bin` is on `PATH`.
-- **macOS** — Xcode command-line tools (`xcode-select --install`).
-- **Linux** — a C compiler plus the GL/X11 dev packages (Debian/Ubuntu: `sudo apt install gcc libgl1-mesa-dev xorg-dev`).
-
-Without the tag the headless stub is used, so the rest of the language builds and runs regardless of whether a C toolchain is installed.
-
-## Bonsai mode
-
-For a break from the language work, `luascript` ships with a small ASCII-bonsai grower. It is unrelated to the Lua runtime — just a fun side mode.
-
-```sh
-# Grow a tree in the alt-screen (press q or Ctrl+C to leave)
-./luascript -bonsai
-
-# Print a single tree to stdout instead
-./luascript -bonsai -bonsai-print
-
-# Animate growth step-by-step
-./luascript -bonsai -bonsai-live
-
-# Reproducible tree from a seed
-./luascript -bonsai -seed 42
-
-# Attach a message next to the tree
-./luascript -bonsai -bonsai-msg "hello, world"
-```
-
-| Flag            | Effect                                                         |
-| --------------- | -------------------------------------------------------------- |
-| `-bonsai`       | Grow an ASCII bonsai tree and exit.                            |
-| `-seed N`       | RNG seed for reproducible trees (`0` = random).                |
-| `-bonsai-print` | Print the tree to stdout instead of staying in the alt-screen. |
-| `-bonsai-live`  | Animate growth step-by-step.                                   |
-| `-bonsai-msg S` | Attach a message next to the tree.                             |
-
-## Examples
-
-A walk-through set lives in `examples/`. Most are runnable straight from the
-repo root with `go run ./cmd/luascript examples/<file>`:
-
-| File                           | What it shows                                                                                                                         |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `01_basics.lsc`                | variables, control flow, primitive values, logical operators                                                                          |
-| `02_functions.lsc`             | recursion, closures and upvalues, multi-return, higher-order functions                                                                |
-| `03_tables_and_metatables.lsc` | records, arrays, methods, operator overloading via `__add`, `__index`                                                                 |
-| `04_coroutines.lsc`            | `coroutine.create` / `resume` / `yield` / `wrap`                                                                                      |
-| `05_types.lsc`                 | the full Luau-style type surface — primitives, optionals, unions, function types, type aliases, type assertions                       |
-| `06_strict_mode.lsc`           | `--!strict` enforcement and what it rejects                                                                                           |
-| `07_modules.lsc`               | `require`, `package.path`, `package.loaded`, `searchpath` — imports `mathx.lsc` next to it                                            |
-| `08_stdlib.lsc`                | a bundled-library set loaded via `LUASCRIPT_LIB` — flat modules, dotted submodules, package `init` files                              |
-| `09_native_module.lsc`         | importing a host-provided native module (`internal/native/stdlib/db`)                                                                                 |
-| `10_os_module.lsc`             | importing a host-provided native module (`internal/native/stdlib/os`)                                                                                 |
-| `11_compounds.lsc`             | compound assignment operators (`x op= e`)                                                                                             |
-| `12_math_module.lsc`           | the `math` native module                                                                                                              |
-| `13_json_module.lsc`           | the `json` native module                                                                                                              |
-| `14_match.lsc`                 | `match` statement basics — value/literal patterns, multi-pattern arms, `_` wildcard (a parser-level desugar)                          |
-| `15_http_module.lsc`           | the `http` client native module (shortcuts, `http.request{...}`, stateful clients)                                                    |
-| `16_httpserver_module.lsc`     | the `httpserver` native module — handlers, `:listen` / `:stop`                                                                        |
-| `17_crypto_module.lsc`         | the `crypto` native module — hashing, HMAC, random bytes                                                                              |
-| `18_time_module.lsc`           | the `time` native module — durations, timers, formatting                                                                              |
-| `19_regexp_module.lsc`         | the `regexp` native module (Go regex; `:capture`, not `:match`)                                                                       |
-| `20_uuid_module.lsc`           | the `uuid` native module                                                                                                              |
-| `21_sort_module.lsc`           | the `sort` native module — `sort.sort` / `stable` / `reverse` / `is_sorted`                                                           |
-| `22_string_interpolation.lsc`  | backtick string interpolation: `` `hello {name}` `` desugars to `..`-concat                                                           |
-| `23_io.lsc`                    | the full Lua-5.4 `io` library (file handles, `:read`/`:write`/`:lines`/`:seek`)                                                       |
-| `24_bit_utf8.lsc`              | the `bit32` and `utf8` native modules                                                                                                 |
-| `25_os_full.lsc`               | the expanded `os` parity surface (`date`, `time`, `clock`, `execute`, `rename`, `tmpname`, `setlocale`)                               |
-| `26_patterns.lsc`              | full Lua-pattern surface (`find`/`match`/`gmatch`/`gsub` with `%a %d %w` classes, `()` captures, `%b()` balanced, `%f[set]` frontier) |
-| `27_debug_module.lsc`          | the `debug` native module — `traceback`, `getinfo`, hook stubs                                                                        |
-| `28_compression_module.lsc`    | the `compression` native module — gzip, zlib, deflate, run-length (`rle_encode`/`rle_decode`)                                          |
-| `29_enums.lsc`                 | `enum Name V1, V2 end` — int-auto-increment, frozen via `__newindex` proxy                                                            |
-| `30_std_module.lsc`            | the `std` native module — stack, queue, deque, set, list, heap (requires `cmp`), hashmap                                              |
-| `31_ui_module.lsc`             | the `ui` desktop module (Fyne) — windows, widgets, layouts. Run with `-tags luascript_ui` (see [Desktop UI module](#desktop-ui-module-opt-in)) |
-| `32_defer.lsc`                 | `defer call()` — LIFO cleanup that runs on normal return, fall-off-end, and error unwinding                                            |
-| `33_typeof_sizeof.lsc`         | the `typeof` / `sizeof` reflection builtins — int/float distinction, `__type` metatable hook, byte/entry sizes                        |
-| `34_clustering_module.lsc`     | the `clustering` native module — k-means (k-means++ seeding), DBSCAN, hierarchical/agglomerative, mean-shift                          |
-| `35_classification_module.lsc` | the `classification` native module — Naive Bayes (text), KNN, perceptron, logistic regression, SVM (linear + RBF kernels)            |
-| `36_math.lsc`                  | the `math` native module in depth — Lua 5.4 scalar surface plus statistics helpers (`mean`/`variance`/`standard_deviation`/`softmax`) |
-| `37_stats_module.lsc`          | the `stats` native module — descriptive/inferential statistics (median, mode, quantiles, iqr, covariance, correlation, skew/kurtosis, zscore/normalize, describe) |
-| `38_linalg_module.lsc`         | the `linalg` native module — vectors and matrices (dot, norm, matmul, transpose, det, inverse, solve)                                  |
-| `39_csv_module.lsc`            | the `csv` native module — parse/stringify/read/write with header + numeric coercion and custom delimiters                             |
-| `40_dataframe_module.lsc`      | the `dataframe` native module — column-oriented tables (select/filter/with_column/sort/group_by/describe/to_csv, pretty `print`)       |
-| `41_ml_module.lsc`             | the `ml` native module — a feed-forward neural-network engine (build a topology, train on labelled data, predict)                     |
-| `42_structs.lsc`               | `struct Name { field: T }` — nominal product types, positional and named construction, `typeof`, typed parameters, optional fields, nesting |
-| `43_tagged_enums.lsc`          | tagged sum-type enums — payload variants as constructors, nullary variants as singletons, `__tag`/`typeof` introspection, a `Result` pattern |
-| `44_match.lsc`                 | `match` v2 — typed binding patterns, `if` guards, and destructuring of tagged enums and structs (with a `Result` pipeline)            |
-| `45_generics.lsc`              | generics — parametric functions with inference (`map`/`filter`), generic type aliases (`Box<T>`), and generic structs (a `Stack<T>`)   |
-| `46_generics.lsc`              | generics, continued — deeper inference and instantiation cases                                                                         |
-| `47_ndarray_module.lsc`        | the `ndarray` native module — dense N-D arrays, broadcasting, overloaded operators, axis reductions, matmul/transpose/reshape          |
-| `48_plot_module.lsc`           | the `plot` native module — dependency-free SVG charting (`line`/`scatter`/`bar`/`histogram`, auto-ranged axes, legend, `save`)         |
-| `49_continue.lsc`              | `continue` — skip to the next iteration in `for`/`while`/`repeat`, with the `repeat`/`until` scoping rule                              |
-| `50_if_expressions.lsc`        | if expressions — `local x = if c then a else b`, no `end`, `else` mandatory                                                            |
-| `51_default_params.lsc`        | default parameters — `function f(x = 1)`, why `false` doesn't trigger the default, defaults referring to earlier params                |
-| `52_attributes.lsc`            | `<const>` and `<close>` attributes and what the always-on `constcheck` pass rejects                                                    |
-| `53_plugin.lsc`                | the `plugin` native module — load Go packages at run time. **Needs cgo + linux/darwin/freebsd; will not run on Windows** (use WSL)     |
-| `54_queue_module.lsc`          | the `queue` native module — priority job queue (delays, retries, backpressure, metrics) and Go-backed channels (`after`/`tick`)        |
-
-### Running the module examples
-
-`require` resolves a module name against `package.path`. The two entry kinds
-that matter for these examples, searched in this order:
-
-1. **The directory of the script being run** — added automatically. So a
-   module sitting next to your script is always found, no matter which
-   directory you launched from. This is why `07_modules.lsc` just works:
-
-   ```sh
-   go run ./cmd/luascript examples/07_modules.lsc     # mathx.lsc is found next to it
-   ```
-
-2. **`LUASCRIPT_LIB`** — a bundled-library root, read once at startup. It
-   is _not_ on the path unless you set it. `08_stdlib.lsc` is the demo for
-   exactly this: its modules live under `examples/stdlib/` (not next to the
-   script). For convenience the example self-bootstraps `package.path` so
-   `go run ./cmd/luascript examples/08_stdlib.lsc` works without setting the env
-   var, but the canonical invocation is still:
-
-   ```sh
-   # bash
-   LUASCRIPT_LIB=./examples/stdlib go run ./cmd/luascript examples/08_stdlib.lsc
-   # PowerShell
-   $env:LUASCRIPT_LIB="./examples/stdlib"; go run ./cmd/luascript examples/08_stdlib.lsc
-   # cmd.exe
-   set LUASCRIPT_LIB=./examples/stdlib && go run ./cmd/luascript examples/08_stdlib.lsc
-   ```
-
-   `LUASCRIPT_LIB` is resolved relative to your current working directory —
-   if you run from somewhere other than the repo root, adjust the path
-   accordingly (e.g. `../examples/stdlib` from inside `cmd/`).
-
-Between the two, the plain cwd-relative entries (`./?.lsc`, `./src/?.lsc`,
-...) are searched as well, so a module under your working directory is still
-found even when it sits nowhere near the script.
-
-The native-module examples pull their modules from the host via
-`package.preload`, so they need neither a path entry nor `LUASCRIPT_LIB`.
-
-A taste, in case you don't want to open files:
-
-```lua
--- factorial
-local function fact(n)
-    if n <= 1 then return 1 end
-    return n * fact(n - 1)
-end
-print(fact(10))   -- 3628800
-
--- closures + upvalues
+-- closures, multi-return, coroutines: ordinary Lua 5.4
 local function counter()
     local n = 0
-    return function()
-        n = n + 1
-        return n
-    end
+    return function() n = n + 1; return n end
 end
-local next = counter()
-print(next(), next(), next())   -- 1   2   3
 
--- coroutines
-local co = coroutine.create(function()
-    for i = 1, 3 do coroutine.yield(i) end
-end)
-print(coroutine.resume(co))   -- true 1
-print(coroutine.resume(co))   -- true 2
-
--- types
+-- ...plus optional types, erased before bytecode
 type Point = { x: number, y: number }
 
 local function dist(p: Point): number
@@ -363,275 +48,187 @@ end
 print(dist({ x = 3, y = 4 }))   -- 5.0
 ```
 
-## Type system
+## CLI
 
-LuaScript's type system is **gradual** in the Luau sense: annotations are optional, untyped code is treated as `any`, and `any` flows into and out of any typed slot.
+Subcommands are routed before flag parsing:
 
-```lua
--- Annotations on locals, parameters, returns. Untyped slots stay any.
-local count: number = 42
-local name: string = "Ada"
-local maybe: string? = nil           -- T?  ≡  T | nil
-local id: number | string = "user-7" -- unions
+| Subcommand | What it does |
+| ---------- | ------------ |
+| `doc [TOPIC]` | Stdlib man pages (alias `man`). Bare = index; `doc math.floor` = one entry; `-k` searches |
+| `fmt [-w] FILE` | Trivia-preserving formatter; `-w` writes in place |
+| `build -o OUT FILE` | Bundle script + interpreter into one executable |
+| `analyze FILE` | AST-level static analysis with pluggable passes |
+| `profile -cpu cpu.pgo FILE` | Collect a CPU profile for PGO (`scripts/build-pgo.sh` consumes it) |
+| `pkg` | Package manifest / lockfile commands |
+| `lsp` | Run the language server on stdio |
 
--- Function types — params, returns, multi-return, varargs.
-local function add(a: number, b: number): number
-    return a + b
-end
+| Flag | Effect |
+| ---- | ------ |
+| `-i` | Force the REPL even when a script is given |
+| `-v` | Print version |
+| `-dis` | Disassemble to a bytecode dump |
+| `-time` / `-watch` | Time the run / re-run on every save (mutually exclusive) |
+| `-gc-percent N` / `-mem-limit N` | Host GC knobs (GOGC, soft heap limit) |
+| `-bonsai` | Grow an ASCII bonsai tree ([side mode](#bonsai-mode)) |
 
-local function pair(x: number): (number, number)
-    return x, x * 2
-end
+## Language
 
--- Type aliases — including structural table shapes.
-type Point = { x: number, y: number }
-type Callback = (number) -> string
-type Numbers = { number }            -- array shorthand for {[number]: number}
+Everything Lua 5.4 has — `goto`/labels, metatables, coroutines, varargs, generic
+and numeric `for`, `<const>`/`<close>` attributes, the full Lua pattern surface
+(`find`/`match`/`gmatch`/`gsub`) — plus:
 
-local origin: Point = { x = 0, y = 0 }
+- **Gradual types** — primitives, function types, optionals (`T?`), unions
+  (`A | B`), aliases including structural tables, assertions (`x :: T`).
+  Untyped code is `any`; the stdlib has hand-written signatures, so
+  `math.sqrt(true)` is a compile error.
+- **Generics** — `<T, U>` on functions, aliases and structs, with call-site
+  inference. `type Box<T>`, `struct Pair<A, B>`, `Box<Box<number>>`.
+- **Refinements** — type guards, nil guards, truthiness, `assert()`, early-exit
+  narrowing, short-circuit RHS narrowing.
+- **Structs** — `struct Point { x: number, y: number }`: a nominal product type
+  with positional (`Point(1, 2)`) and named (`Point{ x = 1 }`) construction.
+- **Enums and tagged unions** — `enum Color RED, GREEN end` is a frozen
+  int-auto-increment table; give a variant a payload
+  (`enum Shape Circle(number), Unit end`) and it becomes a sum type with
+  constructors, singletons, `__tag` and `typeof`.
+- **`match`** — value/literal arms, typed bindings (`n: number ->`),
+  destructuring of enums and structs, and `if` guards.
+- **`try` / `catch` / `throw`** — a real protected region in the enclosing
+  frame, so `return`/`break`/`continue` inside a `try` act on the enclosing
+  function or loop. Not a `pcall` desugar.
+- **`defer`** — LIFO cleanup on normal return *and* error unwinding. Captures by
+  upvalue, so a deferred call sees the value at exit time.
+- **`continue`** — a real statement that closes upvalues on the way out.
+- **If expressions** — `if c then a else z`, no `end`, `else` mandatory.
+- **Default parameters** — `function f(x: number = 10)`; `false` does not
+  trigger the default.
+- **String interpolation** — `` `hello {name}` ``.
 
--- Type assertions: programmer-controlled cast. Runtime is a no-op.
-local raw: any = 7
-local n: number = raw :: number
-```
+Mode directives on line 1 set strictness: `--!strict` (implicit-any params
+become errors), `--!nonstrict` (the default, stated explicitly), `--!nocheck`
+(skip the type pass — but **not** `constcheck`).
 
-### Structs
+Deliberately out of v1: intersections (`A & B`), string-singleton types,
+cross-module type checking (`require()` returns `any`), and recursive aliases.
+See [DESIGN.md](DESIGN.md#deliberately-out).
 
-`struct` declares a nominal product type — a fixed, typed set of fields plus a
-constructor. The name doubles as a type alias for the structural shape, so
-`: Point` annotations check field access. `struct` is a soft keyword (only
-special in `struct <Name>` position), so it remains a legal identifier
-elsewhere.
+## Modules
 
-```lua
-struct Point { x: number, y: number }
+`require("…")` for `db`, `os`, `math`, `json`, `http`, `httpserver`, `crypto`,
+`time`, `regexp`, `uuid`, `sort`, `compression`, `bit32`, `utf8`, `io`, `log`,
+`debug`, `queue`, and `std` (stack/queue/deque/set/list/heap/hashmap/trie/btree).
 
-local p = Point(3, 4)             -- positional
-local q = Point{ x = 3, y = 4 }   -- named (order-independent)
+Data science: `stats`, `linalg`, `csv`, `dataframe`, `ndarray` (dense N-D arrays
+with broadcasting and overloaded operators), `plot` (dependency-free SVG
+charting), `clustering`, `classification`, and `ml` (feed-forward neural nets).
 
-print(typeof(p))                  -- Point
-print(p.x + q.y)                  -- 7
+All ship by default — `cmd/luascript/natives.go::nativeRegistrars` is the single
+source of truth, and adding a module is one line. Two are gated:
 
-local function mag(pt: Point): number
-    return math.sqrt(pt.x * pt.x + pt.y * pt.y)
-end
-```
+- **`ui`** (Fyne desktop GUI) is opt-in behind `-tags luascript_ui`, because
+  Fyne pulls in OpenGL via cgo. Without the tag `require("ui")` still resolves;
+  it errors only if a script constructs a widget. The tagged build needs cgo, a
+  C toolchain and OpenGL headers.
+- **`plugin`** (load Go packages at run time) needs cgo and a platform where Go
+  supports plugins, so it **never runs on Windows** — `require("plugin")`
+  resolves everywhere but reports `supported = false` there.
 
-Fields typed `T?` may be omitted in named construction. The checker rejects
-missing required fields, unknown fields, and type mismatches.
+### Jobs and channels
 
-### Tagged enums (sum types)
-
-Give any enum variant a payload and the whole enum becomes a tagged union:
-payload variants become constructors, nullary variants become singleton
-values. Each value carries a `__tag` (the variant name) and a `typeof`-visible
-nominal type. Bare-only enums keep the classic integer form (see
-[`29_enums.lsc`](examples/29_enums.lsc)).
-
-```lua
-enum Shape
-    Circle(number),
-    Rect(number, number),
-    Unit,
-end
-
-local c = Shape.Circle(5)   -- constructor
-local u = Shape.Unit        -- singleton value
-print(typeof(c), c.__tag, c[1])   -- Shape  Circle  5
-```
-
-### Pattern matching
-
-`match` dispatches over a subject once. On top of value/literal patterns it
-supports typed binding patterns, destructuring of tagged enums and structs, and
-`if` guards. It is a parser-level desugar — no runtime cost.
-
-```lua
-local function area(s: Shape): number
-    match s do
-        Shape.Circle(r)  -> return 3.14159 * r * r   -- destructure payload
-        Shape.Rect(w, h) -> return w * h
-        Shape.Unit       -> return 0
-        _                -> return -1
-    end
-    return -1
-end
-
-local function describe(v): string
-    match v do
-        n: number if n < 0 -> return "negative"      -- typed binding + guard
-        n: number          -> return "number " .. n
-        s: string          -> return "string of " .. #s
-        Point{ x = px }    -> return "point at x=" .. px  -- struct destructure
-        x: any             -> return "other"
-    end
-    return "?"
-end
-```
-
-Value/literal patterns (`0`, `1, 2, 3`, `Color.RED`, `_`) work exactly as
-before. `x: any` binds unconditionally; guards fall through to the next arm on
-failure.
-
-### Generics
-
-Type parameters `<T, U>` attach to functions, type aliases, and structs.
-They are erased before bytecode; precision comes from **inference** — the checker
-unifies a call's arguments against the declared parameter types and substitutes
-the result into the return type.
+`require("queue")` gives a priority job queue and Go-backed channels:
 
 ```lua
-local function identity<T>(x: T): T
-    return x
-end
-local n: number = identity(5)     -- ok:    T inferred = number
--- local s: string = identity(5)  -- error: T inferred number, not string
+local queue = require("queue")
+local q = queue.new{ capacity = 1000 }
 
-local function map<T, U>(xs: {T}, f: (T) -> U): {U}
-    local out = {}
-    for i, x in ipairs(xs) do out[i] = f(x) end
-    return out
-end
+q:push(function() cleanup() end)                                    -- priority 0
+q:push(function() page_oncall() end, { priority = 100 })            -- runs first
+q:push(sync, { retries = 3, backoff_ms = 250, id = "sync-users" })
+q:push(reap, { delay_ms = 5000 })
+q:run()   -- drains on this goroutine; returns how many jobs ran
 
-type Box<T> = { value: T }              -- generic alias
-type Nested = Box<Box<number>>          -- instantiate; nested `>>` is handled
-
-struct Pair<A, B> { first: A, second: B }  -- generic struct
-local pr = Pair(1, "one")               -- A = number, B = string inferred
+local ch = queue.channel(16)     -- 0 (default) is unbuffered
+ch:send("work")                  -- ch:send(v, 250) times out
+local v, ok = ch:receive(1000)   -- -> value, true | nil, false, "timeout"|"closed"
 ```
 
-Inside a generic body a type variable is opaque but gradual, so parametric code
-never produces spurious errors; the concrete types are pinned at each call site.
+**The one rule: jobs always run on the VM goroutine, one at a time.** The VM has
+no locks, so running Lua on two goroutines is a data race, not a speedup. The
+queue buys ordering, delays, retries, backpressure, deadline-shedding and
+metrics — *not* parallelism. Consequently `timeout_ms` is a deadline on
+*starting*: a job past its deadline is dropped unrun, and a job already in
+flight cannot be preempted. See
+[DESIGN.md](DESIGN.md#concurrency-the-one-rule) and
+[`54_queue_module.lsc`](examples/54_queue_module.lsc).
 
-### Mode directives
+## Bundling a script into an executable
 
-A leading `--!strict`, `--!nonstrict`, or `--!nocheck` on the first line of a file controls how strictly that file is checked.
+```sh
+go build -o luascript ./cmd/luascript
+./luascript build -o hello.exe examples/01_basics.lsc
+./hello.exe                # runs the embedded script
+```
 
-| Directive      | Effect                                        |
-| -------------- | --------------------------------------------- |
-| (none)         | Default. Gradual checking.                    |
-| `--!strict`    | Implicit-any parameters become errors.        |
-| `--!nonstrict` | Same as the default. Useful for explicitness. |
-| `--!nocheck`   | Skip the type pass for this file entirely.    |
+The script is appended to a copy of the interpreter with a magic trailer; on
+startup the bundled binary inspects its own tail and runs the embedded source
+with the same VM and native modules. Syntax is checked at bundle time.
 
-### Not in v1 (deliberately)
-
-- Intersection types (`A & B`)
-- String-singleton types (`"foo" | "bar"`)
-- Cross-module type checking — `require()` returns `any`
-- Recursive type aliases (the parser accepts them; the resolver doesn't)
-
-These are explicitly named in error messages where relevant, so users hit a clear wall instead of silent miscompiles.
-
-Generics **are** supported now (parametric functions, type aliases, and structs with call-site inference) — see [Generics](#generics).
+v1 limits: host platform only (no cross-compilation flag), bundled scripts don't
+see `os.Args`, and antivirus heuristics occasionally flag self-appending
+executables — the same trade-off PyInstaller and Bun's `--compile` carry.
 
 ## REPL
 
-Launch with `go run ./cmd/luascript` (no arguments). Built-in commands:
+| Command | Effect |
+| ------- | ------ |
+| `help` | Print the help screen |
+| `exit`, `quit` | Leave |
+| `reset` | Rebuild the VM (clears globals and user state) |
+| `clear` | Clear the screen |
+| `doc <topic>` | Stdlib reference, same data as `luascript doc` |
 
-| Command        | Effect                                             |
-| -------------- | -------------------------------------------------- |
-| `help`         | print the help screen                              |
-| `exit`, `quit` | leave the REPL                                     |
-| `reset`        | rebuild the VM (clears all globals and user state) |
-| `clear`        | clear the screen                                   |
+**Ctrl+C** cancels input, **Ctrl+D** exits, **Ctrl+R** searches history. Bare
+expressions print their value. Incomplete input opens a continuation prompt, and
+type errors get a distinct `type-error:` prefix.
 
-Key bindings: **Ctrl+C** cancels the current input, **Ctrl+D** exits, **Ctrl+R** searches history.
+Top-level `local` persists across REPL chunks — it is promoted to a global at
+compile time so later inputs can read it. Inside any nested scope (`do`/`if`/
+`for`/function body) `local` keeps standard Lua semantics.
 
-Bare expressions print their value:
+## Bonsai mode
 
+An ASCII-bonsai grower, unrelated to the Lua runtime — just a fun side mode.
+
+```sh
+./luascript -bonsai                      # alt-screen (q or Ctrl+C to leave)
+./luascript -bonsai -bonsai-print        # print one tree to stdout
+./luascript -bonsai -bonsai-live         # animate growth
+./luascript -bonsai -seed 42             # reproducible
+./luascript -bonsai -bonsai-msg "hello"  # attach a message
 ```
-luascript » 1 + 2
-=> 3
-luascript » {1, 2, 3}
-=> table: 0xc000...
-```
-
-Top-level `local` persists across REPL chunks (it's promoted to a global at compile time so subsequent inputs can read it):
-
-```
-luascript » local greeting = "hi"
-luascript » print(greeting)
-hi
-```
-
-Inside any nested scope (`do`/`if`/`for`/function body) `local` keeps standard Lua semantics.
-
-Incomplete input opens a continuation prompt:
-
-```
-luascript » function double(x)
-   ...      return x * 2
-   ...    end
-luascript » print(double(21))
-42
-```
-
-Type errors land with a distinct prefix so they're easy to spot:
-
-```
-luascript » local x: number = "hi"
-type-error: Type "string" could not be converted into "number" at line 1
-```
-
-## Project layout
-
-```
-.
-├── cmd/
-│   └── luascript/     CLI entrypoint (main.go) + `luascript build` bundler
-├── internal/          implementation packages (not a public API)
-│   ├── compiler/
-│   │   ├── lexer/     token stream from source text
-│   │   ├── token/     token types and keyword table
-│   │   ├── parser/    recursive-descent parser, Pratt-style for expressions
-│   │   ├── ast/       AST node definitions (statements, expressions, types)
-│   │   ├── constcheck/ always-on pass rejecting assignment to `<const>` locals
-│   │   ├── typecheck/ gradual type system — Type representation, env, pass
-│   │   ├── optimize/  AST constant-folding pass (Lua-5.4-safe subset)
-│   │   ├── analyze/   pass-registry static analyzer (`luascript analyze`)
-│   │   ├── bccache/   on-disk bytecode compile cache (LUASCRIPT_NOCACHE / _CACHE_DIR)
-│   │   ├── debug/     pprof Start/Stop wrappers used by `luascript profile`
-│   │   ├── bytecode/  AST → instruction-set generator
-│   │   └── compiler.go  top-level pipeline (lex → parse → constcheck → typecheck → optimize → bytecode)
-│   ├── vm/            stack VM, closures, metatables, coroutines, stdlib
-│   ├── native/        bundled native modules
-│   │   ├── stdlib/    runtime modules (db, os, http, json, std, queue, log, …)
-│   │   └── datascience/  ndarray, dataframe, stats, linalg, ml, plot, …
-│   ├── plugin/        `plugin` module — load Go packages at run time (cgo, non-Windows)
-│   ├── docs/          stdlib reference data + man-page renderer (`luascript doc`)
-│   ├── lsp/           language server (protocol, jsonrpc2, uri + server/)
-│   ├── formatter/     `luascript fmt` — trivia-preserving formatter
-│   ├── bonsai/        ASCII bonsai tree side mode (cbonsai/gobonsai fork)
-│   ├── repl/          interactive REPL (readline + engine wrapper)
-│   ├── pkgmanager/    package manifest / lockfile / fetch
-│   ├── gctune/        GC tuning helpers
-│   └── version/       version string
-├── examples/          runnable .lsc programs that double as tutorials
-├── scripts/           helper scripts (`build-pgo.sh`, `benchmark.rb`)
-└── assets/            logo and static assets
-```
-
-The compiler is designed so each stage is independently testable and the AST is the only contract between parser, type checker, and bytecode generator. The VM never sees source text or types; the parser never sees instructions.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide — setup, testing conventions, how to add a native module or stdlib entry, and commit-message style. The short version, before sending a change:
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, testing conventions, how to
+add a native module or stdlib entry, and commit-message style. Before sending a
+change:
 
 ```sh
 make check     # gofmt -l . + go vet ./... + go test ./...
 ```
 
-Tests live next to the code they cover (`*_test.go`). The bytecode tests in particular are useful: they assert exact opcode sequences for representative source snippets, which catches accidental codegen drift early. The type checker has its own focused suite under `internal/compiler/typecheck/checker_test.go`.
+Tests live next to the code (`*_test.go`). The bytecode tests assert exact
+opcode sequences for representative snippets, so they catch codegen drift early.
 
-Participation is governed by the [Code of Conduct](CODE_OF_CONDUCT.md). To report a security problem, follow [SECURITY.md](SECURITY.md) rather than opening a public issue.
+Participation is governed by the [Code of Conduct](CODE_OF_CONDUCT.md). Report
+security problems via [SECURITY.md](SECURITY.md), not a public issue.
 
 ## Inspirations
 
-- **Lua 5.4** — the syntax and semantics target.
-- **Luau** — the type-system shape.
-- **Goby** — the original stack VM and bytecode-generator scaffolding (this project is a Goby fork in spirit, though much has been rewritten).
+**Lua 5.4** (syntax and semantics target) · **Luau** (type-system shape) ·
+**Goby** (the original stack VM and bytecode-generator scaffolding — this
+project is a Goby fork in spirit, though much has been rewritten).
 
 ## License
 
-See `LICENSE`.
+MIT — see [LICENSE](LICENSE).

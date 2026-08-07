@@ -1,22 +1,10 @@
 package std
 
-import (
-	"errors"
-
-	"github.com/hilthontt/luascript/internal/native/constraints"
-)
+import "errors"
 
 type Heap[T any] struct {
 	heaps    []T
 	lessFunc func(a, b T) bool
-}
-
-func New[T constraints.Ordered]() *Heap[T] {
-	less := func(a, b T) bool {
-		return a < b
-	}
-	h, _ := NewAny(less)
-	return h
 }
 
 // NewAny gives a new heap object. element can be anything, but must provide less function.

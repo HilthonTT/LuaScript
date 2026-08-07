@@ -139,12 +139,6 @@ var primitiveByName = map[string]*Type{
 	"never":   neverT,
 }
 
-// PrimitiveByName returns the singleton primitive Type for `name`, or nil
-// if `name` is not one of the closed-set primitives.
-func PrimitiveByName(name string) *Type {
-	return primitiveByName[name]
-}
-
 // NewUnion builds a union of `members`, flattening nested unions, deduping
 // equal types, and short-circuiting to a singleton when the simplification
 // leaves only one member. If `any` appears in the simplified set the result
@@ -409,35 +403,4 @@ func NewTable(fields []TableField, indexer *Indexer) *Type {
 		Kind:  KindTable,
 		Table: &TableShape{Fields: fields, Indexer: indexer},
 	}
-}
-
-// AnyT, NilT, NumberT, StringT, BooleanT, UnknownT, NeverT expose the
-// singleton primitives. Used by package-external callers (stdlib_types.go,
-// the REPL banner).
-func AnyT() *Type {
-	return anyT
-}
-
-func NilT() *Type {
-	return nilT
-}
-
-func NumberT() *Type {
-	return numberT
-}
-
-func StringT() *Type {
-	return stringT
-}
-
-func BooleanT() *Type {
-	return booleanT
-}
-
-func UnknownT() *Type {
-	return unknownT
-}
-
-func NeverT() *Type {
-	return neverT
 }

@@ -45,3 +45,5 @@ go.work.sum
 CLAUDE.md
 
 client/node_modules/
+# Output written by examples/48_plot_module.lsc
+examples/scratch_*.svg

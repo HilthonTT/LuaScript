@@ -166,15 +166,6 @@ func foldExpr(e ast.Expression) ast.Expression {
 		return n
 	case *ast.IfExpression:
 		return foldIfExpr(n)
-	case *ast.MatchExpression:
-		n.Subject = foldExpr(n.Subject)
-		for i := range n.Arms {
-			if n.Arms[i].Guard != nil {
-				n.Arms[i].Guard = foldExpr(n.Arms[i].Guard)
-			}
-			n.Arms[i].Body = foldExpr(n.Arms[i].Body)
-		}
-		return n
 	case *ast.TypeAssertionExpression:
 		n.Expr = foldExpr(n.Expr)
 		return n

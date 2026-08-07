@@ -26,14 +26,6 @@ func DefaultHashMap() *HashMap {
 	}
 }
 
-func NewHashMap(size, capacity uint64) *HashMap {
-	return &HashMap{
-		buckets:  make([]*node, capacity),
-		size:     size,
-		capacity: capacity,
-	}
-}
-
 func (hm *HashMap) Get(key any) any {
 	node := hm.getNodeByKey(key)
 	if node != nil {

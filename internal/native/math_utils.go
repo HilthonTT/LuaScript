@@ -51,15 +51,6 @@ func Maxf(xs []float64) float64 {
 	return m
 }
 
-// Normalize scales to (0, 1)
-func Normalize(xs []float64) {
-	min := Minf(xs)
-	max := Maxf(xs)
-	for i, x := range xs {
-		xs[i] = (x - min) / (max - min)
-	}
-}
-
 // ArgMax is the index of the largest element
 func ArgMax(xs []float64) int {
 	max, idx := xs[0], 0
@@ -69,17 +60,6 @@ func ArgMax(xs []float64) int {
 		}
 	}
 	return idx
-}
-
-// Sgn is signum
-func Sgn(x float64) float64 {
-	switch {
-	case x < 0:
-		return -1.0
-	case x > 0:
-		return 1.0
-	}
-	return 0
 }
 
 // softmax converts a slice of scores into a probability distribution. The
@@ -124,18 +104,4 @@ func MinOf(xx []float64) float64 {
 		}
 	}
 	return m
-}
-
-// Round to nearest integer
-func Round(x float64) float64 {
-	return math.Floor(x + .5)
-}
-
-// Dot product
-func Dot(xx, yy []float64) float64 {
-	var p float64
-	for i := range xx {
-		p += xx[i] * yy[i]
-	}
-	return p
 }

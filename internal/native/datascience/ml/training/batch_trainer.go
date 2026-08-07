@@ -11,7 +11,6 @@ type internalb struct {
 	deltas            [][][]float64
 	partialDeltas     [][][][]float64
 	accumulatedDeltas [][][]float64
-	moments           [][][]float64
 }
 
 // BatchTrainer implements parallelized batch training

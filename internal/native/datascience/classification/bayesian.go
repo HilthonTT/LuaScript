@@ -3,12 +3,7 @@ package classification
 // CREDIT TO REPOSITORY: https://github.com/jbrukh/bayesian/blob/master/bayesian.go
 
 import (
-	"encoding/gob"
-	"errors"
-	"io"
 	"math"
-	"os"
-	"path/filepath"
 	"sync"
 	"sync/atomic"
 )
@@ -18,10 +13,6 @@ import (
 // as a fallback when Laplace smoothing cannot be applied
 // (e.g., when the classifier has no training data).
 const defaultProb = 1e-11
-
-var ErrUnderflow = errors.New("possible underflow detected")
-var ErrClassExists = errors.New("class already exists")
-var ErrAlreadyConverted = errors.New("cannot add class after TF-IDF conversion")
 
 type Class string
 
@@ -34,18 +25,6 @@ type Classifier struct {
 	tfIdf           bool
 	DidConvertTfIdf bool         // we cannot classify a TF-IDF classifier if we haven't yet called ConvertTermsFreqToTfIdf
 	mu              sync.RWMutex // protects Classes and datas for concurrent access
-}
-
-// serializableClassifier represents a container for
-// Classifier objects whose fields are modifiable by
-// reflection and are therefore writeable by gob.
-type serializableClassifier struct {
-	Classes         []Class
-	Learned         int
-	Seen            int
-	Datas           map[Class]*classData
-	TfIdf           bool
-	DidConvertTfidf bool
 }
 
 // classData holds the frequency data for words in a
@@ -120,59 +99,6 @@ func NewClassifier(classes ...Class) *Classifier {
 	return newClassifier(false, classes)
 }
 
-// NewClassifierFromFile loads an existing classifier from
-// file. The classifier was previously saved with a call
-// to c.WriteToFile(string).
-func NewClassifierFromFile(name string) (*Classifier, error) {
-	file, err := os.Open(name)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	return NewClassifierFromReader(file)
-}
-
-// NewClassifierFromReader: This actually does the deserializing of a Gob encoded classifier
-func NewClassifierFromReader(r io.Reader) (*Classifier, error) {
-	dec := gob.NewDecoder(r)
-	w := new(serializableClassifier)
-	if err := dec.Decode(w); err != nil {
-		return nil, err
-	}
-
-	return &Classifier{
-		Classes:         w.Classes,
-		learned:         w.Learned,
-		seen:            int32(w.Seen),
-		datas:           w.Datas,
-		tfIdf:           w.TfIdf,
-		DidConvertTfIdf: w.DidConvertTfidf,
-	}, nil
-}
-
-// AddClass adds a new class to the classifier dynamically.
-// Returns ErrClassExists if the class already exists, or
-// ErrAlreadyConverted if the classifier has been converted to TF-IDF.
-// This method is safe for concurrent use.
-func (c *Classifier) AddClass(class Class) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	// Check if the TF-IDF conversion already happened
-	if c.DidConvertTfIdf {
-		return ErrAlreadyConverted
-	}
-
-	if _, exists := c.datas[class]; exists {
-		return ErrClassExists
-	}
-
-	c.Classes = append(c.Classes, class)
-	c.datas[class] = newClassData()
-	return nil
-}
-
 // getPriors returns the prior probabilities for the
 // classes provided -- P(C_j).
 // Uses Laplace smoothing to ensure no prior is zero:
@@ -206,44 +132,6 @@ func (c *Classifier) Learned() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.learned
-}
-
-// Seen returns the number of documents ever classified
-// in the lifetime of this classifier.
-func (c *Classifier) Seen() int {
-	return int(atomic.LoadInt32(&c.seen))
-}
-
-// IsTfIdf returns true if we are a classifier of type TfIdf
-func (c *Classifier) IsTfIdf() bool {
-	return c.tfIdf
-}
-
-// WordCount returns the number of words counted for
-// each class in the lifetime of the classifier.
-// This method is safe for concurrent use.
-func (c *Classifier) WordCount() []int {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	result := make([]int, len(c.Classes))
-	for i, class := range c.Classes {
-		data := c.datas[class]
-		result[i] = data.Total
-	}
-
-	return result
-}
-
-// Observe should be used when word-frequencies have been already been learned
-// externally (e.g., hadoop).
-// This method is safe for concurrent use.
-func (c *Classifier) Observe(word string, count int, which Class) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	data := c.datas[which]
-	data.Freqs[word] += float64(count)
-	data.Total += count
 }
 
 // Learn will accept new training documents for
@@ -444,252 +332,6 @@ func (c *Classifier) ClassifyProb(document []string) (Class, []float64, bool) {
 	scores, inx, strict := c.ProbScores(document)
 	class := c.Classes[inx]
 	return class, scores, strict
-}
-
-// SafeProbScores works the same as ProbScores, but is
-// able to detect underflow in those cases where underflow
-// results in the reverse classification. If an underflow is detected,
-// this method returns an ErrUnderflow, allowing the user to deal with it as
-// necessary. Note that underflow, under certain rare circumstances,
-// may still result in incorrect probabilities being returned,
-// but this method guarantees that all error-less invocations
-// are properly classified.
-//
-// Underflow detection is more costly because it also
-// has to make additional log score calculations.
-//
-// When underflow is detected, the returned scores are computed from
-// log-domain scores using the log-sum-exp trick for numerical stability.
-// This method is safe for concurrent use.
-func (c *Classifier) SafeProbScores(doc []string) ([]float64, int, bool, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if c.tfIdf && !c.DidConvertTfIdf {
-		panic("Using a TF-IDF classifier. Please call ConvertTermsFreqToTfIdf before calling SafeProbScores.")
-	}
-
-	n := len(c.Classes)
-	scores := make([]float64, n)
-	logScores := make([]float64, n)
-	priors := c.getPriors()
-	sum := float64(0)
-
-	// calculate the score for each class
-	for index, class := range c.Classes {
-		data := c.datas[class]
-		score := priors[index]
-		logScore := math.Log(priors[index])
-		for _, word := range doc {
-			p := data.getWordProb(word)
-			score *= p
-			logScore += math.Log(p)
-		}
-		scores[index] = score
-		logScores[index] = logScore
-		sum += score
-	}
-
-	// Get the winner from log-domain (always reliable)
-	logInx, logStrict := findMax(logScores)
-
-	var err error
-	inx := 0
-	strict := false
-
-	// Check for underflow: if sum is 0 or prob-domain disagrees with log-domain
-	if sum == 0 {
-		// Complete underflow - use log-sum-exp to recover probabilities
-		err = ErrUnderflow
-		scores = logScoresToProbs(logScores)
-		inx, strict = logInx, logStrict
-	} else {
-		for i := range n {
-			scores[i] /= sum
-		}
-		inx, strict = findMax(scores)
-
-		// Detect partial underflow - when prob and log domains disagree
-		if inx != logInx || strict != logStrict {
-			err = ErrUnderflow
-			// Use log-domain results as they're more reliable
-			scores = logScoresToProbs(logScores)
-			inx, strict = logInx, logStrict
-		}
-	}
-
-	atomic.AddInt32(&c.seen, 1)
-	return scores, inx, strict, err
-}
-
-// logScoresToProbs converts log-domain scores to probabilities
-// using the log-sum-exp trick for numerical stability.
-func logScoresToProbs(logScores []float64) []float64 {
-	n := len(logScores)
-	probs := make([]float64, n)
-
-	// Find max for numerical stability
-	maxLog := logScores[0]
-	for i := 1; i < n; i++ {
-		if logScores[i] > maxLog {
-			maxLog = logScores[i]
-		}
-	}
-
-	// Compute exp(log - max) and sum
-	sum := 0.0
-	for i := range n {
-		probs[i] = math.Exp(logScores[i] - maxLog)
-		sum += probs[i]
-	}
-
-	// Normalize
-	for i := range n {
-		probs[i] /= sum
-	}
-
-	return probs
-}
-
-// ClassifySafe returns the most likely class for the given document
-// along with the probability scores, whether the classification is strict,
-// and an error if underflow is detected.
-// This is a convenience wrapper around SafeProbScores that returns the
-// Class directly instead of an index.
-func (c *Classifier) ClassifySafe(document []string) (Class, []float64, bool, error) {
-	scores, inx, strict, err := c.SafeProbScores(document)
-	class := c.Classes[inx]
-	return class, scores, strict, err
-}
-
-// WordFrequencies returns a matrix of word frequencies that currently
-// exist in the classifier for each class state for the given input
-// words. In other words, if you obtain the frequencies
-//
-//	freqs := c.WordFrequencies(/* [j]string */)
-//
-// then the expression freq[i][j] represents the frequency of the j-th
-// word within the i-th class.
-// This method is safe for concurrent use.
-func (c *Classifier) WordFrequencies(words []string) [][]float64 {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	n, l := len(c.Classes), len(words)
-	freqMatrix := make([][]float64, n)
-
-	for i := range freqMatrix {
-		arr := make([]float64, l)
-		data := c.datas[c.Classes[i]]
-		for j := range arr {
-			arr[j] = data.getWordProb(words[j])
-		}
-		freqMatrix[i] = arr
-	}
-
-	return freqMatrix
-}
-
-// WriteToFile serializes this classifier to a file.
-// This method is safe for concurrent use.
-func (c *Classifier) WriteToFile(name string) error {
-	file, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-	return c.writeGobLocked(file)
-}
-
-// WriteClassesToFile writes all classes to files.
-// This method is safe for concurrent use.
-func (c *Classifier) WriteClassesToFile(rootPath string) error {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	for name := range c.datas {
-		if err := c.writeClassToFileLocked(name, rootPath); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// WriteClassToFile writes a single class to file.
-// This method is safe for concurrent use.
-func (c *Classifier) WriteClassToFile(name Class, rootPath string) error {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.writeClassToFileLocked(name, rootPath)
-}
-
-// writeClassToFileLocked writes a single class to file (caller must hold lock).
-func (c *Classifier) writeClassToFileLocked(name Class, rootPath string) error {
-	data := c.datas[name]
-	fileName := filepath.Join(rootPath, string(name))
-	file, err := os.OpenFile(fileName, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-	return gob.NewEncoder(file).Encode(data)
-}
-
-// WriteGob serializes this classifier to GOB and writes to Writer.
-// This method is safe for concurrent use.
-func (c *Classifier) WriteGob(w io.Writer) (err error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.writeGobLocked(w)
-}
-
-// writeGobLocked serializes this classifier to GOB (caller must hold lock).
-func (c *Classifier) writeGobLocked(w io.Writer) (err error) {
-	enc := gob.NewEncoder(w)
-	err = enc.Encode(&serializableClassifier{c.Classes, c.learned, int(atomic.LoadInt32(&c.seen)), c.datas, c.tfIdf, c.DidConvertTfIdf})
-	return
-}
-
-// ReadClassFromFile loads existing class data from a
-// file.
-// This method is safe for concurrent use.
-func (c *Classifier) ReadClassFromFile(class Class, location string) (err error) {
-	fileName := filepath.Join(location, string(class))
-	file, err := os.Open(fileName)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	dec := gob.NewDecoder(file)
-	w := new(classData)
-	err = dec.Decode(w)
-	if err != nil {
-		return err
-	}
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.learned++
-	c.datas[class] = w
-	return
-}
-
-// WordsByClass returns a map of words and their probability of
-// appearing in the given class.
-// This method is safe for concurrent use.
-func (c *Classifier) WordsByClass(class Class) (freqMap map[string]float64) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	freqMap = make(map[string]float64)
-	data := c.datas[class]
-	if data == nil || data.Total == 0 {
-		return freqMap
-	}
-	total := float64(data.Total)
-	for word, cnt := range data.Freqs {
-		freqMap[word] = cnt / total
-	}
-	return freqMap
 }
 
 func panicIfAlreadyConverted() {
