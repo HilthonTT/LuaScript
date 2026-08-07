@@ -104,24 +104,19 @@ func (v *VM) RunMainChunkWithResults(main *bytecode.InstructionSet) (results []V
 	return results, nil
 }
 
-// recoverToError is the shared `defer`-installed recover for the
-// top-level Run paths. A LuaError (script-raised) or a Go error
-// surfaces as-is; anything else is wrapped with a "vm panic" prefix so
-// callers can still log without losing the original value.
+// recoverToError is the shared `defer`-installed recover for the top-level Run
+// paths — the last boundary an error can reach. Nothing between the raise and
+// here truncates v.frames (execCatching re-panics without unwinding when it
+// has no handler), so the Lua call stack is still intact and toRuntimeError
+// can snapshot it for the traceback.
+//
+// The result is always a *RuntimeError, whose Error() carries the positioned
+// message plus the traceback. A Go panic that is not a Lua error at all still
+// gets wrapped, so an internal fault is reported with the script location that
+// triggered it rather than as a bare "vm panic".
 func (v *VM) recoverToError(err *error) {
 	if r := recover(); r != nil {
-		switch e := r.(type) {
-		case luaError:
-			// A script error(value) that reached the top level uncaught:
-			// render it for display, honouring __tostring on table values.
-			*err = LuaError(ToStringMM(v, e.value))
-		case LuaError:
-			*err = e
-		case error:
-			*err = e
-		default:
-			*err = fmt.Errorf("vm panic: %v", r)
-		}
+		*err = v.toRuntimeError(r)
 	}
 }
 
@@ -437,6 +432,11 @@ func (v *VM) dispatchToHandler(entryDepth int, r any) bool {
 	// handler propagates outward rather than re-entering the same handler.
 	f.handlers = f.handlers[:len(f.handlers)-1]
 
+	// Resolve the error value before the truncation below, while the frames
+	// it was raised in are still live — that is what positions a VM-raised
+	// error at its raise site rather than at the catch.
+	caught := v.errorValue(r)
+
 	// Deferred calls of every frame this unwind abandons, innermost first.
 	// runDeferredSafely contains a panic from any single one so a faulty
 	// cleanup can't replace the error being delivered. Done before the
@@ -455,7 +455,7 @@ func (v *VM) dispatchToHandler(entryDepth int, r any) bool {
 	v.callMarks = v.callMarks[:h.markDepth]
 
 	f.IP = h.catchIP
-	v.push(recoverValue(r))
+	v.push(caught)
 	return true
 }
 

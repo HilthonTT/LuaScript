@@ -605,8 +605,11 @@ log.debug("detail")`,
 real; sethook and gethook are STUBS that accept a call and do nothing —
 the VM has no hook mechanism. Nothing here can mutate locals or upvalues.
 
-getinfo reports currentline as -1: without a live frame the VM cannot
-recover the line.`,
+traceback renders the same frame walk the runtime prints for an uncaught
+error: one "<source>:<line>: in function 'name'" line per Lua frame,
+innermost first. getinfo(level) fills currentline from the live frame;
+getinfo(f) on a bare function value still reports -1, since a function
+that is not running has no current line.`,
 		SeeAlso: []string{"log", "syntax"},
 		Entries: []Entry{
 			{Name: "traceback", Kind: EntryFunction, Signature: "debug.traceback([message [, level]]): string",

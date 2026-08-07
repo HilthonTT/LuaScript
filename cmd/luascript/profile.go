@@ -57,6 +57,9 @@ func runProfile(argv []string) int {
 		fmt.Fprintln(os.Stderr, "luascript profile:", err)
 		return 1
 	}
+	if len(chunks) > 0 {
+		chunks[0].SetSource(path)
+	}
 
 	prof, err := debug.Start(*cpuOut, *memOut)
 	if err != nil {

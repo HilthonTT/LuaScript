@@ -196,8 +196,8 @@ messages so users hit a clear wall rather than a silent miscompile.
 
 Also out at the language level: GC metamethods (`__gc`, and `__close`
 enforcement — the attribute is parse- and const-checked only); full `debug`
-semantics (`debugx` ships `traceback`/`getinfo` plus hook **stubs**, not real VM
-hooks); `finally` on try/catch and type-filtered `catch` clauses (`defer`
+semantics (`debugx` ships real `traceback`/`getinfo` but hook **stubs**, not
+VM hooks); `finally` on try/catch and type-filtered `catch` clauses (`defer`
 already covers unconditional cleanup, and a handler can re-`throw` after
 inspecting the value — the catch binding is always `any` because the checker
 cannot narrow what a `throw` produces).
@@ -240,6 +240,69 @@ position captures, `%1..%9` backrefs in both patterns and replacements, `%b()`
 balanced, and `%f[set]` frontier. `string.find` engages the engine only when
 magic characters are present, keeping a plain-substring fast path otherwise. The
 engine is `vm/patterns.go`.
+
+### Error positions and tracebacks
+
+`vm/traceback.go` is the whole of the error-reporting surface. Two facts drive
+its shape.
+
+**Frames survive the panic.** A raised error unwinds the *Go* stack, but
+`v.frames` is VM state that nothing touches on the way out — `execCatching`
+re-panics without unwinding when it has no handler for the error. So at the
+moment an error is finally caught, the Lua call stack that produced it is still
+intact and can be read. Exactly four places catch one and then destroy those
+frames:
+
+| boundary | catches for |
+| -------- | ----------- |
+| `safeCall` | `pcall` / `xpcall` / `VM.SafeCall` |
+| `dispatchToHandler` | a `try` region |
+| `Coroutine.goroutineBody` | a coroutine dying, reported through `resume` |
+| `recoverToError` | the error reaching the host uncaught |
+
+Each calls `v.errorValue(r)` (or `v.toRuntimeError(r)` at the top) as the first
+statement in its recover, before any unwinding. Everywhere else the panic is
+re-panicked untouched, so the *deepest* boundary is always the one that records
+the position — which is the raise site, not the handler.
+
+**The panic's type says who owns the position.** `LuaError` (and a bare Go
+`error`) means the VM raised — "attempt to index a nil value" — and gets the
+`<source>:<line>: ` prefix stamped on. `luaError` means a script raised via
+`error`/`assert`/`throw`, where positioning is the raiser's business: `error`
+already applied it at the requested level, and `throw` is deliberately verbatim.
+That split is what keeps a value from being prefixed twice.
+
+An uncaught error reaches the host as a **`*RuntimeError`** carrying the raised
+value, the positioned message, and the captured stack. Its `Error()` renders
+message plus traceback, which is what the CLI prints; `Message()` is the bare
+message. A stack that is only the main chunk renders without a traceback — it
+would repeat what the message's own prefix already said.
+
+**Chunk names are stamped at load, not compile.** `InstructionSet.SetSource`
+walks a chunk and its nested protos, and is called by whoever read the chunk:
+`repl.RunFile`, `require`, `loadfile`, `load` (honouring its chunkname argument
+and Lua's `=`/`@` sigils), and `luascript profile`. It deliberately does not run
+in the generator and is not serialized, because the bytecode cache is keyed on
+*content*: one cached chunk may legitimately be loaded from two paths. A chunk
+nobody stamped reports as `script`.
+
+Captures are bounded: `Traceback` keeps the innermost 10 and outermost 11
+frames and collapses the rest into a `... (skipping N levels)` marker, so a
+runaway recursion against a 200,000-frame ceiling does not render — or even
+allocate — one line per frame.
+
+Function names in a traceback come from the proto name, which the generator now
+takes from the binding when there is one: `local function f`, `function a.b:c`,
+`local f = function() end` and `M.run = function() end` all name their literal.
+A genuinely anonymous literal falls back to `anon@<line>`, which at least
+locates its definition. `debug.traceback` and `debug.getinfo` render through the
+same `vm.Traceback` / `vm.FormatTraceback` pair, so the module and an uncaught
+error cannot drift apart.
+
+Known gap: `xpcall` runs its message handler *after* unwinding, so a handler
+that calls `debug.traceback` sees its own stack rather than the failed call's.
+Lua runs the handler before unwinding; matching that means calling back into Lua
+from inside the recover, which is a larger change than this bought.
 
 ## try / catch
 

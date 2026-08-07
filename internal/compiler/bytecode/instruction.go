@@ -334,6 +334,15 @@ type InstructionSet struct {
 	// decide whether a call needs the recover-installing exec path; only
 	// bodies that actually use `try` pay for it.
 	hasTry bool
+
+	// source is the chunk name shown in error positions and tracebacks —
+	// normally the path of the file this body was compiled from. It is
+	// stamped by whoever loads the chunk (see SetSource) rather than by the
+	// generator, because the generator is handed source text with no idea
+	// where it came from, and because the bytecode cache is keyed on
+	// content: one cached chunk may legitimately be loaded from two paths.
+	// Deliberately not serialized for the same reason.
+	source string
 }
 
 // LocalsResolved reports whether the VM has already reconciled NumLocals.
@@ -362,6 +371,39 @@ type UpvalueDesc struct {
 
 // Name returns the instruction set's name.
 func (is *InstructionSet) Name() string { return is.name }
+
+// DefaultChunkName is the source shown for chunks nobody stamped — the REPL,
+// `load()`ed strings, and embedded payloads in a bundled executable.
+const DefaultChunkName = "script"
+
+// Source returns the chunk name to show in error positions and tracebacks,
+// falling back to DefaultChunkName for a proto that was never stamped.
+//
+// A leading '=' or '@' is dropped: those are Lua's chunkname sigils for
+// "show this verbatim" and "this is a file name", and scripts calling
+// load(src, "=name") expect neither to appear in the message.
+func (is *InstructionSet) Source() string {
+	if is.source == "" {
+		return DefaultChunkName
+	}
+	if c := is.source[0]; c == '=' || c == '@' {
+		return is.source[1:]
+	}
+	return is.source
+}
+
+// SetSource stamps the chunk name onto this body and every function nested
+// inside it, so a traceback entry for any frame can name its file. Callers
+// apply it once, right after loading a chunk.
+func (is *InstructionSet) SetSource(name string) {
+	if is == nil || is.source == name {
+		return
+	}
+	is.source = name
+	for _, p := range is.Protos {
+		p.SetSource(name)
+	}
+}
 
 // Type returns the instruction set's category (Program / FunctionDef).
 func (is *InstructionSet) Type() string { return is.isType }

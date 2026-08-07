@@ -113,6 +113,10 @@ func (r *REPL) RunFile(path string) {
 		fmt.Fprintln(os.Stderr, "luascript:", err)
 		os.Exit(1)
 	}
+	// Name the chunk after the file so runtime errors and tracebacks point
+	// at it. Done after compilation rather than inside it because a cache
+	// hit returns a chunk keyed on content, which two paths can share.
+	main.SetSource(path)
 	v := vm.New()
 	// Let `require` resolve modules sitting next to the script, not just
 	// ones under the process's cwd.

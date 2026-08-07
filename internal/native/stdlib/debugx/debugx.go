@@ -18,9 +18,6 @@
 package debugx
 
 import (
-	"fmt"
-	"strings"
-
 	"github.com/hilthontt/luascript/internal/vm"
 )
 
@@ -110,40 +107,28 @@ func newDebug() *vm.Table {
 	return m
 }
 
-// formatTraceback walks v.CallFrames() from inner to outer and renders a
-// Lua-style traceback. `level` is 1-based and skips that many caller
-// frames before listing; the conventional value is 1 (skip the helper
-// itself). A negative or zero level lists every frame.
+// formatTraceback renders a Lua-style traceback of the live call stack,
+// optionally under a message header. Capture and rendering both live in the
+// VM (see vm.Traceback / vm.FormatTraceback) so this module and the
+// traceback printed for an uncaught error cannot drift apart.
+//
+// `level` follows Lua: level 1 is the function that called traceback, level 2
+// its caller, and so on. Because GoFuncs push no CallFrame of their own, the
+// innermost frame already *is* the caller — so level N skips N-1 frames. A
+// level below 1 lists everything.
 func formatTraceback(v *vm.VM, msg string, level int) string {
-	frames := v.CallFrames()
-	var b strings.Builder
-	if msg != "" {
-		b.WriteString(msg)
-		b.WriteByte('\n')
+	skip := level - 1
+	if skip < 0 {
+		skip = 0
 	}
-	b.WriteString("stack traceback:")
-
-	// Skip the topmost `level` frames so the user's caller is the first
-	// entry shown. The traceback line itself was already pushed onto
-	// frames by the time we run, so level=1 hides this function's frame.
-	end := len(frames) - level
-	if level <= 0 || end > len(frames) {
-		// Negative or zero level lists every frame (and must not index
-		// past the slice).
-		end = len(frames)
+	tb := vm.FormatTraceback(v.Traceback(skip))
+	switch {
+	case msg == "":
+		return tb
+	case tb == "":
+		return msg
 	}
-	if end < 0 {
-		end = 0
-	}
-	for i := end - 1; i >= 0; i-- {
-		f := frames[i]
-		b.WriteByte('\n')
-		b.WriteByte('\t')
-		b.WriteString(frameLocation(f))
-		b.WriteString(": in ")
-		b.WriteString(frameLabel(f))
-	}
-	return b.String()
+	return msg + "\n" + tb
 }
 
 // frameInfo turns the n-th frame (1-based) into a Lua-shaped info table.
@@ -162,8 +147,13 @@ func frameInfo(v *vm.VM, level int) *vm.Table {
 	if level <= 0 || idx < 0 || idx >= len(frames) {
 		return nil
 	}
-	f := frames[idx]
-	return closureInfo(f.Closure)
+	t := closureInfo(frames[idx].Closure)
+	// A live frame knows where it is parked, unlike a bare closure — fill in
+	// the line the VM's own traceback would report for this same frame.
+	if entries := v.Traceback(level - 1); len(entries) > 0 {
+		t.Set("currentline", int64(entries[0].Line))
+	}
+	return t
 }
 
 // closureInfo fills the standard getinfo table for a Lua closure.
@@ -192,69 +182,14 @@ func goFuncInfo(g *vm.GoFunc) *vm.Table {
 	return t
 }
 
-// frameLocation renders the `<source>:<line>` prefix used on each
-// traceback line. A frame without a current instruction (paused at the
-// very entry) falls back to the proto name.
-func frameLocation(f *vm.CallFrame) string {
-	if f == nil || f.Closure == nil || f.Closure.Proto == nil {
-		return "[?]"
-	}
-	src := protoSource(f.Closure)
-	line := currentLine(f)
-	if line > 0 {
-		return fmt.Sprintf("%s:%d", src, line)
-	}
-	return src
-}
-
-// frameLabel renders the trailing "in function 'name'" half of a
-// traceback entry. Anonymous chunks become "main chunk"; nested
-// functions inherit the proto name set by the bytecode generator.
-func frameLabel(f *vm.CallFrame) string {
-	if f == nil || f.Closure == nil || f.Closure.Proto == nil {
-		return "?"
-	}
-	name := protoName(f.Closure)
-	if name == "" {
-		return "main chunk"
-	}
-	return "function '" + name + "'"
-}
-
-// currentLine pulls the source line of the instruction the frame is
-// currently parked on. Each instruction stamps its originating source
-// line; if the IP is out of range (e.g. the frame just returned), we
-// fall back to the last known line, which is still useful for the
-// traceback header.
-func currentLine(f *vm.CallFrame) int {
-	if f.Closure == nil || f.Closure.Proto == nil {
-		return 0
-	}
-	ins := f.Closure.Proto.Instructions
-	if len(ins) == 0 {
-		return 0
-	}
-	idx := f.IP
-	if idx >= len(ins) {
-		idx = len(ins) - 1
-	} else if idx < 0 {
-		idx = 0
-	}
-	return ins[idx].SourceLine()
-}
-
-// protoSource returns the human-readable source identifier for a
-// closure's prototype. We use the proto Name() — that's what the
-// generator stamps for both the top-level chunk and inner functions.
+// protoSource returns the chunk name a closure was compiled from — the
+// script path for a file, or a bracketed excerpt for a `load`ed string.
+// Stamped at load time by whoever read the chunk; see InstructionSet.SetSource.
 func protoSource(c *vm.Closure) string {
 	if c == nil || c.Proto == nil {
 		return "[?]"
 	}
-	n := c.Proto.Name()
-	if n == "" {
-		return "?"
-	}
-	return n
+	return c.Proto.Source()
 }
 
 // protoName extracts a callable display name from the prototype. For

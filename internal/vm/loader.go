@@ -165,6 +165,9 @@ func builtinRequire(v *VM, args []Value) []Value {
 	if cerr != nil {
 		panic(Errorf("error loading module '%s' from file '%s':\n\t%s", name, fpath, cerr.Error()))
 	}
+	// An error raised inside a required module should name the module's file,
+	// not the script that required it.
+	main.SetSource(fpath)
 	cl := &Closure{Proto: main}
 	results := v.CallValue(cl, []Value{name, fpath}, 1)
 	ret := pickRet(results)
@@ -243,6 +246,7 @@ func builtinLoadfile(_ *VM, args []Value) []Value {
 	if cerr != nil {
 		return []Value{nil, cerr.Error()}
 	}
+	main.SetSource(fname)
 	return []Value{&Closure{Proto: main}}
 }
 
@@ -258,6 +262,21 @@ func builtinDofile(v *VM, args []Value) []Value {
 		panic(LuaError(msg))
 	}
 	return v.CallValue(res[0], nil, -1)
+}
+
+// chunkExcerpt builds the default chunk name Lua gives a `load`ed string:
+// the source's first line, bracketed and truncated, so an error inside it is
+// still traceable to the text that produced it.
+func chunkExcerpt(src string) string {
+	line := src
+	if i := strings.IndexAny(line, "\r\n"); i >= 0 {
+		line = line[:i] + "..."
+	}
+	const maxExcerpt = 40
+	if len(line) > maxExcerpt {
+		line = line[:maxExcerpt] + "..."
+	}
+	return `[string "` + line + `"]`
 }
 
 // builtinLoad compiles a string chunk. Lua's `load` also accepts a function
@@ -276,5 +295,15 @@ func builtinLoad(_ *VM, args []Value) []Value {
 	if cerr != nil {
 		return []Value{nil, cerr.Error()}
 	}
+	// Lua's second argument is the chunk name used in error messages and
+	// tracebacks; with none given it falls back to a bracketed excerpt of
+	// the source itself.
+	chunkname := chunkExcerpt(src)
+	if len(args) >= 2 {
+		if s, isStr := args[1].(string); isStr {
+			chunkname = s
+		}
+	}
+	chunks[0].SetSource(chunkname)
 	return []Value{&Closure{Proto: chunks[0]}}
 }

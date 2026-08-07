@@ -177,6 +177,14 @@ func (g *Generator) compileAssign(is *InstructionSet, s *ast.AssignStatement) {
 	tempBase := g.current.locals.maxSlot // for documentation only
 	_ = tempBase
 
+	// Name function literals after the target they are assigned to, so
+	// `M.run = function() end` shows up as 'M.run' in a traceback. Only
+	// plain-name and dotted-field targets yield a readable name.
+	if len(s.Values) == n {
+		for i, val := range s.Values {
+			g.nameFunc(val, assignTargetName(s.Targets[i]))
+		}
+	}
 	g.emitExplistTo(is, s.Values, n, s.Line())
 	tempSlots := make([]int, n)
 	// We have N values on the stack, in left-to-right order with the last
@@ -250,6 +258,14 @@ func (g *Generator) compileAssign(is *InstructionSet, s *ast.AssignStatement) {
 
 func (g *Generator) compileLocal(is *InstructionSet, s *ast.LocalStatement) {
 	n := len(s.Names)
+	// `local f = function() end` is the same function to a reader as
+	// `local function f`, so give the literal the same traceback name.
+	// Only the 1:1 explist form can attribute a name unambiguously.
+	if len(s.Values) == n {
+		for i, val := range s.Values {
+			g.nameFunc(val, s.Names[i].Name)
+		}
+	}
 	g.emitExplistTo(is, s.Values, n, s.Line())
 
 	// REPL convenience: at the chunk-root scope of the main chunk, promote
@@ -284,7 +300,7 @@ func (g *Generator) compileLocalFunction(is *InstructionSet, s *ast.LocalFunctio
 	// across REPL inputs. Recursion still works because the body resolves
 	// `f` via GetGlobal at call time.
 	if g.isReplTopLevel() {
-		g.compileFunctionExpression(is, s.Func)
+		g.compileNamedFunction(is, s.Func, s.Name)
 		is.define(SetGlobal, s.Line(), s.Name)
 		return
 	}
@@ -292,7 +308,7 @@ func (g *Generator) compileLocalFunction(is *InstructionSet, s *ast.LocalFunctio
 	// Define the local first so the function body can reference itself
 	// recursively (matches Lua's `local function f` shorthand semantics).
 	slot := g.current.locals.define(s.Name)
-	g.compileFunctionExpression(is, s.Func)
+	g.compileNamedFunction(is, s.Func, s.Name)
 	is.define(SetLocal, s.Line(), slot)
 }
 
@@ -327,7 +343,7 @@ func (g *Generator) compileFunctionDecl(is *InstructionSet, s *ast.FunctionDecla
 	switch {
 	case len(s.DottedFields) == 0 && s.MethodName == "":
 		// Plain `function name() end`: assigns to the global (or local) `name`.
-		g.compileFunctionExpression(is, fn)
+		g.compileNamedFunction(is, fn, s.Name.Name)
 		g.compileStoreName(is, s.Name.Name, s.Line())
 	default:
 		// Walk the funcname path to obtain the target table on the stack.
@@ -349,9 +365,52 @@ func (g *Generator) compileFunctionDecl(is *InstructionSet, s *ast.FunctionDecla
 			}
 			setKey = fields[len(fields)-1]
 		}
-		g.compileFunctionExpression(is, fn)
+		// Render the qualified name the way it was written, so a traceback
+		// says "in function 'Account:deposit'" rather than just 'deposit'.
+		g.compileNamedFunction(is, fn, funcDeclName(s))
 		is.define(SetField, s.Line(), setKey)
 	}
+}
+
+// assignTargetName renders an assignment target as the name a traceback
+// should show for a function literal stored into it: `f` for a plain name,
+// `M.run` for a dotted field. Bracket-indexed and computed targets have no
+// stable name, so they get "" and fall back to "anon@<line>".
+func assignTargetName(t ast.Expression) string {
+	switch tgt := t.(type) {
+	case *ast.Identifier:
+		return tgt.Name
+	case *ast.IndexExpression:
+		if !tgt.IsDot {
+			return ""
+		}
+		sl, ok := tgt.Index.(*ast.StringLiteral)
+		if !ok {
+			return ""
+		}
+		obj := assignTargetName(tgt.Object)
+		if obj == "" {
+			return sl.Value
+		}
+		return obj + "." + sl.Value
+	}
+	return ""
+}
+
+// funcDeclName rebuilds the dotted/colon path of a `function a.b:c()` header
+// for display in tracebacks.
+func funcDeclName(s *ast.FunctionDeclaration) string {
+	var b strings.Builder
+	b.WriteString(s.Name.Name)
+	for _, f := range s.DottedFields {
+		b.WriteByte('.')
+		b.WriteString(f)
+	}
+	if s.MethodName != "" {
+		b.WriteByte(':')
+		b.WriteString(s.MethodName)
+	}
+	return b.String()
 }
 
 func (g *Generator) compileIf(is *InstructionSet, s *ast.IfStatement) {

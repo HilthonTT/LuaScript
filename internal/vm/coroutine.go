@@ -92,7 +92,10 @@ func (co *Coroutine) goroutineBody(v *VM) {
 				co.yieldCh <- yieldMsg{done: true, failed: true, errVal: closeSignal{}}
 				return
 			}
-			co.yieldCh <- yieldMsg{done: true, failed: true, errVal: recoverValue(r)}
+			// errorValue is read here, before the goroutine's frames go
+			// away with it, so a coroutine that dies on a runtime error
+			// reports the position inside the coroutine body.
+			co.yieldCh <- yieldMsg{done: true, failed: true, errVal: v.errorValue(r)}
 		}
 	}()
 	args := <-co.resumeCh

@@ -101,6 +101,29 @@ type Generator struct {
 
 	// nextTryRegion hands out the program-unique ids funcCtx.tryRegions holds.
 	nextTryRegion int
+
+	// funcNames carries display names for function literals that are bound to
+	// a name by their enclosing statement (`local f = function() end`,
+	// `M.run = function() end`). The binding is discovered by the statement,
+	// but the name is needed by compileFunctionExpression further down the
+	// expression walk, so it is parked here keyed by AST node rather than
+	// threaded through every compileExpression signature. Purely cosmetic:
+	// it only affects the proto name a traceback prints.
+	funcNames map[*ast.FunctionExpression]string
+}
+
+// nameFunc records a display name for a function literal, if that is what
+// `e` is. Statements that bind an explist to names call this for each pair
+// before emitting the values.
+func (g *Generator) nameFunc(e ast.Expression, name string) {
+	fe, ok := e.(*ast.FunctionExpression)
+	if !ok || name == "" {
+		return
+	}
+	if g.funcNames == nil {
+		g.funcNames = map[*ast.FunctionExpression]string{}
+	}
+	g.funcNames[fe] = name
 }
 
 // Err returns the first generation error, or nil. An unresolved forward

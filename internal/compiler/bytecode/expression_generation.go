@@ -230,7 +230,19 @@ func (g *Generator) compileIfExpression(is *InstructionSet, e *ast.IfExpression)
 }
 
 func (g *Generator) compileFunctionExpression(is *InstructionSet, e *ast.FunctionExpression) {
-	parent := g.pushFunction(fmt.Sprintf("anon@%d", e.Line()), e.Params, e.IsVararg, e.Line())
+	g.compileNamedFunction(is, e, g.funcNames[e])
+}
+
+// compileNamedFunction compiles a function body, recording `name` on the proto
+// so runtime tracebacks can render "in function 'name'". Statements that bind a
+// literal to a name (`local function f`, `function a.b:c`, `local f = function`)
+// pass it through; a genuinely anonymous literal passes "" and falls back to
+// "anon@<line>", which at least locates the definition in the source.
+func (g *Generator) compileNamedFunction(is *InstructionSet, e *ast.FunctionExpression, name string) {
+	if name == "" {
+		name = fmt.Sprintf("anon@%d", e.Line())
+	}
+	parent := g.pushFunction(name, e.Params, e.IsVararg, e.Line())
 	g.compileParamDefaults(g.current.is, e.Params)
 	if e.Body != nil {
 		g.compileBlock(g.current.is, e.Body)

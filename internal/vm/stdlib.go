@@ -1,7 +1,6 @@
 package vm
 
 import (
-	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -19,20 +18,8 @@ func (e luaError) Error() string {
 	return ToString(e.value)
 }
 
-// recoverValue maps a recovered panic to the Lua error value a protected call
-// (pcall/coroutine.resume) should surface as its error result.
-func recoverValue(r any) Value {
-	switch e := r.(type) {
-	case luaError:
-		return e.value
-	case LuaError:
-		return string(e)
-	case error:
-		return e.Error()
-	default:
-		return fmt.Sprintf("%v", r)
-	}
-}
+// (VM.errorValue in traceback.go maps a recovered panic to the Lua error value
+// a protected call surfaces, stamping the raise position onto VM-raised ones.)
 
 // registerStdlib installs a minimal set of Lua built-in globals: print, type,
 // tostring, tonumber, ipairs, pairs, next, error, pcall, assert, select.
@@ -329,28 +316,9 @@ func builtinError(v *VM, args []Value) []Value {
 	// Non-string values propagate unchanged (tables, numbers, …);
 	// pcall/xpcall return them verbatim.
 	if s, ok := msg.(string); ok && level > 0 {
-		if line := v.sourceLineAt(int(level)); line > 0 {
-			msg = fmt.Sprintf("script:%d: %s", line, s)
-		}
+		msg = v.where(int(level)) + s
 	}
 	panic(luaError{value: msg})
-}
-
-// sourceLineAt resolves an error level to a source line: level 1 is the Lua
-// frame that called the erroring builtin (the top frame — GoFuncs don't push
-// frames), level 2 its caller, and so on. Returns 0 when the level has no
-// Lua frame or no line info.
-func (v *VM) sourceLineAt(level int) int {
-	idx := len(v.frames) - level
-	if idx < 0 || idx >= len(v.frames) {
-		return 0
-	}
-	f := v.frames[idx]
-	ip := f.IP - 1
-	if ip < 0 || ip >= len(f.Closure.Proto.Instructions) {
-		return 0
-	}
-	return f.Closure.Proto.Instructions[ip].SourceLine()
 }
 
 func builtinPcall(v *VM, args []Value) []Value {
@@ -408,6 +376,11 @@ func safeCall(v *VM, fn Value, args []Value) (rs []Value, errVal Value, failed b
 			if isCloseSignal(r) {
 				panic(r)
 			}
+			// Resolve the error value FIRST, while v.frames still holds the
+			// failing call stack: that is what lets a VM-raised error be
+			// stamped with the position it was raised at. Everything below
+			// destroys those frames.
+			errVal = v.errorValue(r)
 			// Run deferred calls for every frame abandoned by this unwind,
 			// innermost first, so `defer` cleanup still happens when an error
 			// propagates and not only on a normal return. runDeferredSafely
@@ -431,21 +404,22 @@ func safeCall(v *VM, fn Value, args []Value) (rs []Value, errVal Value, failed b
 			// variadic call pops a stale mark and reads a bogus args base.
 			v.callMarks = v.callMarks[:markDepth]
 			failed = true
-			errVal = recoverValue(r)
 		}
 	}()
 	rs = v.CallValue(fn, args, -1)
 	return
 }
 
-func builtinAssert(_ *VM, args []Value) []Value {
+func builtinAssert(v *VM, args []Value) []Value {
 	if len(args) == 0 || !IsTruthy(args[0]) {
-		var msg Value = "assertion failed!"
 		if len(args) >= 2 {
-			// The message is the error object, propagated unchanged.
-			msg = args[1]
+			// A supplied message is the error object and propagates
+			// unchanged, position included or not, exactly as thrown.
+			panic(luaError{value: args[1]})
 		}
-		panic(luaError{value: msg})
+		// The default message is raised by assert itself, so it carries the
+		// position of the failing call the way any other builtin's error does.
+		panic(luaError{value: v.where(1) + "assertion failed!"})
 	}
 	return args
 }

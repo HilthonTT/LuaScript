@@ -112,6 +112,25 @@ Deliberately out of v1: intersections (`A & B`), string-singleton types,
 cross-module type checking (`require()` returns `any`), and recursive aliases.
 See [DESIGN.md](DESIGN.md#deliberately-out).
 
+## Errors
+
+Runtime errors carry the file and line they were raised at, and an uncaught one
+prints the call stack that led there — across module boundaries, since each
+chunk is named after the file it was loaded from.
+
+```
+$ luascript app.lsc
+luascript: lib/parse.lsc:14: attempt to index a nil value
+stack traceback:
+	lib/parse.lsc:14: in function 'Parser.field'
+	lib/parse.lsc:31: in function 'Parser.record'
+	app.lsc:8: in main chunk
+```
+
+`pcall`, `try`/`catch` and `coroutine.resume` report the position the error was
+*raised* at, not the one that caught it. `require("debug")` exposes the same
+walk as `debug.traceback([msg [, level]])`.
+
 ## Modules
 
 `require("…")` for `db`, `os`, `math`, `json`, `http`, `httpserver`, `crypto`,
