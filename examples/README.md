@@ -76,6 +76,7 @@ Windows**; use WSL).
 | `54_queue_module.lsc` | `queue` — priority job queue (delays, retries, backpressure, metrics) and channels |
 | `31_ui_module.lsc` | the `ui` desktop module (Fyne). Run with `-tags luascript_ui` |
 | `56_testing.lsc` | `test` — describe/test/skip, hooks, the assertion surface (one test fails on purpose) |
+| `57_db_module.lsc` | `db` — SQL via database/sql. Runs against in-process SQLite, so **no server needed** |
 | `53_plugin.lsc` | `plugin` — load Go packages at run time. **cgo + linux/darwin/freebsd only** |
 
 ## Tests

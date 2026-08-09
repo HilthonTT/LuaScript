@@ -627,23 +627,57 @@ that is not running has no current line.`,
 		Name: "db", Kind: KindModule, RuntimeModule: "db",
 		Title:    "SQL database access",
 		Synopsis: `local db = require("db")`,
-		Detail: `A thin wrapper over Go's database/sql. PostgreSQL is linked in
-(lib/pq); other drivers are added host-side by building with an extra
-driver file, not from script.
+		Detail: `A thin wrapper over Go's database/sql. Four drivers are linked in
+by default:
+
+  postgres    PostgreSQL          $1, $2 placeholders
+  mysql       MySQL / MariaDB     ? placeholders
+  sqlserver   SQL Server / Azure  @p1, @p2 placeholders
+  sqlite      SQLite (pure Go)    ? placeholders
+
+db.drivers() lists what this binary actually has. Aliases resolve, so
+"pg"/"postgresql", "mariadb" and "mssql" all work, and "sqlite" finds
+whichever SQLite backend was built in. Building with
+-tags luascript_sqlite_cgo swaps the pure-Go SQLite for mattn/go-sqlite3,
+which registers as "sqlite3"; the name "sqlite" resolves to either.
+
+Bind-parameter syntax is the one thing that stops the same SQL running
+against two databases. The module reports it — db.placeholder(driver, n)
+and conn:placeholder(n) — rather than rewriting your SQL, since parsing
+SQL to do that is easy to get subtly wrong.
 
 Always pass values as parameters rather than splicing them into the SQL
-string — the driver escapes them and the query plan is reusable.`,
+string — the driver escapes them and the query plan is reusable.
+
+Values come back typed: a number column is a Lua number on every driver,
+including MySQL, whose wire protocol returns raw bytes. DECIMAL and
+NUMERIC stay strings on purpose — float64 cannot hold them exactly.
+NULL is nil, and timestamps are RFC3339 strings.
+
+SQLite in-memory databases (":memory:") are pinned to a single pooled
+connection, because each SQLite in-memory connection is a separate
+database and a pool would otherwise lose your tables.`,
 		Example: `local db = require("db")
-local conn = db.open("postgres", "postgres://user:pw@localhost/app?sslmode=disable")
-assert(conn:ping())
-local rows = conn:query("SELECT id, name FROM users WHERE age > $1", 30)
+print(table.concat(db.drivers(), ", "))
+
+-- No server needed: SQLite runs in-process.
+local conn = db.open("sqlite", ":memory:")
+conn:exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER)")
+local n, id = conn:exec("INSERT INTO users (name, age) VALUES (?, ?)", "ada", 36)
+
+local rows = conn:query("SELECT id, name FROM users WHERE age > " .. conn:placeholder(1), 30)
 for _, r in ipairs(rows) do print(r.id, r.name) end
 conn:close()`,
 		SeeAlso: []string{"db.conn", "json", "plugin"},
 		Entries: []Entry{
 			{Name: "open", Kind: EntryFunction, Signature: "db.open(driver, datasource): conn",
-				Summary: `Opens a connection pool. The driver name is "postgres" unless the host binary links others.`,
-				Detail:  "Opening is lazy — call :ping() to verify the connection actually works."},
+				Summary: `Opens a connection pool. Driver names and aliases resolve against what is compiled in.`,
+				Detail:  "sql.Open is lazy, so db.open pings before returning — a bad DSN raises here rather than on the first query."},
+			{Name: "drivers", Kind: EntryFunction, Signature: "db.drivers(): table",
+				Summary: "An array of the database/sql driver names this binary can open."},
+			{Name: "placeholder", Kind: EntryFunction, Signature: "db.placeholder(driver [, n]): string",
+				Summary: `How a driver spells its nth bind parameter: "?", "$1" or "@p1". n defaults to 1.`,
+				Detail:  "Answers for drivers that are not compiled in too, so a script can generate SQL for a database it is not connected to."},
 			{Name: "VERSION", Kind: EntryConstant, Signature: "db.VERSION: string", Summary: "The module's version string."},
 		},
 	},

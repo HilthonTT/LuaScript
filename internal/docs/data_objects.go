@@ -150,13 +150,22 @@ server:listen(":8080")`,
 		Title:    "database connection pool",
 		Synopsis: `local conn = require("db").open(driver, datasource)`,
 		Detail: `Wraps a *sql.DB, so it is a pool rather than a single connection.
-Pass query parameters as extra arguments — the driver escapes them.`,
+Pass query parameters as extra arguments — the driver escapes them.
+
+conn.driver is the resolved database/sql driver name, so a script that
+has to care about dialect differences can branch on it, and
+conn:placeholder(n) gives that driver's bind-parameter syntax.`,
 		SeeAlso: []string{"db", "json"},
 		Entries: []Entry{
 			{Name: "query", Kind: EntryMethod, Signature: "conn:query(sql, ...): table",
 				Summary: "Runs a query and returns the rows as an array of tables keyed by column name."},
-			{Name: "exec", Kind: EntryMethod, Signature: "conn:exec(sql, ...): table",
-				Summary: "Runs a statement that returns no rows, reporting the rows affected and any last insert id."},
+			{Name: "exec", Kind: EntryMethod, Signature: "conn:exec(sql, ...): number, number",
+				Summary: "Runs a statement that returns no rows; returns rows affected and the last insert id.",
+				Detail:  "Both are best-effort: Postgres reports 0 for the insert id (use RETURNING and :query instead), and some drivers report 0 rows affected for DDL."},
+			{Name: "placeholder", Kind: EntryMethod, Signature: "conn:placeholder([n]): string",
+				Summary: "This connection's bind-parameter syntax for the nth parameter. n defaults to 1."},
+			{Name: "driver", Kind: EntryField, Signature: "conn.driver: string",
+				Summary: "The resolved database/sql driver name backing this connection."},
 			{Name: "ping", Kind: EntryMethod, Signature: "conn:ping(): boolean, string?",
 				Summary: "Verifies the connection is alive, opening one if the pool is empty."},
 			{Name: "close", Kind: EntryMethod, Signature: "conn:close(): boolean",

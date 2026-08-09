@@ -1,0 +1,83 @@
+-- The `db` module — SQL over Go's database/sql.
+--
+--   go run ./cmd/luascript examples/57_db_module.lsc
+--
+-- This example needs no server: SQLite is linked into the interpreter and
+-- runs in-process. The same code works against PostgreSQL, MySQL/MariaDB and
+-- SQL Server by changing the driver name and DSN — the only thing that has to
+-- change with it is bind-parameter syntax, which the module reports.
+
+local db = require("db")
+
+print("drivers compiled into this binary:")
+for _, name in ipairs(db.drivers()) do
+  io.write("  ", name, "\n")
+end
+
+-- Bind parameters are the one portability wart. Each database spells them
+-- differently, so ask rather than guess.
+print("\nbind-parameter syntax:")
+for _, driver in ipairs({ "postgres", "mysql", "sqlite", "sqlserver" }) do
+  print(string.format("  %-10s %s %s", driver, db.placeholder(driver, 1), db.placeholder(driver, 2)))
+end
+
+-- ":memory:" is a private, in-process database that disappears on close.
+-- Swap the two arguments for a real server and nothing below changes:
+--   db.open("postgres",  "postgres://user:pw@localhost/app?sslmode=disable")
+--   db.open("mysql",     "user:pw@tcp(127.0.0.1:3306)/app")
+--   db.open("sqlserver", "sqlserver://user:pw@localhost:1433?database=app")
+local conn = db.open("sqlite", ":memory:")
+print("\nconnected via:", conn.driver)
+conn:ping()
+
+conn:exec([[
+  CREATE TABLE users (
+    id    INTEGER PRIMARY KEY AUTOINCREMENT,
+    name  TEXT    NOT NULL,
+    email TEXT,
+    score REAL    NOT NULL DEFAULT 0
+  )
+]])
+
+-- Values always go through as bind parameters, never spliced into the SQL.
+-- The driver escapes them, so a quote in a name is data and not syntax.
+local p = conn:placeholder(1)  -- "?" here; "$1" on Postgres
+local insert = "INSERT INTO users (name, email, score) VALUES (" ..
+  conn:placeholder(1) .. ", " .. conn:placeholder(2) .. ", " .. conn:placeholder(3) .. ")"
+
+local people = {
+  { "Ada Lovelace",   "ada@example.com",   99.5 },
+  { "Grace Hopper",   "grace@example.com", 97.25 },
+  { "Alan Turing",    nil,                 95.0 },   -- nil becomes SQL NULL
+  { "O'Brien, Sean",  "sean@example.com",  61.5 },   -- the quote is just data
+}
+
+for _, person in ipairs(people) do
+  -- exec returns rows affected and the last insert id. The id is 0 on
+  -- databases that don't support it (Postgres — use RETURNING there).
+  local affected, id = conn:exec(insert, person[1], person[2], person[3])
+  print(string.format("inserted %-16s rows=%d id=%d", person[1], affected, id))
+end
+
+-- query returns an array of rows, each a table keyed by column name.
+print("\ntop scorers:")
+local rows = conn:query(
+  "SELECT id, name, email, score FROM users WHERE score > " .. p .. " ORDER BY score DESC",
+  90
+)
+for i, r in ipairs(rows) do
+  -- Numeric columns arrive as numbers on every driver, and a NULL is nil.
+  print(string.format("  %d. %-16s %-20s %.2f  (%s)",
+    i, r.name, r.email or "<no email>", r.score, type(r.score)))
+end
+
+-- Aggregates behave the same way.
+local stats = conn:query("SELECT count(*) AS n, avg(score) AS mean FROM users")[1]
+print(string.format("\n%d users, mean score %.3f", stats.n, stats.mean))
+
+-- Errors are ordinary Lua errors, so pcall catches them.
+local ok, err = pcall(function() return conn:query("SELECT * FROM missing_table") end)
+print("\nbad query caught:", ok, err)
+
+conn:close()
+print("\nclosed.")

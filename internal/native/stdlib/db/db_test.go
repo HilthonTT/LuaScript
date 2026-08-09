@@ -197,8 +197,8 @@ func TestModuleExposesOpenAndVersion(t *testing.T) {
 		ver = db.VERSION
 		fn = type(db.open)
 	`)
-	if got := v.Globals.Get("ver"); got != "0.1.0" {
-		t.Errorf("VERSION = %v, want 0.1.0", got)
+	if got := v.Globals.Get("ver"); got != "0.2.0" {
+		t.Errorf("VERSION = %v, want 0.2.0", got)
 	}
 	if got := v.Globals.Get("fn"); got != "function" {
 		t.Errorf("type(db.open) = %v, want function", got)
