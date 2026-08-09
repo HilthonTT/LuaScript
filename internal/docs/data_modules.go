@@ -708,4 +708,97 @@ Because the widget surface only exists in the tagged build, it is not
 documented here — see examples/31_ui_module.lsc.`,
 		SeeAlso: []string{"plot", "httpserver"},
 	},
+	{
+		Name: "test", Kind: KindModule, RuntimeModule: "test",
+		Title:    "unit testing",
+		Synopsis: `local t = require("test")`,
+		Detail: `Tests run the moment they are declared — test(name, fn) calls fn
+right there — so a test file is an ordinary chunk and nothing is
+deferred to a collection phase.
+
+  luascript test                     run every *_test.lsc under .
+  luascript test -v examples/tests   report every test, not just failures
+  luascript test -run "rounds"       filter by name (Lua pattern or substring)
+  luascript test -list               name the tests without running them
+  luascript test -failfast           stop at the first failure
+
+Each file gets a fresh VM, so one file cannot leak globals into the
+next. Within a file, tests run in declaration order on the one VM
+goroutine.
+
+describe(name, fn) nests a name scope; a test's full name is its
+scopes and its own name joined with "/", which is what -run matches
+against. before_each/after_each apply to the scope they are declared
+in and every scope nested inside it.
+
+Assertions raise on failure, carrying the source position of the
+assertion call. Running a test file directly (luascript foo_test.lsc)
+still executes its tests and prints a line each, but only the test
+subcommand prints a summary.`,
+		Example: `local t = require("test")
+
+t.describe("math", function()
+  t.before_each(function() collectgarbage() end)
+
+  t.test("rounds down", function()
+    t.assert_eq(math.floor(3.7), 3)
+  end)
+
+  t.test("rejects a bad call", function()
+    t.assert_error(function() error("boom") end, "boom")
+  end)
+
+  t.skip("not written yet")
+end)`,
+		SeeAlso: []string{"debug", "os"},
+		Entries: []Entry{
+			{Name: "test", Kind: EntryFunction, Signature: "test.test(name, fn)",
+				Summary: "Declares and immediately runs one test."},
+			{Name: "it", Kind: EntryFunction, Signature: "test.it(name, fn)",
+				Summary: "Alias for test.test, for suites that read better as `it(\"does x\")`."},
+			{Name: "describe", Kind: EntryFunction, Signature: "test.describe(name, fn)",
+				Summary: "Groups the tests declared in fn under a name scope; scopes nest.",
+				Detail:  "An error raised by fn itself — rather than by a test inside it — is recorded against the scope, so one broken group does not abort the file."},
+			{Name: "skip", Kind: EntryFunction, Signature: "test.skip(name [, fn])",
+				Summary: "Records a test as skipped without running it. The body is optional and ignored."},
+			{Name: "before_each", Kind: EntryFunction, Signature: "test.before_each(fn)",
+				Summary: "Runs fn before every test in the current scope and any nested scope."},
+			{Name: "after_each", Kind: EntryFunction, Signature: "test.after_each(fn)",
+				Summary: "Runs fn after every test in the current scope, including when the test failed."},
+			{Name: "assert_eq", Kind: EntryFunction, Signature: "test.assert_eq(got, want [, msg])",
+				Summary: "Fails unless got == want, __eq metamethod included."},
+			{Name: "assert_ne", Kind: EntryFunction, Signature: "test.assert_ne(got, unwanted [, msg])",
+				Summary: "Fails when got == unwanted."},
+			{Name: "assert_deep_eq", Kind: EntryFunction, Signature: "test.assert_deep_eq(got, want [, msg])",
+				Summary: "Compares tables key by key, recursively; cycles terminate.",
+				Detail:  "A table whose metatable defines __eq is compared with that metamethod instead, so deep equality never contradicts ==."},
+			{Name: "assert_true", Kind: EntryFunction, Signature: "test.assert_true(v [, msg])",
+				Summary: "Fails unless v is truthy — only nil and false are not."},
+			{Name: "assert_false", Kind: EntryFunction, Signature: "test.assert_false(v [, msg])",
+				Summary: "Fails unless v is nil or false."},
+			{Name: "assert_nil", Kind: EntryFunction, Signature: "test.assert_nil(v [, msg])",
+				Summary: "Fails unless v is nil."},
+			{Name: "assert_not_nil", Kind: EntryFunction, Signature: "test.assert_not_nil(v [, msg])",
+				Summary: "Fails when v is nil."},
+			{Name: "assert_near", Kind: EntryFunction, Signature: "test.assert_near(got, want [, eps] [, msg])",
+				Summary: "Fails unless |got - want| <= eps. eps defaults to 1e-9.",
+				Detail:  "A string in the third position is taken as the message, so the common (got, want, msg) form needs no placeholder tolerance."},
+			{Name: "assert_type", Kind: EntryFunction, Signature: "test.assert_type(v, typename [, msg])",
+				Summary: "Fails unless type(v) == typename."},
+			{Name: "assert_len", Kind: EntryFunction, Signature: "test.assert_len(v, n [, msg])",
+				Summary: "Fails unless #v == n. v must be a string or a table."},
+			{Name: "assert_contains", Kind: EntryFunction, Signature: "test.assert_contains(haystack, needle [, msg])",
+				Summary: "Substring search for a string haystack, value membership for a table."},
+			{Name: "assert_match", Kind: EntryFunction, Signature: "test.assert_match(s, pattern [, msg])",
+				Summary: "Fails unless the Lua pattern matches somewhere in s."},
+			{Name: "assert_error", Kind: EntryFunction, Signature: "test.assert_error(fn [, pattern] [, msg]): any",
+				Summary: "Fails unless fn raises; returns the error value. pattern is matched against its message."},
+			{Name: "assert_no_error", Kind: EntryFunction, Signature: "test.assert_no_error(fn [, msg]): ...",
+				Summary: "Fails if fn raises; forwards fn's return values."},
+			{Name: "fail", Kind: EntryFunction, Signature: "test.fail([msg])",
+				Summary: "Fails unconditionally — for a branch that should be unreachable."},
+			{Name: "VERSION", Kind: EntryConstant, Signature: "test.VERSION: string",
+				Summary: "The module's version string."},
+		},
+	},
 }

@@ -84,25 +84,49 @@ func (v *VM) Traceback(skip int) []TracebackEntry {
 	if skip < 0 {
 		skip = 0
 	}
-	n := len(v.frames) - skip
+	return v.tracebackRange(0, len(v.frames)-skip)
+}
+
+// tracebackFrom captures only the activations at or above frame index base —
+// the ones a protected call pushed itself, with its caller's stack left out.
+// SafeCallTrace uses it so a host running a callback (a test body, an event
+// handler) reports the callback's own stack and not the chunk that installed
+// it.
+func (v *VM) tracebackFrom(base int) []TracebackEntry {
+	if base < 0 {
+		base = 0
+	}
+	return v.tracebackRange(base, len(v.frames))
+}
+
+// tracebackRange renders frames [lo, hi) innermost-first, abbreviating the
+// middle when the range exceeds the head+tail budget.
+func (v *VM) tracebackRange(lo, hi int) []TracebackEntry {
+	if lo < 0 {
+		lo = 0
+	}
+	if hi > len(v.frames) {
+		hi = len(v.frames)
+	}
+	n := hi - lo
 	if n <= 0 {
 		return nil
 	}
-	// frames is outermost-first; walking down from index n-1 yields
+	// frames is outermost-first; walking down from index hi-1 yields
 	// innermost-first, which is the order a traceback reads in.
 	if n <= tracebackHead+tracebackTail {
 		entries := make([]TracebackEntry, 0, n)
-		for i := n - 1; i >= 0; i-- {
+		for i := hi - 1; i >= lo; i-- {
 			entries = append(entries, frameEntry(v.frames[i]))
 		}
 		return entries
 	}
 	entries := make([]TracebackEntry, 0, tracebackHead+tracebackTail+1)
-	for i := n - 1; i >= n-tracebackHead; i-- {
+	for i := hi - 1; i >= hi-tracebackHead; i-- {
 		entries = append(entries, frameEntry(v.frames[i]))
 	}
 	entries = append(entries, TracebackEntry{Elided: n - tracebackHead - tracebackTail})
-	for i := tracebackTail - 1; i >= 0; i-- {
+	for i := lo + tracebackTail - 1; i >= lo; i-- {
 		entries = append(entries, frameEntry(v.frames[i]))
 	}
 	return entries

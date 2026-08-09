@@ -324,7 +324,7 @@ func builtinError(v *VM, args []Value) []Value {
 func builtinPcall(v *VM, args []Value) []Value {
 	fn := AnyArg("pcall", 1, args)
 	callArgs := args[1:]
-	results, errVal, failed := safeCall(v, fn, callArgs)
+	results, errVal, _, failed := safeCall(v, fn, callArgs, false)
 	if failed {
 		return []Value{false, errVal}
 	}
@@ -334,13 +334,13 @@ func builtinPcall(v *VM, args []Value) []Value {
 func builtinXpcall(v *VM, args []Value) []Value {
 	fn := AnyArg("xpcall", 1, args)
 	handler := AnyArg("xpcall", 2, args)
-	results, errVal, failed := safeCall(v, fn, args[2:])
+	results, errVal, _, failed := safeCall(v, fn, args[2:], false)
 	if !failed {
 		return append([]Value{true}, results...)
 	}
 	// The message handler runs protected as well; an error inside it
 	// replaces the original one rather than escaping the xpcall.
-	hres, herr, hfailed := safeCall(v, handler, []Value{errVal})
+	hres, herr, _, hfailed := safeCall(v, handler, []Value{errVal}, false)
 	if hfailed {
 		return []Value{false, herr}
 	}
@@ -359,10 +359,23 @@ func builtinXpcall(v *VM, args []Value) []Value {
 // server's per-request handler dispatch — should route through this so one bad
 // callback can't corrupt the shared VM.
 func (v *VM) SafeCall(fn Value, args []Value) (rs []Value, errVal Value, failed bool) {
-	return safeCall(v, fn, args)
+	rs, errVal, _, failed = safeCall(v, fn, args, false)
+	return
 }
 
-func safeCall(v *VM, fn Value, args []Value) (rs []Value, errVal Value, failed bool) {
+// SafeCallTrace is SafeCall plus the Lua call stack as it stood at the raise
+// point, innermost frame first — the same capture an uncaught error carries in
+// RuntimeError.Stack. Only the frames the call itself pushed are included, so a
+// host reporting a failed callback shows the callback's stack rather than the
+// chunk that registered it. `stack` is nil unless failed is true.
+//
+// Kept separate from SafeCall because capturing allocates, and pcall — which is
+// on hot paths — has no use for it.
+func (v *VM) SafeCallTrace(fn Value, args []Value) (rs []Value, errVal Value, stack []TracebackEntry, failed bool) {
+	return safeCall(v, fn, args, true)
+}
+
+func safeCall(v *VM, fn Value, args []Value, wantTrace bool) (rs []Value, errVal Value, stack []TracebackEntry, failed bool) {
 	// Snapshot frame/stack depth so we can unwind anything the failing call
 	// pushed before bubbling the error back to the pcall caller.
 	frameDepth := len(v.frames)
@@ -381,6 +394,12 @@ func safeCall(v *VM, fn Value, args []Value) (rs []Value, errVal Value, failed b
 			// stamped with the position it was raised at. Everything below
 			// destroys those frames.
 			errVal = v.errorValue(r)
+			// Same rule as errorValue: capture while the failing frames are
+			// still standing. frameDepth trims the caller's stack, leaving
+			// only what this call pushed.
+			if wantTrace {
+				stack = v.tracebackFrom(frameDepth)
+			}
 			// Run deferred calls for every frame abandoned by this unwind,
 			// innermost first, so `defer` cleanup still happens when an error
 			// propagates and not only on a normal return. runDeferredSafely

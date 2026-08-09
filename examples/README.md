@@ -75,7 +75,30 @@ Windows**; use WSL).
 | `30_std_module.lsc` | `std` — stack, queue, deque, set, list, heap (requires `cmp`), hashmap |
 | `54_queue_module.lsc` | `queue` — priority job queue (delays, retries, backpressure, metrics) and channels |
 | `31_ui_module.lsc` | the `ui` desktop module (Fyne). Run with `-tags luascript_ui` |
+| `56_testing.lsc` | `test` — describe/test/skip, hooks, the assertion surface (one test fails on purpose) |
 | `53_plugin.lsc` | `plugin` — load Go packages at run time. **cgo + linux/darwin/freebsd only** |
+
+## Tests
+
+`tests/` holds a real suite rather than a walkthrough — it is what
+`luascript test` discovers and runs:
+
+```sh
+go run ./cmd/luascript test examples/tests        # summary only
+go run ./cmd/luascript test -v examples/tests     # every test
+go run ./cmd/luascript test -run "rounds" examples/tests
+go run ./cmd/luascript test -list examples/tests
+```
+
+| File | What it shows |
+| ---- | ------------- |
+| `tests/math_test.lsc` | describe groups, `before_each`, `assert_near`, `assert_error` with a message pattern |
+| `tests/table_test.lsc` | nested describes inheriting hooks, deep equality, string and pattern assertions |
+
+Every `*_test.lsc` file runs in its own VM, so one file cannot leak globals into
+the next. `56_testing.lsc` covers the other direction: a test file is an
+ordinary chunk, so running one directly executes its tests too — you just don't
+get a summary.
 
 ## Data science
 

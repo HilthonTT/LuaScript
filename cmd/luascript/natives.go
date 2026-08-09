@@ -28,6 +28,7 @@ import (
 	"github.com/hilthontt/luascript/internal/native/stdlib/sort"
 	"github.com/hilthontt/luascript/internal/native/stdlib/std"
 	"github.com/hilthontt/luascript/internal/native/stdlib/structrt"
+	"github.com/hilthontt/luascript/internal/native/stdlib/testx"
 	"github.com/hilthontt/luascript/internal/native/stdlib/timex"
 	"github.com/hilthontt/luascript/internal/native/stdlib/ui"
 	"github.com/hilthontt/luascript/internal/native/stdlib/utf8x"
@@ -59,6 +60,10 @@ var nativeRegistrars = []func(*vm.VM){
 	std.RegisterStdPreload,
 	queue.RegisterQueuePreload,
 	compression.RegisterCompressionPreload,
+	// test is registered like any other module so `require("test")` resolves
+	// in a plain script run too. `luascript test` installs its own registry
+	// over this one after walking the list — see internal/testrunner.
+	testx.RegisterTestPreload,
 	bit32.RegisterBit32Preload,
 	utf8x.RegisterUTF8Preload,
 	iox.RegisterIOPreload,

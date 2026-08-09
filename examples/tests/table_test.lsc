@@ -1,0 +1,74 @@
+-- Assertions over tables and strings, plus nested describes and hooks.
+
+local t = require("test")
+
+local describe, test = t.describe, t.test
+
+describe("tables", function()
+  local sample
+
+  t.before_each(function()
+    sample = { 1, 2, 3, name = "sample" }
+  end)
+
+  test("length counts the array part", function()
+    t.assert_len(sample, 3)
+  end)
+
+  test("deep equality ignores identity", function()
+    t.assert_deep_eq(sample, { 1, 2, 3, name = "sample" })
+  end)
+
+  test("deep equality recurses", function()
+    t.assert_deep_eq({ a = { b = { 1, 2 } } }, { a = { b = { 1, 2 } } })
+  end)
+
+  test("plain equality is identity", function()
+    t.assert_ne(sample, { 1, 2, 3, name = "sample" })
+  end)
+
+  test("contains checks values", function()
+    t.assert_contains(sample, 2)
+    t.assert_contains(sample, "sample")
+  end)
+
+  describe("mutation", function()
+    -- Nested describes inherit the enclosing before_each, so `sample` is
+    -- rebuilt for these tests too.
+    test("insert appends", function()
+      table.insert(sample, 4)
+      t.assert_eq(sample[4], 4)
+      t.assert_len(sample, 4)
+    end)
+
+    test("remove pops the tail", function()
+      t.assert_eq(table.remove(sample), 3)
+      t.assert_len(sample, 2)
+    end)
+  end)
+end)
+
+describe("strings", function()
+  test("concatenates", function()
+    t.assert_eq("lua" .. "script", "luascript")
+  end)
+
+  test("formats", function()
+    t.assert_eq(string.format("%d-%s", 7, "up"), "7-up")
+  end)
+
+  test("matches a Lua pattern", function()
+    t.assert_match("build 2026-08-09 ok", "%d%d%d%d%-%d%d%-%d%d")
+  end)
+
+  test("substitutes", function()
+    t.assert_eq(string.gsub("a,b,c", ",", ";"), "a;b;c")
+  end)
+
+  test("reports its type", function()
+    t.assert_type("hello", "string")
+    t.assert_type(1, "number")
+    t.assert_type({}, "table")
+    t.assert_nil(nil)
+  end)
+end)

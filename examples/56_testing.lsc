@@ -1,0 +1,90 @@
+-- The `test` module.
+--
+-- Two ways to run it:
+--
+--   go run ./cmd/luascript examples/56_testing.lsc   -- this file, one line per test
+--   go run ./cmd/luascript test examples/tests       -- the real suite, with a summary
+--
+-- Tests run the moment they are declared, so this file is an ordinary chunk:
+-- no collection phase, no runner required. What the `test` subcommand adds is
+-- discovery across files, name filtering, a fresh VM per file, and a summary.
+
+local t = require("test")
+
+-- describe() groups tests under a name scope. A test's full name is its
+-- scopes and its own name joined with "/" — "queue/pops in order" here —
+-- which is what `test -run` matches against.
+t.describe("queue", function()
+  local q
+
+  -- before_each runs before every test in this scope and any nested one,
+  -- so each test below starts from a fresh queue.
+  t.before_each(function()
+    q = { 1, 2, 3 }
+  end)
+
+  t.test("pops in order", function()
+    t.assert_eq(table.remove(q, 1), 1)
+    t.assert_eq(table.remove(q, 1), 2)
+    t.assert_len(q, 1)
+  end)
+
+  t.test("pushes onto the tail", function()
+    table.insert(q, 4)
+    t.assert_eq(q[#q], 4)
+  end)
+end)
+
+t.describe("assertions", function()
+  t.test("compares by value, __eq included", function()
+    t.assert_eq(1, 1.0)          -- integer 1 and float 1.0 are ==
+    t.assert_ne("a", "b")
+  end)
+
+  t.test("compares tables structurally", function()
+    -- == on two distinct tables is identity, so use deep equality.
+    t.assert_ne({ 1, 2 }, { 1, 2 })
+    t.assert_deep_eq({ 1, 2, tag = "x" }, { 1, 2, tag = "x" })
+  end)
+
+  t.test("checks floats with a tolerance", function()
+    t.assert_near(0.1 + 0.2, 0.3)            -- default eps is 1e-9
+    t.assert_near(math.pi, 3.14, 0.01)
+  end)
+
+  t.test("checks types, length and membership", function()
+    t.assert_type({}, "table")
+    t.assert_len("luascript", 9)
+    t.assert_contains("luascript", "script")
+    t.assert_contains({ "a", "b" }, "b")
+    t.assert_match("v2.1.0", "^v%d+%.%d+")
+  end)
+
+  t.test("checks that something raises", function()
+    local err = t.assert_error(function() error("disk is full") end, "disk")
+    t.assert_match(tostring(err), "full")
+
+    t.assert_no_error(function() return 1 + 1 end)
+  end)
+
+  t.test("takes a message to say which one tripped", function()
+    local counter = 41
+    t.assert_eq(counter + 1, 42, "counter should have advanced")
+  end)
+end)
+
+-- A failing test is recorded, not fatal: the rest of the file still runs.
+t.describe("what a failure looks like", function()
+  t.test("this one fails on purpose", function()
+    t.assert_eq(2 + 2, 5, "arithmetic still works")
+  end)
+
+  t.test("and the next one still runs", function()
+    t.assert_true(true)
+  end)
+end)
+
+-- skip() records a test without running it; the body is optional.
+t.skip("not written yet")
+
+print("\n-- done. `luascript test examples/tests` prints a summary too.")

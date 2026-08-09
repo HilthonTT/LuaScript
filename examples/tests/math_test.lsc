@@ -1,0 +1,73 @@
+-- Run with:  luascript test examples/tests
+--            luascript test -v -run "rounds" examples/tests
+--
+-- Every *_test.lsc file is compiled and run in its own VM, so anything this
+-- file does to globals stays here.
+
+local t = require("test")
+
+local describe, test, skip = t.describe, t.test, t.skip
+local assert_eq, assert_near = t.assert_eq, t.assert_near
+local assert_true, assert_error = t.assert_true, t.assert_error
+
+describe("arithmetic", function()
+  test("adds integers", function()
+    assert_eq(1 + 1, 2)
+  end)
+
+  test("keeps integer and float distinct in tostring", function()
+    assert_eq(tostring(3), "3")
+    assert_eq(tostring(3.0), "3.0")
+  end)
+
+  test("divides to a float", function()
+    assert_eq(7 / 2, 3.5)
+    assert_eq(7 // 2, 3)
+  end)
+end)
+
+describe("math library", function()
+  test("rounds down", function()
+    assert_eq(math.floor(3.7), 3)
+  end)
+
+  test("rounds up", function()
+    assert_eq(math.ceil(3.2), 4)
+  end)
+
+  test("approximates pi", function()
+    assert_near(math.pi, 3.14159, 1e-5)
+  end)
+
+  test("reports the larger value", function()
+    assert_eq(math.max(2, 9, 4), 9)
+    assert_eq(math.min(2, 9, 4), 2)
+  end)
+end)
+
+describe("error handling", function()
+  -- before_each applies to every test in this describe and any nested one.
+  local calls
+  t.before_each(function() calls = 0 end)
+
+  test("assert_error captures the raised value", function()
+    local err = assert_error(function()
+      calls = calls + 1
+      error("boom")
+    end)
+    assert_eq(calls, 1)
+    assert_true(err ~= nil)
+  end)
+
+  test("assert_error can match the message", function()
+    assert_error(function() error("disk is full") end, "disk")
+  end)
+
+  test("pcall reports failure", function()
+    local ok, err = pcall(function() error("nope") end)
+    assert_eq(ok, false)
+    assert_true(err ~= nil)
+  end)
+end)
+
+skip("not written yet")

@@ -43,6 +43,9 @@ func run(argv []string) int {
 	if len(argv) >= 1 && argv[0] == "analyze" {
 		return runAnalyze(argv[1:])
 	}
+	if len(argv) >= 1 && argv[0] == "test" {
+		return runTest(argv[1:])
+	}
 	if len(argv) >= 1 && argv[0] == "profile" {
 		return runProfile(argv[1:])
 	}
@@ -70,6 +73,7 @@ Subcommands:
   doc [topic]     stdlib reference (alias: man); "doc -k text" searches
   fmt [-w] file   format a source file
   build -o out    bundle a script and the interpreter into one executable
+  test [path...]  run *_test.lsc files; "-run pat" filters, "-v" is verbose
   analyze file    static analysis
   profile file    collect a CPU profile for PGO
   pkg             package manifest / lockfile commands

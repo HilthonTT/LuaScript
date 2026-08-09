@@ -253,6 +253,11 @@ func (v *VM) lenMM(val Value) Value {
 	panic(Errorf("attempt to get length of a %s value", TypeName(val)))
 }
 
+// EqualMM compares two values exactly as the `==` operator does, __eq
+// metamethod included. Hosts that need script-visible equality — rather than
+// the raw structural Equal — should use this.
+func (v *VM) EqualMM(a, b Value) bool { return v.equalMM(a, b) }
+
 // equalMM extends Equal with __eq fallback. Per Lua semantics __eq is only
 // invoked when both operands are tables (or both are full userdata) and the
 // raw == returned false.
