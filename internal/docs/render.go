@@ -146,7 +146,10 @@ func RenderEntry(t *Topic, e *Entry, o Options) string {
 // RenderIndex renders the table of contents shown by a bare `luascript doc`.
 func RenderIndex(o Options) string {
 	var b strings.Builder
-	b.WriteString(o.bold("luascript documentation") + " — " + version.Version + "\n")
+	b.WriteString(o.bold("luascript documentation"))
+	b.WriteString(" — ")
+	b.WriteString(version.Version)
+	b.WriteString("\n")
 	b.WriteString("\n")
 
 	groups := []struct {
@@ -172,13 +175,15 @@ func RenderIndex(o Options) string {
 		}
 		for _, t := range ts {
 			line := fmt.Sprintf("%s%-*s  %s", bodyIndent, width, t.Name, t.Title)
-			b.WriteString(truncate(line, o.width()) + "\n")
+			b.WriteString(truncate(line, o.width()))
+			b.WriteString("\n")
 		}
 		b.WriteString("\n")
 	}
 
 	b.WriteString(o.dim("Use \"luascript doc <topic>\" for a page, \"luascript doc <topic>.<name>\"\n"))
-	b.WriteString(o.dim("for one entry, or \"luascript doc -k <text>\" to search.") + "\n")
+	b.WriteString(o.dim("for one entry, or \"luascript doc -k <text>\" to search."))
+	b.WriteString("\n")
 	return b.String()
 }
 
@@ -199,12 +204,10 @@ func RenderSearch(results []Result, o Options) string {
 	var b strings.Builder
 	for _, r := range results {
 		name := r.Name()
-		pad := width - len(name)
-		if pad < 0 {
-			pad = 0
-		}
+		pad := max(width-len(name), 0)
 		line := o.bold(name) + strings.Repeat(" ", pad) + "  " + firstSentence(r.Summary())
-		b.WriteString(truncateVisible(line, o.width()) + "\n")
+		b.WriteString(truncateVisible(line, o.width()))
+		b.WriteString("\n")
 	}
 	return b.String()
 }
@@ -356,12 +359,15 @@ func banner(left, center, right string, o Options) string {
 }
 
 func section(b *strings.Builder, o Options, name string) {
-	b.WriteString(o.bold(name) + "\n")
+	b.WriteString(o.bold(name))
+	b.WriteString("\n")
 }
 
 func para(b *strings.Builder, o Options, indent, text string) {
 	for _, line := range wrap(text, o.width()-len(indent)) {
-		b.WriteString(indent + line + "\n")
+		b.WriteString(indent)
+		b.WriteString(line)
+		b.WriteString("\n")
 	}
 }
 
@@ -404,7 +410,9 @@ func verbatim(b *strings.Builder, indent, text string) {
 			b.WriteString("\n")
 			continue
 		}
-		b.WriteString(indent + line + "\n")
+		b.WriteString(indent)
+		b.WriteString(line)
+		b.WriteString("\n")
 	}
 }
 
@@ -413,7 +421,9 @@ func entries(b *strings.Builder, o Options, es []Entry) {
 		if i > 0 {
 			b.WriteString("\n")
 		}
-		b.WriteString(bodyIndent + o.bold(e.Signature) + "\n")
+		b.WriteString(bodyIndent)
+		b.WriteString(o.bold(e.Signature))
+		b.WriteString("\n")
 		para(b, o, entryIndent, e.Summary)
 		if e.Detail != "" {
 			b.WriteString("\n")
