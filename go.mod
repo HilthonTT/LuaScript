@@ -12,6 +12,7 @@ require (
 	github.com/mattn/go-runewidth v0.0.27
 	github.com/mattn/go-sqlite3 v1.14.49
 	github.com/microsoft/go-mssqldb v1.10.0
+	golang.org/x/crypto v0.54.0
 	modernc.org/sqlite v1.56.0
 )
 
@@ -59,7 +60,6 @@ require (
 	github.com/srwiley/rasterx v0.0.0-20220730225603-2ab79fcdd4ef // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/yuin/goldmark v1.8.5 // indirect
-	golang.org/x/crypto v0.54.0 // indirect
 	golang.org/x/image v0.44.0 // indirect
 	golang.org/x/net v0.57.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect

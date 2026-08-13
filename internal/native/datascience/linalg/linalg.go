@@ -144,6 +144,81 @@ func linalgLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
 		return []vm.Value{vecToTable(x)}
 	})
 
+	// --- decompositions ---------------------------------------------------
+	//
+	// solve and inverse cover square, non-singular systems. Everything else
+	// real data produces — overdetermined fits, rank-deficient matrices,
+	// covariance structure — needs one of these.
+
+	// cholesky(A) -> L, where L*Lᵀ = A. Requires A symmetric positive
+	// definite; roughly twice as fast as LU and the standard route for
+	// covariance matrices and least-squares normal equations.
+	set("cholesky", func(_ *vm.VM, args []vm.Value) []vm.Value {
+		a := mat("linalg.cholesky", 1, args)
+		requireSquare("linalg.cholesky", a)
+		l, ok := cholesky(a)
+		if !ok {
+			panic(vm.Errorf("linalg.cholesky: matrix is not symmetric positive definite"))
+		}
+		return []vm.Value{matToTable(l)}
+	})
+
+	// qr(A) -> Q, R with A = Q*R, Q orthonormal. The numerically stable
+	// basis for least squares; modified Gram-Schmidt.
+	set("qr", func(_ *vm.VM, args []vm.Value) []vm.Value {
+		a := mat("linalg.qr", 1, args)
+		if len(a) < cols(a) {
+			panic(vm.Errorf("linalg.qr: needs at least as many rows as columns (got %dx%d)", len(a), cols(a)))
+		}
+		q, r, ok := qrDecompose(a)
+		if !ok {
+			panic(vm.Errorf("linalg.qr: columns are linearly dependent"))
+		}
+		return []vm.Value{matToTable(q), matToTable(r)}
+	})
+
+	// lstsq(A, b) -> x minimising |Ax - b|. The overdetermined case that
+	// solve cannot take: a fit with more observations than parameters, which
+	// is the usual shape of a regression.
+	set("lstsq", func(_ *vm.VM, args []vm.Value) []vm.Value {
+		a := mat("linalg.lstsq", 1, args)
+		b := vec("linalg.lstsq", 2, args)
+		if len(a) != len(b) {
+			panic(vm.Errorf("linalg.lstsq: A has %d rows but b has length %d", len(a), len(b)))
+		}
+		if len(a) < cols(a) {
+			panic(vm.Errorf("linalg.lstsq: underdetermined (%d rows, %d columns)", len(a), cols(a)))
+		}
+		x, ok := lstsq(a, b)
+		if !ok {
+			panic(vm.Errorf("linalg.lstsq: columns are linearly dependent"))
+		}
+		return []vm.Value{vecToTable(x)}
+	})
+
+	// rank(A) -> the number of linearly independent rows, via row reduction
+	// with a tolerance. Tells you whether a system is solvable at all before
+	// solve raises.
+	set("rank", func(_ *vm.VM, args []vm.Value) []vm.Value {
+		a := mat("linalg.rank", 1, args)
+		return []vm.Value{int64(rank(a))}
+	})
+
+	// eigh(A) -> values, vectors for a symmetric A. The cyclic Jacobi method:
+	// slower than the general algorithms but short, dependency-free and
+	// unconditionally convergent for symmetric input. Values come back in
+	// descending order with the matching eigenvector as each column of
+	// `vectors`, which is what PCA and covariance analysis consume.
+	set("eigh", func(_ *vm.VM, args []vm.Value) []vm.Value {
+		a := mat("linalg.eigh", 1, args)
+		requireSquare("linalg.eigh", a)
+		if !isSymmetric(a) {
+			panic(vm.Errorf("linalg.eigh: matrix is not symmetric"))
+		}
+		values, vectors := eigenSymmetric(a)
+		return []vm.Value{vecToTable(values), matToTable(vectors)}
+	})
+
 	m.Set("VERSION", "0.1.0")
 	mt := vm.NewTable(0, 1)
 	mt.Set("__index", methods)

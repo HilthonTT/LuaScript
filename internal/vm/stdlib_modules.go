@@ -3,6 +3,7 @@ package vm
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"math"
 	"math/rand"
 	"os"
@@ -53,22 +54,8 @@ func buildMathLibrary() *Table {
 		}
 		return []Value{math.Abs(f)}
 	})
-	add("ceil", func(_ *VM, args []Value) []Value {
-		f := FloatArg("math.ceil", 1, args)
-		r := math.Ceil(f)
-		if i, ok := floatToInt(r); ok {
-			return []Value{i}
-		}
-		return []Value{r}
-	})
-	add("floor", func(_ *VM, args []Value) []Value {
-		f := FloatArg("math.floor", 1, args)
-		r := math.Floor(f)
-		if i, ok := floatToInt(r); ok {
-			return []Value{i}
-		}
-		return []Value{r}
-	})
+	add("ceil", roundToInt("math.ceil", math.Ceil))
+	add("floor", roundToInt("math.floor", math.Floor))
 	add("sqrt", floatToFloat1("math.sqrt", math.Sqrt))
 	add("exp", floatToFloat1("math.exp", math.Exp))
 	add("sin", floatToFloat1("math.sin", math.Sin))
@@ -93,7 +80,7 @@ func buildMathLibrary() *Table {
 		return []Value{math.Log(x)}
 	})
 	add("max", func(_ *VM, args []Value) []Value {
-		best := AnyArg("max", 1, args)
+		best := AnyArg("math.max", 1, args)
 		for _, a := range args[1:] {
 			if mathLess(best, a) {
 				best = a
@@ -102,7 +89,7 @@ func buildMathLibrary() *Table {
 		return []Value{best}
 	})
 	add("min", func(_ *VM, args []Value) []Value {
-		best := AnyArg("min", 1, args)
+		best := AnyArg("math.min", 1, args)
 		for _, a := range args[1:] {
 			if mathLess(a, best) {
 				best = a
@@ -117,7 +104,7 @@ func buildMathLibrary() *Table {
 			if xi, okx := args[0].(int64); okx {
 				if yi, oky := args[1].(int64); oky {
 					if yi == 0 {
-						panic(LuaError("bad argument #2 to 'fmod' (zero)"))
+						panic(LuaError("bad argument #2 to 'math.fmod' (zero)"))
 					}
 					return []Value{xi % yi}
 				}
@@ -136,6 +123,15 @@ func buildMathLibrary() *Table {
 		x := FloatArg("math.pow", 1, args)
 		y := FloatArg("math.pow", 2, args)
 		return []Value{math.Pow(x, y)}
+	})
+	add("ult", func(_ *VM, args []Value) []Value {
+		// Unsigned less-than: both operands are reinterpreted as uint64, so
+		// math.ult(-1, 0) is false (-1 is the largest unsigned value). The
+		// point is to let scripts do unsigned comparison on a runtime whose
+		// only integer type is signed.
+		a := IntArg("math.ult", 1, args)
+		b := IntArg("math.ult", 2, args)
+		return []Value{uint64(a) < uint64(b)}
 	})
 	add("tointeger", func(_ *VM, args []Value) []Value {
 		if len(args) == 0 {
@@ -171,14 +167,14 @@ func buildMathLibrary() *Table {
 				return []Value{int64(rng.Uint64())}
 			}
 			if m < 0 {
-				panic(LuaError("bad argument #1 to 'random' (interval is empty)"))
+				panic(LuaError("bad argument #1 to 'math.random' (interval is empty)"))
 			}
 			return []Value{int64(rng.Int63n(m)) + 1}
 		default:
 			lo := IntArg("math.random", 1, args)
 			hi := IntArg("math.random", 2, args)
 			if hi < lo {
-				panic(LuaError("bad argument #2 to 'random' (interval is empty)"))
+				panic(LuaError("bad argument #2 to 'math.random' (interval is empty)"))
 			}
 			// Compute the span as unsigned to avoid int64 overflow on wide
 			// intervals (e.g. mininteger..maxinteger). span == ^0 means the
@@ -191,13 +187,16 @@ func buildMathLibrary() *Table {
 		}
 	})
 	add("randomseed", func(_ *VM, args []Value) []Value {
-		if len(args) >= 1 {
-			seed := IntArg("math.randomseed", 1, args)
-			rng = rand.New(rand.NewSource(seed))
-		} else {
-			rng = rand.New(rand.NewSource(1))
+		// Lua 5.4 returns the two integer components that made up the seed, so
+		// a run that seeded itself can print them and be replayed exactly.
+		// This VM derives its stream from a single int64, so the second
+		// component is reported as 0 rather than invented.
+		seed := int64(1)
+		if len(args) >= 1 && args[0] != nil {
+			seed = IntArg("math.randomseed", 1, args)
 		}
-		return nil
+		rng = rand.New(rand.NewSource(seed))
+		return []Value{seed, int64(0)}
 	})
 	return t
 }
@@ -221,7 +220,30 @@ func mathLess(a, b Value) bool {
 			return x < y
 		}
 	}
-	panic(Errorf("bad argument to 'math.max/min' (number expected, got %s)", TypeName(b)))
+	panic(Errorf("bad argument to 'math.max' or 'math.min' (number expected, got %s)", TypeName(b)))
+}
+
+// roundToInt builds math.floor / math.ceil. An integer argument is returned
+// unchanged: routing it through float64 first would round any magnitude above
+// 2^53 to the nearest representable double, so math.floor(math.maxinteger)
+// came back as the float 9.2233720368548e+18 instead of maxinteger itself.
+// Only float input needs the rounding step, and its result is narrowed back to
+// an integer when it fits — matching Lua 5.4, where both functions return an
+// integer whenever one can represent the result.
+func roundToInt(name string, round func(float64) float64) func(*VM, []Value) []Value {
+	return func(_ *VM, args []Value) []Value {
+		if i, f, isInt, ok := NumArg(name, 1, args); ok {
+			if isInt {
+				return []Value{i}
+			}
+			r := round(f)
+			if n, ok := floatToInt(r); ok {
+				return []Value{n}
+			}
+			return []Value{r}
+		}
+		return []Value{nil}
+	}
 }
 
 func floatToFloat1(name string, fn func(float64) float64) func(*VM, []Value) []Value {
@@ -361,7 +383,7 @@ func buildStringLibrary() *Table {
 		for i, a := range args {
 			b, ok := ToInteger(a)
 			if !ok || b < 0 || b > 255 {
-				panic(Errorf("bad argument #%d to 'char' (value out of range)", i+1))
+				panic(Errorf("bad argument #%d to 'string.char' (value out of range)", i+1))
 			}
 			buf[i] = byte(b)
 		}
@@ -443,7 +465,7 @@ func buildStringLibrary() *Table {
 		s := StringArg("string.gsub", 1, args)
 		pat := StringArg("string.gsub", 2, args)
 		if len(args) < 3 {
-			panic(Errorf("bad argument #3 to 'gsub' (string/table/function expected)"))
+			panic(Errorf("bad argument #3 to 'string.gsub' (string/table/function expected)"))
 		}
 		repl := args[2]
 		n := -1 // sentinel: 4th arg absent → replace all
@@ -464,6 +486,10 @@ func buildStringLibrary() *Table {
 		fmtStr := StringArg("string.format", 1, args)
 		return []Value{luaFormat(v, fmtStr, args[1:])}
 	})
+	// Binary (de)serialization — implemented in strpack.go.
+	add("pack", builtinStringPack)
+	add("unpack", builtinStringUnpack)
+	add("packsize", builtinStringPacksize)
 	return t
 }
 
@@ -494,7 +520,7 @@ func luaFormat(v *VM, format string, args []Value) string {
 	argIdx := 0
 	nextArg := func() Value {
 		if argIdx >= len(args) {
-			panic(Errorf("bad argument #%d to 'format' (no value)", argIdx+2))
+			panic(Errorf("bad argument #%d to 'string.format' (no value)", argIdx+2))
 		}
 		v := args[argIdx]
 		argIdx++
@@ -528,7 +554,7 @@ func luaFormat(v *VM, format string, args []Value) string {
 			}
 		}
 		if j >= len(format) {
-			panic(Errorf("invalid conversion '%s' to 'format'", format[i:]))
+			panic(Errorf("invalid conversion '%s' to 'string.format'", format[i:]))
 		}
 		verb := format[j]
 		spec := format[i : j+1] // the whole directive, e.g. "%5.2d"
@@ -563,7 +589,7 @@ func luaFormat(v *VM, format string, args []Value) string {
 		case 'q':
 			b.WriteString(formatQ(nextArg()))
 		default:
-			panic(Errorf("invalid conversion '%%%c' to 'format'", verb))
+			panic(Errorf("invalid conversion '%%%c' to 'string.format'", verb))
 		}
 	}
 	return b.String()
@@ -580,12 +606,12 @@ func fmtArgInt(v Value) int64 {
 		if n, ok2 := floatToInt(x); ok2 {
 			return n
 		}
-		panic(Errorf("bad argument to 'format' (number has no integer representation)"))
+		panic(Errorf("bad argument to 'string.format' (number has no integer representation)"))
 	}
 	if n, ok := ToInteger(v); ok {
 		return n
 	}
-	panic(Errorf("bad argument to 'format' (number expected, got %s)", TypeName(v)))
+	panic(Errorf("bad argument to 'string.format' (number expected, got %s)", TypeName(v)))
 }
 
 // fmtArgFloat coerces a format argument to a float for the %f/%g/%e family.
@@ -593,7 +619,7 @@ func fmtArgFloat(v Value) float64 {
 	if f, ok := ToFloat(v); ok {
 		return f
 	}
-	panic(Errorf("bad argument to 'format' (number expected, got %s)", TypeName(v)))
+	panic(Errorf("bad argument to 'string.format' (number expected, got %s)", TypeName(v)))
 }
 
 // formatQ renders a value as a literal that reads back losslessly, per
@@ -654,7 +680,7 @@ func formatQ(v Value) string {
 	case nil:
 		return "nil"
 	}
-	panic(Errorf("bad argument to 'format' (value has no literal form)"))
+	panic(Errorf("bad argument to 'string.format' (value has no literal form)"))
 }
 
 // table
@@ -666,10 +692,10 @@ func buildTableLibrary() *Table {
 	}
 
 	add("insert", func(_ *VM, args []Value) []Value {
-		tbl := TableArg("insert", 1, args)
+		tbl := TableArg("table.insert", 1, args)
 		switch len(args) {
 		case 1:
-			panic(LuaError("bad argument to 'insert' (value expected)"))
+			panic(LuaError("bad argument to 'table.insert' (value expected)"))
 		case 2:
 			// Append at the end.
 			tbl.Set(tbl.Len()+1, args[1])
@@ -679,7 +705,7 @@ func buildTableLibrary() *Table {
 			n := tbl.Len()
 			// Lua 5.4: the position must be in [1, n+1].
 			if pos < 1 || pos > n+1 {
-				panic(LuaError("bad argument #2 to 'insert' (position out of bounds)"))
+				panic(LuaError("bad argument #2 to 'table.insert' (position out of bounds)"))
 			}
 			// Shift right to make room for the new element.
 			for i := n; i >= pos; i-- {
@@ -687,12 +713,12 @@ func buildTableLibrary() *Table {
 			}
 			tbl.Set(pos, val)
 		default:
-			panic(LuaError("wrong number of arguments to 'insert'"))
+			panic(LuaError("wrong number of arguments to 'table.insert'"))
 		}
 		return nil
 	})
 	add("remove", func(_ *VM, args []Value) []Value {
-		tbl := TableArg("remove", 1, args)
+		tbl := TableArg("table.remove", 1, args)
 		n := tbl.Len()
 		if n == 0 {
 			return []Value{nil}
@@ -701,7 +727,7 @@ func buildTableLibrary() *Table {
 		// Lua 5.4 validates pos unless it equals the default (n); an out-of-range
 		// pos must error, not silently drive a multi-billion-iteration shift loop.
 		if pos != n && (pos < 1 || pos > n+1) {
-			panic(LuaError("bad argument #2 to 'remove' (position out of bounds)"))
+			panic(LuaError("bad argument #2 to 'table.remove' (position out of bounds)"))
 		}
 		removed := tbl.Get(pos)
 		for i := pos; i < n; i++ {
@@ -713,10 +739,17 @@ func buildTableLibrary() *Table {
 		return []Value{removed}
 	})
 	add("concat", func(_ *VM, args []Value) []Value {
-		tbl := TableArg("concat", 1, args)
+		tbl := TableArg("table.concat", 1, args)
 		sep := OptString("table.concat", 2, args, "")
 		lo := OptInt("table.concat", 3, args, 1)
 		hi := OptInt("table.concat", 4, args, tbl.Len())
+		// Same wide-span guard as unpack/move: the caller picks both bounds, so
+		// without it table.concat(t, "", 1, math.maxinteger) spins the VM for
+		// the rest of the process's life. uint64 subtraction is exact here
+		// because the loop below only runs when hi >= lo.
+		if hi >= lo && uint64(hi)-uint64(lo) >= 1<<24 {
+			panic(LuaError("too many elements to concat"))
+		}
 		var b strings.Builder
 		for i := lo; i <= hi; i++ {
 			if i > lo {
@@ -731,19 +764,19 @@ func buildTableLibrary() *Table {
 			default:
 				// Reference Lua errors here; silently rendering "nil" or
 				// "table: 0x…" into the result masks caller bugs.
-				panic(Errorf("invalid value (%s) at index %d in table for 'concat'", TypeName(el), i))
+				panic(Errorf("invalid value (%s) at index %d in table for 'table.concat'", TypeName(el), i))
 			}
 		}
 		return []Value{b.String()}
 	})
 	add("sort", func(v *VM, args []Value) []Value {
-		tbl := TableArg("sort", 1, args)
+		tbl := TableArg("table.sort", 1, args)
 		var less func(a, b Value) bool
 		if len(args) >= 2 && args[1] != nil {
 			cmp := args[1]
 			if _, ok := cmp.(*Closure); !ok {
 				if _, ok := cmp.(*GoFunc); !ok {
-					panic(Errorf("bad argument #2 to 'sort' (function expected, got %s)", TypeName(cmp)))
+					panic(Errorf("bad argument #2 to 'table.sort' (function expected, got %s)", TypeName(cmp)))
 				}
 			}
 			less = func(a, b Value) bool {
@@ -765,13 +798,13 @@ func buildTableLibrary() *Table {
 		return nil
 	})
 	add("move", func(_ *VM, args []Value) []Value {
-		a1 := TableArg("move", 1, args)
+		a1 := TableArg("table.move", 1, args)
 		f := IntArg("table.move", 2, args)
 		e := IntArg("table.move", 3, args)
 		d := IntArg("table.move", 4, args)
 		a2 := a1
 		if len(args) >= 5 && args[4] != nil {
-			a2 = TableArg("move", 5, args)
+			a2 = TableArg("table.move", 5, args)
 		}
 		if e >= f {
 			// Same wide-span overflow guard as unpack: hi-lo+1 can wrap.
@@ -796,7 +829,7 @@ func buildTableLibrary() *Table {
 		if len(args) == 0 {
 			return nil
 		}
-		tbl := TableArg("unpack", 1, args)
+		tbl := TableArg("table.unpack", 1, args)
 		lo := OptInt("table.unpack", 2, args, 1)
 		hi := OptInt("table.unpack", 3, args, tbl.Len())
 		if hi < lo {
@@ -827,7 +860,16 @@ func buildTableLibrary() *Table {
 	return t
 }
 
-// io  (minimal — write, read("l"))
+// io — stdin/stdout only.
+//
+// This is the baseline `io` every VM gets, including embedded hosts that
+// register no native modules. The full Lua 5.4 library (file handles,
+// io.open/lines/seek, io.input/output redirection) lives in
+// internal/native/stdlib/iox and replaces this table on the `io` global once
+// the native registrars run; see cmd/luascript/natives.go. What stays here is
+// the subset that needs no file system: reading stdin and writing stdout, with
+// the same format strings the full library accepts so scripts behave the same
+// either way.
 
 func buildIOLibrary() *Table {
 	t := NewTable(0, 4)
@@ -843,27 +885,132 @@ func buildIOLibrary() *Table {
 		return nil
 	})
 	add("read", func(_ *VM, args []Value) []Value {
-		fmtArg := "l"
-		if len(args) >= 1 {
-			if s, ok := args[0].(string); ok {
-				fmtArg = strings.TrimPrefix(s, "*")
+		if len(args) == 0 {
+			return []Value{readLine(stdinReader, false)}
+		}
+		out := make([]Value, 0, len(args))
+		for i := range args {
+			// A numeric format is a byte count; a string format is one of
+			// l/L/n/a, optionally with Lua 5.2's leading '*'.
+			if n, ok := ToInteger(args[i]); ok {
+				out = append(out, readCount(stdinReader, n))
+				continue
+			}
+			spec := strings.TrimPrefix(StringArg("io.read", i+1, args), "*")
+			if spec == "" {
+				panic(Errorf("bad argument #%d to 'io.read' (invalid format)", i+1))
+			}
+			// Lua matches on the first letter only, so "line"/"number"/"all"
+			// work as well as the one-letter forms.
+			switch spec[0] {
+			case 'l':
+				out = append(out, readLine(stdinReader, false))
+			case 'L':
+				out = append(out, readLine(stdinReader, true))
+			case 'a':
+				// "a" never fails: at EOF it yields the empty string.
+				rest, _ := io.ReadAll(stdinReader)
+				out = append(out, string(rest))
+			case 'n':
+				out = append(out, readNumeral(stdinReader))
+			default:
+				panic(Errorf("bad argument #%d to 'io.read' (invalid format '%s')", i+1, spec))
 			}
 		}
-		switch fmtArg {
-		case "l", "L":
-			line, err := stdinReader.ReadString('\n')
-			if err != nil && line == "" {
-				return []Value{nil}
-			}
-			if fmtArg == "l" {
-				line = strings.TrimRight(line, "\r\n")
-			}
-			return []Value{line}
-		default:
-			panic(Errorf("io.read format %q not supported in this VM", fmtArg))
-		}
+		return out
 	})
 	return t
+}
+
+// readLine reads through the next newline. keepEol distinguishes "L" (newline
+// retained) from "l" (stripped). Returns nil at EOF with nothing read, which
+// is what terminates `for line in io.read` style loops.
+func readLine(br *bufio.Reader, keepEol bool) Value {
+	line, err := br.ReadString('\n')
+	if err != nil && line == "" {
+		return nil
+	}
+	if keepEol {
+		return line
+	}
+	return strings.TrimRight(line, "\r\n")
+}
+
+// readCount reads exactly n bytes. n == 0 is Lua's EOF probe: it returns ""
+// when more input exists and nil when it does not.
+func readCount(br *bufio.Reader, n int64) Value {
+	if n < 0 {
+		panic(Errorf("bad argument to 'io.read' (invalid format)"))
+	}
+	if n == 0 {
+		if _, err := br.Peek(1); err != nil {
+			return nil
+		}
+		return ""
+	}
+	buf := make([]byte, n)
+	got, err := io.ReadFull(br, buf)
+	if got == 0 && err != nil {
+		return nil
+	}
+	// A short read at EOF returns what was available, as in reference Lua.
+	return string(buf[:got])
+}
+
+// readNumeral implements the "n" format: skip leading space, then consume the
+// longest prefix that still looks like a Lua numeral and convert it. Returns
+// nil (Lua's `fail`) when the input does not start with a number, leaving the
+// offending bytes unread so the caller can retry with another format.
+func readNumeral(br *bufio.Reader) Value {
+	for {
+		c, err := br.ReadByte()
+		if err != nil {
+			return nil
+		}
+		if c != ' ' && c != '\t' && c != '\n' && c != '\r' && c != '\v' && c != '\f' {
+			_ = br.UnreadByte()
+			break
+		}
+	}
+	var lit []byte
+	for {
+		c, err := br.ReadByte()
+		if err != nil {
+			break
+		}
+		if isNumeralByte(c) {
+			lit = append(lit, c)
+			continue
+		}
+		_ = br.UnreadByte()
+		break
+	}
+	if len(lit) == 0 {
+		return nil
+	}
+	// Reuse the runtime's own numeral parser so io.read("n") accepts exactly
+	// what a numeric literal in source would (hex, exponents, integer subtype).
+	if i, f, isInt, ok := ToNumber(string(lit)); ok {
+		if isInt {
+			return i
+		}
+		return f
+	}
+	return nil
+}
+
+// isNumeralByte reports whether c can appear in a Lua numeral. Deliberately
+// permissive (it accepts "0x1p+4" and also nonsense like "1e+x"): the
+// conversion step is what decides validity.
+func isNumeralByte(c byte) bool {
+	switch {
+	case c >= '0' && c <= '9',
+		c >= 'a' && c <= 'f', c >= 'A' && c <= 'F',
+		c == 'x' || c == 'X', c == 'p' || c == 'P',
+		c == '.', c == '+', c == '-':
+		return true
+	}
+	return false
 }
 
 // Argument-validation helpers (NumArg, FloatArg, IntArg, StringArg,

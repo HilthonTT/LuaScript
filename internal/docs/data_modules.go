@@ -125,17 +125,30 @@ round trip through decode does not silently turn 1 into 1.0.
 
 Lua has one table type for both objects and arrays, so encode picks by
 shape: a table whose keys are exactly 1..n becomes a JSON array,
-anything else becomes an object. An empty table therefore encodes as [].`,
+anything else becomes an object. An empty table has no keys to go on and
+encodes as {}; pass json.empty_array when you need [] instead.`,
 		Example: `local json = require("json")
 local s = json.encode({ name = "ada", tags = { "x", "y" } })
 local t = json.decode(s)
 print(t.name, #t.tags)`,
 		SeeAlso: []string{"http", "csv", "dataframe"},
 		Entries: []Entry{
-			{Name: "encode", Kind: EntryFunction, Signature: "json.encode(value): string",
-				Summary: "Serialises a Lua value to JSON text. Raises on values JSON cannot represent, such as functions."},
-			{Name: "decode", Kind: EntryFunction, Signature: "json.decode(text): any",
-				Summary: "Parses JSON text into Lua values. Raises on malformed input."},
+			{Name: "encode", Kind: EntryFunction, Signature: "json.encode(value [, opts]): string",
+				Summary: "Serialises a Lua value to JSON text. Raises on values JSON cannot represent, such as functions.",
+				Detail: `opts.indent produces indented output: a number of spaces, or the
+literal string to indent with. Output is compact by default.`},
+			{Name: "decode", Kind: EntryFunction, Signature: "json.decode(text [, opts]): any",
+				Summary: "Parses JSON text into Lua values. Raises on malformed input, and on trailing content after the first value.",
+				Detail: `JSON nulls become nil by default. Pass { null = json.null } to keep
+them as a distinguishable sentinel instead — nil is indistinguishable
+from an absent key, and inside an array it truncates the rest, so
+[1, null, 3] otherwise decodes to a table of length 1.`},
+			{Name: "null", Kind: EntryConstant, Signature: "json.null: table",
+				Summary: "A sentinel standing for a JSON null. Encoding it produces null; pass it as opts.null to decode to receive it.",
+				Detail:  "Compare it by identity (v == json.null), not by shape — it is an empty table."},
+			{Name: "empty_array", Kind: EntryConstant, Signature: "json.empty_array: table",
+				Summary: "A marker that encodes as [] rather than {}.",
+				Detail:  "An empty Lua table is both an empty array and an empty object; encode has to choose, so this is how you ask for the other one."},
 			{Name: "VERSION", Kind: EntryConstant, Signature: "json.VERSION: string", Summary: "The module's version string."},
 		},
 	},
@@ -149,12 +162,29 @@ print(t.name, #t.tags)`,
   status_text  string   the status line, e.g. "200 OK"
   body         string   the response body
   ok           boolean  true when status is 2xx
-  headers      table    header name -> value
+  headers      table    header name -> value, multiple values comma-joined
+  headers_raw  table    header name -> array of values
+  url          string   the URL the response came from, after redirects
+
+Read Set-Cookie from headers_raw, never headers: a response may set
+several cookies and joining them with a comma produces a string no
+cookie parser can take apart.
 
 The shorthands take a URL directly; http.request takes an options table
 with method, url, body, headers, query and timeout (in seconds). For
 several requests against one host, new_client shares a base URL, default
-headers and a connection pool.`,
+headers and a connection pool.
+
+Options recognised on any call:
+
+  body              string  the raw request body
+  json              any     serialised to JSON, sets Content-Type
+  form              table   URL-encoded, sets Content-Type
+  headers           table   request headers (these win over json/form)
+  query             table   appended to the URL as a query string
+  timeout           number  seconds
+  username/password string  HTTP basic auth
+  follow_redirects  boolean false makes the 3xx itself the response`,
 		Example: `local http = require("http")
 local res = http.get("https://example.com")
 if res.ok then print(#res.body) end
@@ -173,16 +203,18 @@ local r = api:post("/items", '{"a":1}')`,
 			{Name: "delete", Kind: EntryFunction, Signature: "http.delete(url [, opts]): table",
 				Summary: "Performs a DELETE request."},
 			{Name: "post", Kind: EntryFunction, Signature: "http.post(url [, body [, opts]]): table",
-				Summary: "Performs a POST request with the given body string."},
+				Summary: "Performs a POST request with the given body string.",
+				Detail:  `Pass opts.json or opts.form instead of a body string to have the table serialised and the Content-Type set for you.`},
 			{Name: "put", Kind: EntryFunction, Signature: "http.put(url [, body [, opts]]): table",
 				Summary: "Performs a PUT request with the given body string."},
 			{Name: "patch", Kind: EntryFunction, Signature: "http.patch(url [, body [, opts]]): table",
 				Summary: "Performs a PATCH request with the given body string."},
 			{Name: "request", Kind: EntryFunction, Signature: "http.request(opts): table",
 				Summary: "The full-surface entry point. opts.url is required; method defaults to GET.",
-				Detail:  "Recognised keys: method, url, body, headers, query and timeout (seconds)."},
+				Detail: `Recognised keys: method, url, body, json, form, headers, query,
+timeout (seconds), username, password and follow_redirects.`},
 			{Name: "new_client", Kind: EntryFunction, Signature: "http.new_client([opts]): client",
-				Summary: "Creates a reusable client. opts may set base_url, headers and timeout.",
+				Summary: "Creates a reusable client. opts may set base_url, headers, timeout and follow_redirects.",
 				Detail:  "Headers given here are sent on every request unless a per-call header overrides them."},
 			{Name: "encode_url", Kind: EntryFunction, Signature: "http.encode_url(t): string",
 				Summary: `Percent-encodes a table into a query string. An array-valued key repeats: {a = {1, 2}} becomes "a=1&a=2".`},
@@ -251,16 +283,45 @@ assert(crypto.hmac_verify("key", "message", mac))`,
 				Summary: "The MD5 digest of s, hex-encoded. Legacy interoperability only."},
 			{Name: "hmac_sha256", Kind: EntryFunction, Signature: "crypto.hmac_sha256(key, msg): string",
 				Summary: "The HMAC-SHA256 of msg under key, hex-encoded."},
+			{Name: "hmac", Kind: EntryFunction, Signature: "crypto.hmac(alg, key, msg): string",
+				Summary: "The HMAC of msg under key using alg, hex-encoded. alg is sha256, sha384, sha512, sha1 or md5.",
+				Detail:  "Use this when a protocol specifies the digest; hmac_sha256 is the shorthand for the common case."},
 			{Name: "hmac_verify", Kind: EntryFunction, Signature: "crypto.hmac_verify(key, msg, expected_hex): boolean",
 				Summary: "Recomputes the HMAC of msg and compares it against expected_hex in constant time."},
+			{Name: "password_hash", Kind: EntryFunction, Signature: "crypto.password_hash(password [, opts]): string",
+				Summary: "Hashes a password with argon2id and returns a self-describing PHC string safe to store.",
+				Detail: `Never store a password as a plain digest — sha256(password) is
+brute-forced trivially. This salts automatically and is deliberately
+slow and memory-hard.
+
+The returned string carries the version, cost parameters and salt
+alongside the digest, so password_verify needs nothing else and costs
+can be raised later without invalidating existing hashes.
+
+opts may set time (passes, default 3), memory (KiB, default 65536),
+threads (default 4), key_length (default 32) and salt_length
+(default 16).`},
+			{Name: "password_verify", Kind: EntryFunction, Signature: "crypto.password_verify(password, encoded): boolean",
+				Summary: "Checks a password against a string produced by password_hash, comparing in constant time.",
+				Detail:  "A malformed or unrecognised encoding returns false rather than raising, so a corrupt stored hash fails the login instead of the request."},
+			{Name: "pbkdf2", Kind: EntryFunction, Signature: "crypto.pbkdf2(password, salt, iterations, keylen [, alg]): string",
+				Summary: "Derives keylen raw bytes from password and salt with PBKDF2. alg defaults to sha256.",
+				Detail:  "For deriving a key of a length some protocol dictates, and for checking against systems that already store PBKDF2 hashes. For new password storage prefer password_hash."},
 			{Name: "constant_time_equal", Kind: EntryFunction, Signature: "crypto.constant_time_equal(a, b): boolean",
 				Summary: "Compares two strings in constant time, so the comparison does not leak where they differ."},
 			{Name: "random_bytes", Kind: EntryFunction, Signature: "crypto.random_bytes(n): string",
 				Summary: "n cryptographically secure random bytes, as a string. Combine with hex_encode for a printable token."},
+			{Name: "random_int", Kind: EntryFunction, Signature: "crypto.random_int(n): number",
+				Summary: "A uniform random integer in [0, n), drawn from the cryptographic source.",
+				Detail:  "Use this rather than reducing random_bytes modulo n, which is biased toward the low values unless n divides 2^64."},
 			{Name: "hex_encode", Kind: EntryFunction, Signature: "crypto.hex_encode(s): string", Summary: "Hex-encodes a string."},
 			{Name: "hex_decode", Kind: EntryFunction, Signature: "crypto.hex_decode(s): string", Summary: "Decodes a hex string. Raises on invalid input."},
 			{Name: "base64_encode", Kind: EntryFunction, Signature: "crypto.base64_encode(s): string", Summary: "Standard base64 encoding."},
 			{Name: "base64_decode", Kind: EntryFunction, Signature: "crypto.base64_decode(s): string", Summary: "Decodes standard base64. Raises on invalid input."},
+			{Name: "base64url_encode", Kind: EntryFunction, Signature: "crypto.base64url_encode(s): string",
+				Summary: "URL-safe base64 (RFC 4648 §5), unpadded — the encoding JWTs and URL parameters use."},
+			{Name: "base64url_decode", Kind: EntryFunction, Signature: "crypto.base64url_decode(s): string",
+				Summary: "Decodes URL-safe base64, accepting both the padded and unpadded forms. Raises on invalid input."},
 			{Name: "VERSION", Kind: EntryConstant, Signature: "crypto.VERSION: string", Summary: "The module's version string."},
 		},
 	},
@@ -268,9 +329,14 @@ assert(crypto.hmac_verify("key", "message", mac))`,
 		Name: "time", Kind: KindModule, RuntimeModule: "time",
 		Title:    "clocks, formatting and sleeping",
 		Synopsis: `local time = require("time")`,
-		Detail: `Layouts are Go reference-time layouts, not strftime: the reference
-instant is "2006-01-02 15:04:05". The module exports the common ones as
-constants. os.date, by contrast, uses strftime-style directives.
+		Detail: `Layouts come in two flavours. A layout containing a % is read as
+strftime, the same directives os.date takes: "%Y-%m-%d". Otherwise it is
+a Go reference-time layout, where the reference instant is
+"2006-01-02 15:04:05"; the module exports the common ones as constants.
+
+Everything here works in the local zone, so parse and format round-trip.
+Pass utc = true to date and format, or use parse_utc, to work in UTC
+instead.
 
 time.sleep blocks the VM goroutine. To wait without stalling everything,
 use queue.after or queue.tick.`,
@@ -286,12 +352,17 @@ local t = time.parse(time.DATE, "2026-01-31")`,
 				Summary: "A monotonic timestamp in seconds, suitable for measuring elapsed time."},
 			{Name: "sleep", Kind: EntryFunction, Signature: "time.sleep(seconds)",
 				Summary: "Blocks the VM for the given number of seconds. Fractions are allowed."},
-			{Name: "date", Kind: EntryFunction, Signature: "time.date([unix]): table",
-				Summary: "Breaks a Unix timestamp (default: now) into a table with year, month, day, hour, min, sec, wday and yday."},
-			{Name: "format", Kind: EntryFunction, Signature: "time.format(unix [, layout]): string",
-				Summary: "Formats a Unix timestamp with a Go layout, defaulting to RFC3339."},
+			{Name: "date", Kind: EntryFunction, Signature: "time.date([unix [, utc]]): table",
+				Summary: "Breaks a Unix timestamp (default: now) into a table with year, month, day, hour, min, sec, wday, yday and isdst.",
+				Detail:  "Local by default; pass utc = true for the UTC breakdown of the same instant. Fractional timestamps from time.now are accepted."},
+			{Name: "format", Kind: EntryFunction, Signature: "time.format(unix [, layout [, utc]]): string",
+				Summary: "Formats a Unix timestamp. layout defaults to RFC3339, and is read as strftime when it contains a %.",
+				Detail:  "Local by default; pass utc = true to render in UTC. Fractional timestamps from time.now are accepted and keep their sub-second part."},
 			{Name: "parse", Kind: EntryFunction, Signature: "time.parse(layout, s): number",
-				Summary: "Parses s according to layout and returns the Unix time. Raises when the text does not match."},
+				Summary: "Parses s according to layout and returns the Unix time. Raises when the text does not match.",
+				Detail:  "A layout with no zone is read in the local zone, so parse and format round-trip. Use parse_utc when the text is known to be UTC."},
+			{Name: "parse_utc", Kind: EntryFunction, Signature: "time.parse_utc(layout, s): number",
+				Summary: "Like parse, but reads a zone-less layout as UTC rather than local time."},
 			{Name: "RFC3339", Kind: EntryConstant, Signature: "time.RFC3339: string",
 				Summary: `The layout "2006-01-02T15:04:05Z07:00".`},
 			{Name: "DATE", Kind: EntryConstant, Signature: "time.DATE: string", Summary: `The layout "2006-01-02".`},
@@ -320,6 +391,8 @@ end`,
 				Summary: "Compiles an RE2 pattern into a reusable regex object. Raises when the pattern is invalid."},
 			{Name: "quote", Kind: EntryFunction, Signature: "regexp.quote(s): string",
 				Summary: "Escapes every metacharacter in s so it matches literally."},
+			{Name: "is_valid", Kind: EntryFunction, Signature: "regexp.is_valid(pattern): boolean",
+				Summary: "Reports whether pattern compiles, without raising — for validating a pattern that came from user input."},
 			{Name: "VERSION", Kind: EntryConstant, Signature: "regexp.VERSION: string", Summary: "The module's version string."},
 		},
 	},

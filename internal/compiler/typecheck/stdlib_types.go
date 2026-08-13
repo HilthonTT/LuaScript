@@ -86,6 +86,12 @@ func stdlibGlobals() map[string]*Type {
 	g["load"] = NewFunction([]*Type{anyT, Optional(stringT), Optional(stringT), Optional(anyT)},
 		[]*Type{Optional(anyT), Optional(stringT)}, false, nil)
 
+	// _VERSION is the language level, _G the globals table itself. _G is typed
+	// as `any` rather than a table of the known globals: its whole purpose is
+	// dynamic access by computed name, which a closed table type would reject.
+	g["_VERSION"] = stringT
+	g["_G"] = anyT
+
 	g["math"] = mathModule()
 	g["string"] = stringModule()
 	g["table"] = tableModule()
@@ -135,6 +141,9 @@ func mathModule() *Type {
 		{Key: "max", Type: NewFunction([]*Type{numberT}, one, true, numberT)},
 		{Key: "min", Type: NewFunction([]*Type{numberT}, one, true, numberT)},
 
+		// ult(a, b) -> boolean — unsigned comparison of two integers
+		{Key: "ult", Type: NewFunction([]*Type{numberT, numberT}, []*Type{booleanT}, false, nil)},
+
 		// tointeger(any) -> number | nil
 		{Key: "tointeger", Type: NewFunction([]*Type{anyT}, []*Type{Optional(numberT)}, false, nil)},
 
@@ -166,9 +175,13 @@ func stringModule() *Type {
 		{Key: "sub", Type: NewFunction([]*Type{stringT, numberT, Optional(numberT)},
 			[]*Type{stringT}, false, nil)},
 
-		// (string, number [, number]) -> ...number
+		// (string [, number [, number]]) -> ...number — one result per byte in
+		// the range, so the results (not the parameters) are the variadic part.
+		// This previously declared a trailing vararg *parameter*, which let
+		// string.byte(s, 1, 2, 3, 4) type-check even though the implementation
+		// reads only two indices.
 		{Key: "byte", Type: NewFunction([]*Type{stringT, Optional(numberT), Optional(numberT)},
-			[]*Type{numberT}, true, numberT)},
+			[]*Type{Optional(numberT)}, true, numberT)},
 
 		// (...number) -> string
 		{Key: "char", Type: NewFunction(nil, []*Type{stringT}, true, numberT)},
@@ -182,6 +195,23 @@ func stringModule() *Type {
 
 		// (string, ...) -> string
 		{Key: "format", Type: NewFunction([]*Type{stringT}, []*Type{stringT}, true, anyT)},
+
+		// Binary (de)serialization (vm/strpack.go).
+		//
+		// pack(fmt, ...) -> string — the values after the format are of
+		// whatever type each option consumes (numbers for i/f/d, strings for
+		// c/s/z), so they are typed as a vararg of any.
+		{Key: "pack", Type: NewFunction([]*Type{stringT}, []*Type{stringT}, true, anyT)},
+
+		// unpack(fmt, data [, pos]) -> ...values, nextPos — the value count
+		// and types are driven by the format string, so the results are a
+		// vararg of any. The final result is always the next read position.
+		{Key: "unpack", Type: NewFunction(
+			[]*Type{stringT, stringT, Optional(numberT)},
+			[]*Type{anyT}, true, anyT)},
+
+		// packsize(fmt) -> number
+		{Key: "packsize", Type: NewFunction([]*Type{stringT}, []*Type{numberT}, false, nil)},
 
 		// Lua-pattern members. Captures are dynamic — typed as any — so
 		// match/gmatch results compose with the rest of the runtime.
@@ -235,13 +265,70 @@ func tableModule() *Type {
 	}, nil)
 }
 
-func ioModule() *Type {
+// fileHandleType is the type of a value returned by io.open / io.tmpfile /
+// io.input / io.output, and of io.stdin / stdout / stderr. Methods are called
+// with `:` so each carries an explicit leading self parameter.
+//
+// Read results are `any` rather than string: the "n" format yields a number
+// and "l"/"a" yield strings, and which one you get depends on a format string
+// that is only known at runtime.
+func fileHandleType() *Type {
+	self := anyT
 	return NewTable([]TableField{
-		{Key: "write", Type: NewFunction(nil, nil, true, anyT)},
-		// read takes a format string ("l" or "L"); we model it as
-		// (string) -> string|nil.
-		{Key: "read", Type: NewFunction([]*Type{Optional(stringT)},
-			[]*Type{Optional(stringT)}, false, nil)},
+		// f:read(...formats) -> ...values
+		{Key: "read", Type: NewFunction([]*Type{self}, []*Type{Optional(anyT)}, true, anyT)},
+		// f:write(...) -> file | (nil, string)
+		{Key: "write", Type: NewFunction([]*Type{self}, []*Type{anyT, Optional(stringT)}, true, anyT)},
+		// f:lines([formats]) -> iterator
+		{Key: "lines", Type: NewFunction([]*Type{self}, []*Type{anyT}, true, anyT)},
+		// f:seek([whence [, offset]]) -> number | (nil, string)
+		{Key: "seek", Type: NewFunction([]*Type{self, Optional(stringT), Optional(numberT)},
+			[]*Type{Optional(numberT), Optional(stringT)}, false, nil)},
+		// f:flush() -> file | (nil, string)
+		{Key: "flush", Type: NewFunction([]*Type{self}, []*Type{anyT, Optional(stringT)}, false, nil)},
+		// f:close() -> boolean | (nil, string)
+		{Key: "close", Type: NewFunction([]*Type{self}, []*Type{anyT, Optional(stringT)}, false, nil)},
+	}, nil)
+}
+
+// ioModule describes the `io` global as scripts actually see it: the full
+// Lua 5.4 library from internal/native/stdlib/iox, which cmd/luascript binds
+// over the core stdlib's stdin/stdout-only table at startup.
+//
+// It used to describe only that two-function core table, so `io.open(path)` —
+// the first line of most file-handling scripts, and valid on every shipped
+// build — was rejected by the checker as a missing field.
+func ioModule() *Type {
+	file := fileHandleType()
+	// A failed open returns (nil, message), so the handle slot is optional.
+	openResult := []*Type{Optional(file), Optional(stringT)}
+
+	return NewTable([]TableField{
+		// io.open(path [, mode]) -> file | (nil, string)
+		{Key: "open", Type: NewFunction([]*Type{stringT, Optional(stringT)}, openResult, false, nil)},
+		// io.lines([path]) -> iterator
+		{Key: "lines", Type: NewFunction([]*Type{Optional(stringT)}, []*Type{anyT}, true, anyT)},
+		// io.read(...formats) -> ...values
+		{Key: "read", Type: NewFunction(nil, []*Type{Optional(anyT)}, true, anyT)},
+		// io.write(...) -> file
+		{Key: "write", Type: NewFunction(nil, []*Type{anyT}, true, anyT)},
+		// io.close([file]) -> boolean | (nil, string)
+		{Key: "close", Type: NewFunction([]*Type{Optional(anyT)},
+			[]*Type{anyT, Optional(stringT)}, false, nil)},
+		// io.flush() -> file
+		{Key: "flush", Type: NewFunction(nil, []*Type{anyT}, false, nil)},
+		// io.tmpfile() -> file | (nil, string)
+		{Key: "tmpfile", Type: NewFunction(nil, openResult, false, nil)},
+		// io.type(v) -> "file" | "closed file" | nil
+		{Key: "type", Type: NewFunction([]*Type{anyT}, []*Type{Optional(stringT)}, false, nil)},
+		// io.input([file or path]) / io.output([file or path]) -> file
+		{Key: "input", Type: NewFunction([]*Type{Optional(anyT)}, []*Type{file}, false, nil)},
+		{Key: "output", Type: NewFunction([]*Type{Optional(anyT)}, []*Type{file}, false, nil)},
+
+		// Standard streams.
+		{Key: "stdin", Type: file},
+		{Key: "stdout", Type: file},
+		{Key: "stderr", Type: file},
 	}, nil)
 }
 

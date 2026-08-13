@@ -958,6 +958,11 @@ func (c *checker) typeOfCall(call *ast.CallExpression) *Type {
 		return fn.Returns[0]
 	}
 	c.checkCallArgs(call.Line(), fn, args)
+	// `require("json")` with a literal name resolves to that module's type, so
+	// everything reached through it is checked instead of decaying to `any`.
+	if t := c.requireModuleType(call); t != nil {
+		return t
+	}
 	if len(fn.Returns) == 0 {
 		// Unannotated functions have no declared returns, but Lua callers
 		// routinely use them in multi-value contexts. Returning `any`

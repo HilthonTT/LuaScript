@@ -2,6 +2,7 @@ package vm
 
 import (
 	"math"
+	"strings"
 	"testing"
 )
 
@@ -217,4 +218,111 @@ func TestTableUnpackAndPack(t *testing.T) {
 func TestIOWriteIsCallable(t *testing.T) {
 	// We don't capture stdout in tests; just verify the call doesn't panic.
 	run(t, `io.write("")`)
+}
+
+// Regressions
+
+// math.floor / math.ceil used to coerce their argument to float64 before
+// rounding, so any integer above 2^53 came back as the nearest double instead
+// of itself: math.floor(math.maxinteger) returned 9.2233720368548e+18.
+func TestMathFloorCeilPreserveWideIntegers(t *testing.T) {
+	v := run(t, `
+		fmax = math.floor(math.maxinteger)
+		cmax = math.ceil(math.maxinteger)
+		fmin = math.floor(math.mininteger)
+		cmin = math.ceil(math.mininteger)
+	`)
+	assertGlobalEqual(t, v, "fmax", int64(math.MaxInt64))
+	assertGlobalEqual(t, v, "cmax", int64(math.MaxInt64))
+	assertGlobalEqual(t, v, "fmin", int64(math.MinInt64))
+	assertGlobalEqual(t, v, "cmin", int64(math.MinInt64))
+}
+
+// Float input must still round and narrow back to an integer where it fits.
+func TestMathFloorCeilOnFloats(t *testing.T) {
+	v := run(t, `
+		a = math.floor(-2.5)
+		b = math.ceil(-2.5)
+		c = math.floor(1e300)
+	`)
+	assertGlobalEqual(t, v, "a", int64(-3))
+	assertGlobalEqual(t, v, "b", int64(-2))
+	if got, _ := global(t, v, "c").(float64); got != 1e300 {
+		t.Errorf("math.floor(1e300) = %v, want 1e300 (too large for an integer)", got)
+	}
+}
+
+// table.concat's bounds are caller-chosen, so an unguarded span let
+// table.concat(t, "", 1, math.maxinteger) spin forever. unpack and move
+// already had this guard.
+func TestTableConcatRejectsHugeSpan(t *testing.T) {
+	msg := runErr(t, `table.concat({1, 2, 3}, "", 1, math.maxinteger)`)
+	if !strings.Contains(msg, "too many elements to concat") {
+		t.Errorf("table.concat with a maxinteger bound: got %q, want a 'too many elements' error", msg)
+	}
+}
+
+// A span that is merely large but under the cap must still work, and an empty
+// range (hi < lo) must stay a no-op rather than tripping the guard.
+func TestTableConcatNormalRangesStillWork(t *testing.T) {
+	v := run(t, `
+		a = table.concat({1, 2, 3}, "-")
+		b = table.concat({1, 2, 3}, "-", 2, 3)
+		c = table.concat({1, 2, 3}, "-", 3, 1)
+	`)
+	assertGlobalEqual(t, v, "a", "1-2-3")
+	assertGlobalEqual(t, v, "b", "2-3")
+	assertGlobalEqual(t, v, "c", "")
+}
+
+// Lua 5.4's math.randomseed reports the seed it used, so a self-seeding run can
+// print the value and be replayed. This VM returned nothing while the
+// typechecker advertised (number, number).
+func TestMathRandomseedReturnsSeed(t *testing.T) {
+	v := run(t, `
+		a, b = math.randomseed(1234)
+		c, d = math.randomseed()
+	`)
+	assertGlobalEqual(t, v, "a", int64(1234))
+	assertGlobalEqual(t, v, "b", int64(0))
+	assertGlobalEqual(t, v, "c", int64(1))
+	assertGlobalEqual(t, v, "d", int64(0))
+}
+
+// _G is the globals table itself, which is what makes dynamic access by
+// computed name possible. Self-referential in Lua, so _G._G == _G.
+func TestGlobalsTableIsReflexive(t *testing.T) {
+	v := run(t, `
+		selfref = _G._G == _G
+		samefn = _G.print == print
+		_G.viaTable = 42
+		direct = viaTable
+		indirect = _G["viaTable"]
+	`)
+	assertGlobalEqual(t, v, "selfref", true)
+	assertGlobalEqual(t, v, "samefn", true)
+	assertGlobalEqual(t, v, "direct", int64(42))
+	assertGlobalEqual(t, v, "indirect", int64(42))
+}
+
+func TestVersionGlobal(t *testing.T) {
+	v := run(t, `ver = _VERSION`)
+	assertGlobalEqual(t, v, "ver", "Lua 5.4")
+}
+
+// math.ult compares two integers as unsigned, so -1 (all bits set) is the
+// largest value rather than the smallest.
+func TestMathUlt(t *testing.T) {
+	v := run(t, `
+		a = math.ult(1, 2)
+		b = math.ult(2, 1)
+		c = math.ult(-1, 0)
+		d = math.ult(0, -1)
+		e = math.ult(math.maxinteger, math.mininteger)
+	`)
+	assertGlobalEqual(t, v, "a", true)
+	assertGlobalEqual(t, v, "b", false)
+	assertGlobalEqual(t, v, "c", false) // -1 is 2^64-1 unsigned
+	assertGlobalEqual(t, v, "d", true)
+	assertGlobalEqual(t, v, "e", true) // mininteger is 2^63 unsigned
 }

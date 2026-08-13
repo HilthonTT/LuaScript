@@ -44,6 +44,15 @@ func registerStdlib(v *VM) {
 	g("typeof", builtinTypeof)
 	g("sizeof", builtinSizeof)
 
+	// _G is the globals table itself, so `_G["x"] = 1` and `_G[name]` give
+	// scripts dynamic access to globals whose names aren't known statically.
+	// Self-referential by design in Lua (_G._G == _G).
+	v.Globals.Set("_G", v.Globals)
+	// _VERSION names the language level scripts can branch on. This runtime
+	// tracks Lua 5.4 semantics, so it reports the string 5.4 code tests for
+	// rather than a LuaScript-specific string no existing script checks.
+	v.Globals.Set("_VERSION", "Lua 5.4")
+
 	// Metatable controls.
 	g("setmetatable", builtinSetmetatable)
 	g("getmetatable", builtinGetmetatable)

@@ -216,7 +216,7 @@ func newOS() *vm.Table {
 			out.Set("isdst", false) // Go does not expose DST as a bool
 			return []vm.Value{out}
 		}
-		return []vm.Value{strftime(format, t)}
+		return []vm.Value{Strftime(format, t)}
 	}})
 
 	// os.difftime(t2, t1) — seconds between two epoch ints. Lua returns

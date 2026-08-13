@@ -85,6 +85,125 @@ func statsLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
 
 	pair("covariance", covariance)
 	pair("correlation", correlation)
+	// Spearman is Pearson on the ranks, so it measures any monotonic
+	// relationship rather than only a linear one, and is unmoved by outliers
+	// that would drag `correlation` around.
+	pair("spearman", spearman)
+
+	// weighted_mean(values, weights) — for averaging measurements that do not
+	// carry equal confidence, which a plain mean cannot express.
+	methods.Set("weighted_mean", &vm.GoFunc{Name: "stats:weighted_mean", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
+		xs := floats("stats.weighted_mean", vm.TableArg("stats.weighted_mean", 1, args))
+		ws := floats("stats.weighted_mean", vm.TableArg("stats.weighted_mean", 2, args))
+		if len(xs) != len(ws) {
+			panic(vm.Errorf("stats.weighted_mean: arrays must be the same length (%d vs %d)", len(xs), len(ws)))
+		}
+		requireNonEmpty("stats.weighted_mean", xs)
+		products := make([]float64, len(xs))
+		for i := range xs {
+			products[i] = xs[i] * ws[i]
+		}
+		total := sum(ws)
+		if total == 0 {
+			panic(vm.Errorf("stats.weighted_mean: weights sum to zero"))
+		}
+		return []vm.Value{sum(products) / total}
+	}})
+
+	// histogram(values, bins) -> { counts, edges }. Binning by hand in script
+	// code is easy to get subtly wrong at the top edge, which belongs in the
+	// last bin rather than in a bin of its own.
+	methods.Set("histogram", &vm.GoFunc{Name: "stats:histogram", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
+		xs := floats("stats.histogram", vm.TableArg("stats.histogram", 1, args))
+		requireNonEmpty("stats.histogram", xs)
+		bins := int(vm.OptInt("stats.histogram", 2, args, 10))
+		if bins < 1 {
+			panic(vm.Errorf("stats.histogram: bins must be >= 1, got %d", bins))
+		}
+		lo, hi := minOf(xs), maxOf(xs)
+		if lo == hi {
+			// A degenerate range would give a zero-width bin and a division by
+			// zero; widen it so every value lands in the middle bin.
+			lo, hi = lo-0.5, hi+0.5
+		}
+		width := (hi - lo) / float64(bins)
+		counts := make([]float64, bins)
+		for _, x := range xs {
+			idx := int((x - lo) / width)
+			// The maximum lands exactly on the top edge; it belongs to the
+			// last bin, not to a bin one past the end.
+			if idx >= bins {
+				idx = bins - 1
+			}
+			if idx < 0 {
+				idx = 0
+			}
+			counts[idx]++
+		}
+		edges := make([]float64, bins+1)
+		for i := range edges {
+			edges[i] = lo + float64(i)*width
+		}
+		out := vm.NewTable(0, 2)
+		out.Set("counts", floatSliceToTable(counts))
+		out.Set("edges", floatSliceToTable(edges))
+		return []vm.Value{out}
+	}})
+
+	// Normal distribution. Turning a z-score into a probability (and back)
+	// is what every significance judgement needs, and neither is expressible
+	// in script code without erf.
+	methods.Set("normal_pdf", &vm.GoFunc{Name: "stats:normal_pdf", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
+		x := vm.FloatArg("stats.normal_pdf", 1, args)
+		mu := optFloat(args, 2, 0)
+		sigma := optFloat(args, 3, 1)
+		requirePositiveSigma("stats.normal_pdf", sigma)
+		z := (x - mu) / sigma
+		return []vm.Value{math.Exp(-0.5*z*z) / (sigma * math.Sqrt(2*math.Pi))}
+	}})
+	methods.Set("normal_cdf", &vm.GoFunc{Name: "stats:normal_cdf", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
+		x := vm.FloatArg("stats.normal_cdf", 1, args)
+		mu := optFloat(args, 2, 0)
+		sigma := optFloat(args, 3, 1)
+		requirePositiveSigma("stats.normal_cdf", sigma)
+		return []vm.Value{0.5 * math.Erfc(-(x-mu)/(sigma*math.Sqrt2))}
+	}})
+
+	// t_test_1sample(values, mu) -> { t, df, p }. Two-tailed.
+	methods.Set("t_test_1sample", &vm.GoFunc{Name: "stats:t_test_1sample", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
+		xs := floats("stats.t_test_1sample", vm.TableArg("stats.t_test_1sample", 1, args))
+		if len(xs) < 2 {
+			panic(vm.Errorf("stats.t_test_1sample: need at least 2 values, got %d", len(xs)))
+		}
+		mu := optFloat(args, 2, 0)
+		se := sem(xs)
+		if se == 0 {
+			panic(vm.Errorf("stats.t_test_1sample: sample has zero variance"))
+		}
+		tStat := (mean(xs) - mu) / se
+		df := float64(len(xs) - 1)
+		return []vm.Value{tTestResult(tStat, df)}
+	}})
+
+	// t_test_2sample(a, b) -> { t, df, p }. Welch's version: it does not
+	// assume the two groups share a variance, which is the assumption most
+	// often violated in practice.
+	methods.Set("t_test_2sample", &vm.GoFunc{Name: "stats:t_test_2sample", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
+		a := floats("stats.t_test_2sample", vm.TableArg("stats.t_test_2sample", 1, args))
+		b := floats("stats.t_test_2sample", vm.TableArg("stats.t_test_2sample", 2, args))
+		if len(a) < 2 || len(b) < 2 {
+			panic(vm.Errorf("stats.t_test_2sample: each sample needs at least 2 values (got %d and %d)", len(a), len(b)))
+		}
+		va, vb := variance(a)/float64(len(a)), variance(b)/float64(len(b))
+		if va+vb == 0 {
+			panic(vm.Errorf("stats.t_test_2sample: both samples have zero variance"))
+		}
+		tStat := (mean(a) - mean(b)) / math.Sqrt(va+vb)
+		// Welch–Satterthwaite degrees of freedom.
+		df := (va + vb) * (va + vb) /
+			(va*va/float64(len(a)-1) + vb*vb/float64(len(b)-1))
+		return []vm.Value{tTestResult(tStat, df)}
+	}})
 
 	// quantile(t, q) with q in [0, 1] — linear interpolation (numpy/R type 7).
 	methods.Set("quantile", &vm.GoFunc{Name: "stats:quantile", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
@@ -136,12 +255,29 @@ func statsLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
 // Numeric core — pure functions over []float64. Callers guarantee non-empty
 // input (the wrappers enforce it) unless a function documents otherwise.
 
+// sum adds with Neumaier compensation rather than a naive running total.
+//
+// Plain accumulation loses the low bits of every addend that is small relative
+// to the total so far, and the error grows with the array. The classic
+// demonstration is summing 1e16 with ten 1.0s: naive addition returns 1e16,
+// having dropped every one of them. Since mean, variance and everything built
+// on them route through here, the error would propagate into the whole module.
+//
+// Neumaier's variant is used instead of plain Kahan because it also stays
+// exact when an addend is larger in magnitude than the running total.
 func sum(xs []float64) float64 {
-	var s float64
+	var s, c float64
 	for _, x := range xs {
-		s += x
+		t := s + x
+		if math.Abs(s) >= math.Abs(x) {
+			// s is larger: the low bits of x are what get lost.
+			c += (s - t) + x
+		} else {
+			c += (x - t) + s
+		}
+		s = t
 	}
-	return s
+	return s + c
 }
 
 func product(xs []float64) float64 {
@@ -423,4 +559,152 @@ func floatSliceToTable(xs []float64) *vm.Table {
 	t := vm.NewTable(len(xs), 0)
 	native.WriteBack(t, xs)
 	return t
+}
+
+// optFloat reads an optional numeric argument at position n (1-based).
+func optFloat(args []vm.Value, n int, dflt float64) float64 {
+	if n > len(args) || args[n-1] == nil {
+		return dflt
+	}
+	f, ok := vm.ToFloat(args[n-1])
+	if !ok {
+		return dflt
+	}
+	return f
+}
+
+func requirePositiveSigma(site string, sigma float64) {
+	if sigma <= 0 {
+		panic(vm.Errorf("%s: sigma must be > 0, got %g", site, sigma))
+	}
+}
+
+// spearman is Pearson's correlation computed on the ranks of each input, so it
+// detects any monotonic relationship rather than only a linear one.
+func spearman(a, b []float64) float64 {
+	return correlation(ranks(a), ranks(b))
+}
+
+// ranks returns the 1-based rank of each element, averaging the ranks of tied
+// values — the standard correction, without which ties would bias the result
+// by the arbitrary order they happened to be stored in.
+func ranks(xs []float64) []float64 {
+	idx := make([]int, len(xs))
+	for i := range idx {
+		idx[i] = i
+	}
+	sort.SliceStable(idx, func(i, j int) bool { return xs[idx[i]] < xs[idx[j]] })
+
+	out := make([]float64, len(xs))
+	for i := 0; i < len(idx); {
+		// Find the extent of this run of equal values.
+		j := i
+		for j+1 < len(idx) && xs[idx[j+1]] == xs[idx[i]] {
+			j++
+		}
+		// Ranks are 1-based, so the run spans i+1..j+1; they all take its mean.
+		avg := float64(i+1+j+1) / 2
+		for k := i; k <= j; k++ {
+			out[idx[k]] = avg
+		}
+		i = j + 1
+	}
+	return out
+}
+
+// tTestResult packages a t statistic with its degrees of freedom and the
+// two-tailed p-value.
+func tTestResult(tStat, df float64) *vm.Table {
+	out := vm.NewTable(0, 3)
+	out.Set("t", tStat)
+	out.Set("df", df)
+	out.Set("p", twoTailedP(tStat, df))
+	return out
+}
+
+// twoTailedP is the two-tailed p-value of a t statistic, via the regularized
+// incomplete beta function: p = I_{df/(df+t²)}(df/2, 1/2).
+func twoTailedP(tStat, df float64) float64 {
+	if df <= 0 || math.IsNaN(tStat) {
+		return math.NaN()
+	}
+	return incompleteBeta(df/(df+tStat*tStat), df/2, 0.5)
+}
+
+// incompleteBeta is the regularized incomplete beta function I_x(a, b),
+// evaluated with the continued fraction from Numerical Recipes. The symmetry
+// I_x(a,b) = 1 - I_{1-x}(b,a) is used to keep x in the range where the
+// fraction converges quickly.
+func incompleteBeta(x, a, b float64) float64 {
+	if x <= 0 {
+		return 0
+	}
+	if x >= 1 {
+		return 1
+	}
+	front := math.Exp(lnBeta(a, b, x))
+	if x < (a+1)/(a+b+2) {
+		return front * betaCF(x, a, b) / a
+	}
+	return 1 - math.Exp(lnBeta(b, a, 1-x))*betaCF(1-x, b, a)/b
+}
+
+// lnBeta is the log of the leading factor x^a (1-x)^b / B(a, b), computed in
+// log space so intermediate terms cannot overflow for large df.
+func lnBeta(a, b, x float64) float64 {
+	lgA, _ := math.Lgamma(a)
+	lgB, _ := math.Lgamma(b)
+	lgAB, _ := math.Lgamma(a + b)
+	return lgAB - lgA - lgB + a*math.Log(x) + b*math.Log(1-x)
+}
+
+// betaCF evaluates the continued fraction for the incomplete beta function
+// using the modified Lentz algorithm.
+func betaCF(x, a, b float64) float64 {
+	const (
+		maxIter = 200
+		epsilon = 3e-14
+		tiny    = 1e-300
+	)
+	qab, qap, qam := a+b, a+1, a-1
+	c := 1.0
+	d := 1 - qab*x/qap
+	if math.Abs(d) < tiny {
+		d = tiny
+	}
+	d = 1 / d
+	h := d
+	for m := 1; m <= maxIter; m++ {
+		fm := float64(m)
+		m2 := 2 * fm
+		// Even step.
+		aa := fm * (b - fm) * x / ((qam + m2) * (a + m2))
+		d = 1 + aa*d
+		if math.Abs(d) < tiny {
+			d = tiny
+		}
+		c = 1 + aa/c
+		if math.Abs(c) < tiny {
+			c = tiny
+		}
+		d = 1 / d
+		h *= d * c
+		// Odd step.
+		aa = -(a + fm) * (qab + fm) * x / ((a + m2) * (qap + m2))
+		d = 1 + aa*d
+		if math.Abs(d) < tiny {
+			d = tiny
+		}
+		c = 1 + aa/c
+		if math.Abs(c) < tiny {
+			c = tiny
+		}
+		d = 1 / d
+		del := d * c
+		h *= del
+		if math.Abs(del-1) < epsilon {
+			break
+		}
+	}
+	return h
 }

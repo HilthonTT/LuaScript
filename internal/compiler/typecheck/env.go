@@ -216,6 +216,19 @@ func (e *env) lookup(name string) (*Type, bool) {
 	return nil, false
 }
 
+// shadowsGlobal reports whether `name` is bound anywhere other than the
+// outermost frame — i.e. whether a local, parameter, or narrowing shadow hides
+// the stdlib global of that name. Used to confirm that a call to `require` is
+// really the loader before giving it loader-specific typing.
+func (e *env) shadowsGlobal(name string) bool {
+	for i := len(e.frames) - 1; i >= 1; i-- {
+		if _, ok := e.frames[i].bindings[name]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 // alias resolves a user-named type. Unknown names return KindNever (which
 // flows to everything but never satisfies a non-never slot, surfacing as
 // an error at the use site rather than crashing the walker).

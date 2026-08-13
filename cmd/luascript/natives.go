@@ -94,6 +94,28 @@ var nativeRegistrars = []func(*vm.VM){
 	// bytecode generator calls when lowering a `struct` declaration. Like
 	// enumrt it is an internal emit target, not a require() module.
 	structrt.RegisterStructRT,
+	// Must stay last: it binds the modules registered above to globals, so
+	// every preload entry it looks for has to already exist. Hooks run in
+	// slice order on both the CLI and bundled paths, so appending here is
+	// enough to guarantee that.
+	promoteStandardGlobals,
+}
+
+// stdGlobalModules are the modules Lua 5.4 exposes as globals rather than as
+// require() targets. This runtime implements all three natively — internal/vm
+// cannot import internal/native — so without this step a script had to open
+// with `local io = require("io")` before any of the reference manual's io.open
+// examples would run.
+//
+// Deliberately short: promotion costs an eager load of each module at VM
+// startup, and only these three are part of the standard global namespace.
+// Everything else stays behind require, where it is paid for on first use.
+var stdGlobalModules = []string{"os", "io", "utf8"}
+
+func promoteStandardGlobals(v *vm.VM) {
+	for _, name := range stdGlobalModules {
+		vm.PromoteToGlobal(v, name)
+	}
 }
 
 // registerAllNatives applies each registrar to the given VM directly.

@@ -14,7 +14,16 @@ package vm
 // Error-message conventions follow Lua 5.4:
 //   - Missing arg:  "bad argument #N to 'name' (TYPE expected)"
 //   - Wrong type:   "bad argument #N to 'name' (TYPE expected, got <desc>)"
-// where <desc> is `describeBadArg(args[n-1])`. Optional-argument helpers
+//
+// `name` is the library-qualified function name — "table.insert", not
+// PUC Lua's bare "insert". The core library used to mix the two forms, so an
+// error's usefulness depended on which function raised it; qualifying every
+// site makes the message point at exactly one function, which matters more
+// here than byte-for-byte parity with PUC's wording. Native modules follow the
+// same rule ("crypto.hmac_sha256"), so the convention is uniform across every
+// Go-implemented callable.
+//
+// <desc> is `describeBadArg(args[n-1])`. Optional-argument helpers
 // (Opt*) silently substitute a default when the arg is absent, but still
 // raise on a wrong-type present value.
 

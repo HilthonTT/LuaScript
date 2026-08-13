@@ -79,6 +79,11 @@ cwd-relative entries, then $LUASCRIPT_LIB when it is set.`},
 				Summary: `Controls the host garbage collector. Options mirror the -gc-percent and -mem-limit CLI flags.`},
 			{Name: "package", Kind: EntryField, Signature: "package: table",
 				Summary: "The module system's state: package.path, package.loaded, package.preload, package.config and package.searchpath."},
+			{Name: "_VERSION", Kind: EntryField, Signature: "_VERSION: string",
+				Summary: `The language level this runtime implements — the string "Lua 5.4".`,
+				Detail: `Reports the Lua level rather than a luascript version so that existing
+scripts branching on _VERSION behave correctly. Use the -v CLI flag for
+the interpreter's own version.`},
 		},
 	},
 	{

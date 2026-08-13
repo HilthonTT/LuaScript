@@ -93,7 +93,7 @@ func TestRenderTopic(t *testing.T) {
 	topic, _ := LookupTopic("json")
 	out := RenderTopic(topic, Options{Width: 80})
 	for _, want := range []string{"NAME", "SYNOPSIS", "DESCRIPTION", "FUNCTIONS",
-		"json.encode(value): string", "SEE ALSO", "JSON(3)"} {
+		"json.encode(value [, opts]): string", "SEE ALSO", "JSON(3)"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("RenderTopic(json) missing %q\n%s", want, out)
 		}

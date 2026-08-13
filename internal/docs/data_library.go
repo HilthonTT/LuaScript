@@ -58,6 +58,27 @@ for word in string.gmatch("a,b,c", "[^,]+") do print(word) end`,
 			{Name: "gsub", Kind: EntryFunction, Signature: "string.gsub(s, pat, repl [, n]): string, number",
 				Summary: "Replaces up to n matches of pat in s, returning the new string and the number of substitutions made.",
 				Detail:  "repl may be a string (%1..%9 and %0 expand to captures), a table indexed by the first capture, or a function called with the captures."},
+			{Name: "pack", Kind: EntryFunction, Signature: "string.pack(fmt, ...): string",
+				Summary: "Packs the given values into a binary string according to the format string fmt.",
+				Detail: `Format options: <, > and = select byte order (little, big, native);
+! [n] sets the alignment ceiling; b/B a signed/unsigned byte; h/H a
+2-byte short; l/L, j/J and T 8-byte integers; i[n]/I[n] an integer of n
+bytes (default 4); f a 4-byte float; d and n an 8-byte double; s[n] a
+string with an n-byte length prefix (default 8); z a zero-terminated
+string; c[n] a fixed n-byte string; x one padding byte; X aligns to the
+option that follows it; spaces are ignored.
+
+Values that do not fit their slot raise rather than being truncated.
+
+Note: l/L are fixed at 8 bytes on every platform, where PUC Lua sizes
+them with C's sizeof(long) — 8 on Unix, 4 on Windows. Use i4/i8 when
+the width has to be explicit.`},
+			{Name: "unpack", Kind: EntryFunction, Signature: "string.unpack(fmt, s [, pos]): ...",
+				Summary: "Reads values back out of a binary string packed with string.pack, returning them followed by the position of the first unread byte.",
+				Detail:  "pos defaults to 1 and may be negative to count from the end. The trailing position makes it easy to walk a buffer with successive calls."},
+			{Name: "packsize", Kind: EntryFunction, Signature: "string.packsize(fmt): number",
+				Summary: "Returns the byte size of a packed string for fmt, including any alignment padding.",
+				Detail:  "Raises for formats containing s or z, whose size depends on the values being packed."},
 		},
 	},
 	{

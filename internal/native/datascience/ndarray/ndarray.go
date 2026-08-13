@@ -32,6 +32,7 @@ package ndarray
 import (
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -812,6 +813,147 @@ func buildMeta() {
 	unary("floor", math.Floor)
 	unary("ceil", math.Ceil)
 	unary("neg", func(x float64) float64 { return -x })
+	unary("log2", math.Log2)
+	unary("log10", math.Log10)
+	unary("sign", func(x float64) float64 {
+		switch {
+		case x > 0:
+			return 1
+		case x < 0:
+			return -1
+		default:
+			return 0 // and preserves NaN's own sign through the default branch
+		}
+	})
+	unary("round", math.Round)
+	unary("sinh", math.Sinh)
+	unary("cosh", math.Cosh)
+	unary("asin", math.Asin)
+	unary("acos", math.Acos)
+	unary("atan", math.Atan)
+
+	// --- ordering and selection ------------------------------------------
+	//
+	// Without these, sorting or filtering an ndarray meant converting to a
+	// plain table, doing the work there, and converting back — losing the
+	// shape in the process.
+
+	// sort() -> a new array with the elements in ascending order. Flattened:
+	// sorting along an axis of a multi-dimensional array is a separate
+	// operation, and silently picking one axis would be a trap.
+	set("sort", func(_ *vm.VM, args []vm.Value) []vm.Value {
+		a := selfND("ndarray:sort", args)
+		out := append([]float64(nil), a.data...)
+		sort.Float64s(out)
+		return []vm.Value{wrap(&ndarray{data: out, shape: []int{len(out)}})}
+	})
+
+	// argsort() -> the 1-based indices that would sort the array. The
+	// companion to sort: it is what reorders a second array in step with the
+	// first.
+	set("argsort", func(_ *vm.VM, args []vm.Value) []vm.Value {
+		a := selfND("ndarray:argsort", args)
+		idx := make([]int, len(a.data))
+		for i := range idx {
+			idx[i] = i
+		}
+		// Stable so equal elements keep their original relative order, which
+		// makes a sort by one key then another behave as expected.
+		sort.SliceStable(idx, func(i, j int) bool { return a.data[idx[i]] < a.data[idx[j]] })
+		out := make([]float64, len(idx))
+		for i, v := range idx {
+			out[i] = float64(v + 1)
+		}
+		return []vm.Value{wrap(&ndarray{data: out, shape: []int{len(out)}})}
+	})
+
+	// median() -> the middle value, on a sorted copy so the receiver is
+	// untouched.
+	set("median", func(_ *vm.VM, args []vm.Value) []vm.Value {
+		a := selfND("ndarray:median", args)
+		if len(a.data) == 0 {
+			panic(vm.Errorf("ndarray:median: array is empty"))
+		}
+		s := append([]float64(nil), a.data...)
+		sort.Float64s(s)
+		mid := len(s) / 2
+		if len(s)%2 == 1 {
+			return []vm.Value{s[mid]}
+		}
+		return []vm.Value{(s[mid-1] + s[mid]) / 2}
+	})
+
+	// cumsum() / diff() — running totals and successive differences, the two
+	// sequence transforms that cannot be written as an elementwise map.
+	set("cumsum", func(_ *vm.VM, args []vm.Value) []vm.Value {
+		a := selfND("ndarray:cumsum", args)
+		out := make([]float64, len(a.data))
+		run := 0.0
+		for i, x := range a.data {
+			run += x
+			out[i] = run
+		}
+		return []vm.Value{wrap(&ndarray{data: out, shape: []int{len(out)}})}
+	})
+	set("diff", func(_ *vm.VM, args []vm.Value) []vm.Value {
+		a := selfND("ndarray:diff", args)
+		if len(a.data) < 2 {
+			return []vm.Value{wrap(&ndarray{data: []float64{}, shape: []int{0}})}
+		}
+		out := make([]float64, len(a.data)-1)
+		for i := 1; i < len(a.data); i++ {
+			out[i-1] = a.data[i] - a.data[i-1]
+		}
+		return []vm.Value{wrap(&ndarray{data: out, shape: []int{len(out)}})}
+	})
+
+	// any() / all() — whether any or every element is non-zero. The reduction
+	// that answers a yes/no question, which sum and max cannot do without the
+	// caller re-deriving the comparison.
+	set("any", func(_ *vm.VM, args []vm.Value) []vm.Value {
+		a := selfND("ndarray:any", args)
+		for _, x := range a.data {
+			if x != 0 {
+				return []vm.Value{true}
+			}
+		}
+		return []vm.Value{false}
+	})
+	set("all", func(_ *vm.VM, args []vm.Value) []vm.Value {
+		a := selfND("ndarray:all", args)
+		for _, x := range a.data {
+			if x == 0 {
+				return []vm.Value{false}
+			}
+		}
+		return []vm.Value{true}
+	})
+
+	// nonzero() -> the 1-based flat indices of the non-zero elements. Paired
+	// with a comparison this is how you find where a condition holds.
+	set("nonzero", func(_ *vm.VM, args []vm.Value) []vm.Value {
+		a := selfND("ndarray:nonzero", args)
+		var out []float64
+		for i, x := range a.data {
+			if x != 0 {
+				out = append(out, float64(i+1))
+			}
+		}
+		return []vm.Value{wrap(&ndarray{data: out, shape: []int{len(out)}})}
+	})
+
+	// count_nonzero() -> how many elements are non-zero. With a comparison
+	// producing 1s and 0s, this counts the matches.
+	set("count_nonzero", func(_ *vm.VM, args []vm.Value) []vm.Value {
+		a := selfND("ndarray:count_nonzero", args)
+		n := int64(0)
+		for _, x := range a.data {
+			if x != 0 {
+				n++
+			}
+		}
+		return []vm.Value{n}
+	})
 
 	set("pow", func(_ *vm.VM, args []vm.Value) []vm.Value {
 		a := selfND("ndarray:pow", args)

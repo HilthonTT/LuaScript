@@ -22,7 +22,7 @@ func tableInt(t *vm.Table, key string, def int64) int64 {
 	return def
 }
 
-// strftime renders t against a C-strftime-style format. Only the subset
+// Strftime renders t against a C-strftime-style format. Only the subset
 // of conversions used by Lua scripts is implemented; unrecognised codes
 // pass through unchanged so the user notices ("the %Q didn't expand") in
 // a single place rather than getting a silent empty string.
@@ -41,7 +41,10 @@ func tableInt(t *vm.Table, key string, def int64) int64 {
 //	%z  timezone offset (+/-HHMM)     %c  default date+time
 //	%x  default date                  %X  default time
 //	%%  literal %
-func strftime(format string, t time.Time) string {
+// Exported so the time module can offer the same %-directives; os.date was the
+// only place they were reachable, which meant time.format could be driven only
+// by Go layout strings.
+func Strftime(format string, t time.Time) string {
 	var b strings.Builder
 	for i := 0; i < len(format); i++ {
 		c := format[i]

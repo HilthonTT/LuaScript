@@ -2,6 +2,7 @@ package http
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/url"
@@ -132,6 +133,7 @@ func newClient(opts *vm.Table) *vm.Table {
 	var defaultHeaders *vm.Table
 	if opts != nil {
 		applyTimeout(opts, hc)
+		applyRedirectPolicy(opts, hc)
 		if s, ok := opts.Get("base_url").(string); ok {
 			baseURL = s
 		}
@@ -230,6 +232,25 @@ func doRequest(client *http.Client, method, rawURL, body string, opts *vm.Table)
 		}
 	}
 
+	// opts.json / opts.form serialize a table into the body and set the
+	// matching Content-Type. Sending JSON previously meant encoding it by hand
+	// and remembering the header — and a request with a body but no
+	// Content-Type is rejected outright by many servers.
+	autoType := ""
+	if opts != nil && body == "" {
+		if j := opts.Get("json"); j != nil {
+			encoded, err := json.Marshal(vmToJSON(j, 0))
+			if err != nil {
+				panic(vm.Errorf("%s: encoding opts.json: %s", site, err.Error()))
+			}
+			body = string(encoded)
+			autoType = "application/json"
+		} else if f, ok := opts.Get("form").(*vm.Table); ok && f != nil {
+			body = encodeQuery(f)
+			autoType = "application/x-www-form-urlencoded"
+		}
+	}
+
 	var reader io.Reader
 	if body != "" {
 		reader = bytes.NewBufferString(body)
@@ -244,6 +265,16 @@ func doRequest(client *http.Client, method, rawURL, body string, opts *vm.Table)
 		if h, ok := opts.Get("headers").(*vm.Table); ok && h != nil {
 			applyHeaders(req, h)
 		}
+		// Basic auth, so callers don't have to base64 the credentials and
+		// build the header themselves.
+		if u, ok := opts.Get("username").(string); ok && u != "" {
+			pw, _ := opts.Get("password").(string)
+			req.SetBasicAuth(u, pw)
+		}
+	}
+	// Explicit headers win; this only fills a gap.
+	if autoType != "" && req.Header.Get("Content-Type") == "" {
+		req.Header.Set("Content-Type", autoType)
 	}
 
 	resp, err := client.Do(req)
@@ -267,16 +298,105 @@ func doRequest(client *http.Client, method, rawURL, body string, opts *vm.Table)
 	r.Set("ok", resp.StatusCode >= 200 && resp.StatusCode < 300)
 
 	headers := vm.NewTable(0, len(resp.Header))
+	rawHeaders := vm.NewTable(0, len(resp.Header))
 	for k, vs := range resp.Header {
-		// Multi-valued headers (e.g. Set-Cookie) are joined with ", " to
-		// keep the response table shape flat. Scripts that need the raw
-		// list can call http.request and inspect with a custom helper —
-		// out of scope for v1.
+		// `headers` keeps the flat one-string-per-name shape almost all
+		// callers want.
 		headers.Set(k, strings.Join(vs, ", "))
+		// `headers_raw` keeps every value separately. Comma-joining is
+		// actively wrong for Set-Cookie — RFC 6265 forbids folding it, and a
+		// response setting two cookies produced one unparseable string — so
+		// without this there was no way to read them at all.
+		list := vm.NewTable(len(vs), 0)
+		for _, one := range vs {
+			list.Append(one)
+		}
+		rawHeaders.Set(k, list)
 	}
 	r.Set("headers", headers)
+	r.Set("headers_raw", rawHeaders)
+
+	// The URL the response actually came from, which differs from the request
+	// URL when redirects were followed.
+	if resp.Request != nil && resp.Request.URL != nil {
+		r.Set("url", resp.Request.URL.String())
+	} else {
+		r.Set("url", rawURL)
+	}
 
 	return r
+}
+
+// vmToJSON converts a runtime value into something encoding/json accepts,
+// mirroring the json module's rules: array-like tables become arrays, other
+// tables become objects with stringified keys, and anything with no JSON form
+// raises rather than being rendered as a pointer.
+func vmToJSON(v vm.Value, depth int) any {
+	// Same ceiling as the json module, for the same reason: a cyclic table
+	// would otherwise overflow the Go stack, which is fatal and uncatchable.
+	if depth > 1000 {
+		panic(vm.Errorf("http: request body nesting too deep (cyclic reference?)"))
+	}
+	switch x := v.(type) {
+	case nil:
+		return nil
+	case bool:
+		return x
+	case int64:
+		return x
+	case float64:
+		return x
+	case string:
+		return x
+	case *vm.Table:
+		if n := x.Len(); n > 0 && isPureArray(x, n) {
+			arr := make([]any, 0, n)
+			for i := int64(1); i <= n; i++ {
+				arr = append(arr, vmToJSON(x.Get(i), depth+1))
+			}
+			return arr
+		}
+		obj := map[string]any{}
+		var key vm.Value
+		for {
+			var val vm.Value
+			key, val = x.Next(key)
+			if key == nil {
+				break
+			}
+			switch k := key.(type) {
+			case string:
+				obj[k] = vmToJSON(val, depth+1)
+			case int64:
+				obj[strconv.FormatInt(k, 10)] = vmToJSON(val, depth+1)
+			}
+		}
+		return obj
+	}
+	panic(vm.Errorf("http: cannot encode a %s value as JSON", vm.TypeName(v)))
+}
+
+// isPureArray reports whether t holds exactly the keys 1..n, so encoding it as
+// a JSON array cannot drop anything.
+func isPureArray(t *vm.Table, n int64) bool {
+	for i := int64(1); i <= n; i++ {
+		if t.Get(i) == nil {
+			return false
+		}
+	}
+	count := int64(0)
+	var key vm.Value
+	for {
+		key, _ = t.Next(key)
+		if key == nil {
+			break
+		}
+		count++
+		if count > n {
+			return false
+		}
+	}
+	return count == n
 }
 
 // applyHeaders copies string→string entries from a Lua table into req.Header.
@@ -366,8 +486,23 @@ func clientFromTimeout(opts *vm.Table) *http.Client {
 	hc := &http.Client{Timeout: defaultTimeout}
 	if opts != nil {
 		applyTimeout(opts, hc)
+		applyRedirectPolicy(opts, hc)
 	}
 	return hc
+}
+
+// applyRedirectPolicy honours opts.follow_redirects. Redirects are followed by
+// default, as they were before this existed; setting it false makes the 3xx
+// itself the response, which is the only way to read a Location header or to
+// avoid following a redirect to somewhere you did not intend to talk to.
+func applyRedirectPolicy(opts *vm.Table, hc *http.Client) {
+	follow, isBool := opts.Get("follow_redirects").(bool)
+	if !isBool || follow {
+		return
+	}
+	hc.CheckRedirect = func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
 }
 
 // applyTimeout reads opts.timeout (seconds, int or float) onto hc.
