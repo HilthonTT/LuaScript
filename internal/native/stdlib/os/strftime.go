@@ -41,6 +41,7 @@ func tableInt(t *vm.Table, key string, def int64) int64 {
 //	%z  timezone offset (+/-HHMM)     %c  default date+time
 //	%x  default date                  %X  default time
 //	%%  literal %
+//
 // Exported so the time module can offer the same %-directives; os.date was the
 // only place they were reachable, which meant time.format could be driven only
 // by Go layout strings.

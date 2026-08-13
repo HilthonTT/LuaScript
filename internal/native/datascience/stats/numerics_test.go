@@ -17,7 +17,7 @@ func TestTwoTailedPAgainstReference(t *testing.T) {
 		{-2.0, 10, 0.073388}, // symmetric in t
 		{0.0, 5, 1.0},        // no difference at all
 		{3.5, 20, 0.002249},
-		{1.0, 1, 0.5},   // Cauchy: exactly half
+		{1.0, 1, 0.5},    // Cauchy: exactly half
 		{6.0, 5, 0.0018}, // far tail
 	}
 	for _, c := range cases {
