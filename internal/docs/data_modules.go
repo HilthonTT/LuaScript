@@ -329,10 +329,14 @@ threads (default 4), key_length (default 32) and salt_length
 		Name: "time", Kind: KindModule, RuntimeModule: "time",
 		Title:    "clocks, formatting and sleeping",
 		Synopsis: `local time = require("time")`,
-		Detail: `Layouts come in two flavours. A layout containing a % is read as
-strftime, the same directives os.date takes: "%Y-%m-%d". Otherwise it is
-a Go reference-time layout, where the reference instant is
-"2006-01-02 15:04:05"; the module exports the common ones as constants.
+		Detail: `A layout is a Go reference-time layout, where the reference instant
+is "2006-01-02 15:04:05"; the module exports the common ones as
+constants.
+
+time.format additionally accepts a strftime layout, recognised by the
+presence of a %: "%Y-%m-%d", the same directives os.date takes. parse
+and parse_utc do NOT — they take reference-time layouts only, so a %
+layout that formats fine will fail to parse.
 
 Everything here works in the local zone, so parse and format round-trip.
 Pass utc = true to date and format, or use parse_utc, to work in UTC
@@ -666,7 +670,11 @@ log.debug("detail")`,
 			{Name: "get_output", Kind: EntryFunction, Signature: "log.get_output(): string", Summary: "The current output destination."},
 			{Name: "close", Kind: EntryFunction, Signature: "log.close()",
 				Summary: "Closes the log file, if output was redirected to one."},
-			{Name: "LEVELS", Kind: EntryField, Signature: "log.LEVELS: table", Summary: "The level names, in increasing order of severity."},
+			{Name: "LEVELS", Kind: EntryField, Signature: "log.LEVELS: table",
+				Summary: "Maps each level name to its severity ordinal: trace=0 through fatal=5.",
+				Detail: `Keyed by name, not an array — ipairs yields nothing. Compare the
+ordinals to reason about severity (log.LEVELS[a] >= log.LEVELS.warn),
+and sort by value when you need the names in order.`},
 			{Name: "VERSION", Kind: EntryConstant, Signature: "log.VERSION: string", Summary: "The module's version string."},
 		},
 	},

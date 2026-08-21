@@ -16,7 +16,12 @@ type Options struct {
 // errors. The error list is sorted by source line. An empty slice means
 // the program type-checks under the supplied options.
 func Check(prog *ast.Program, opts Options) []TypeError {
-	c := &checker{env: newEnv(), opts: opts}
+	c := &checker{
+		env:          newEnv(),
+		opts:         opts,
+		taggedEnums:  map[string][]string{},
+		classicEnums: map[string][]string{},
+	}
 	c.installGlobals()
 	if prog == nil || prog.Block == nil {
 		return nil
@@ -51,6 +56,14 @@ type checker struct {
 	// names narrowing trusts (assert/error/type/typeof). builtinInScope
 	// compares against these so a shadowed builtin stops driving narrowing.
 	builtins map[string]*Type
+
+	// taggedEnums / classicEnums record each declared enum's variant names in
+	// source order, keyed by enum name. The *types* an enum contributes
+	// (a nominal table, or a literal union) deliberately don't carry the
+	// variant list; exhaustiveness checking is the one consumer that needs
+	// it, so it lives here rather than widening Type. See exhaustive.go.
+	taggedEnums  map[string][]string
+	classicEnums map[string][]string
 
 	// assignedSomewhere / upvalMutated are filled by scanMutations before
 	// the walk: every name assigned anywhere in the program, and the subset
@@ -166,14 +179,13 @@ func (c *checker) installGlobals() {
 // registers each in the alias table. Resolution happens in two passes so
 // forward references work.
 //
-// Enum declarations contribute to the same alias table: `enum Color
-// RED, GREEN end` registers `Color` as an alias for `number` (v1 — the
-// stricter literal-union shape that would pin Color to the exact set
-// {1, 2} is a follow-up). The number-alias is lossy in that any number
-// satisfies a `: Color` annotation, but it lets typed function
-// signatures (`function paint(c: Color)`) parse and compose correctly
-// today, and the runtime still guarantees `Color.RED == 1` and that the
-// table is frozen.
+// Enum declarations contribute to the same alias table. A classic
+// integer enum `enum Color RED, GREEN end` registers `Color` as the
+// literal union `1 | 2` — the exact set of values the runtime can
+// produce, since variants are 1-based and assigned in source order. That
+// makes `function paint(c: Color)` reject `paint(99)`, lets `c == Color.RED`
+// narrow, and gives `match` a finite domain to check for exhaustiveness.
+// A tagged enum instead registers a nominal opaque table (see below).
 func (c *checker) preResolveAliases(stmts []ast.Statement) {
 	// Pass 1: register placeholders so name → never (sentinel). Generic
 	// declarations register their template immediately (instantiation is
@@ -209,6 +221,7 @@ func (c *checker) preResolveAliases(stmts []ast.Statement) {
 			c.env.aliases[a.Name] = c.resolveAST(a.Target)
 		}
 		if e, ok := s.(*ast.EnumStatement); ok && e.Name != nil {
+			c.recordEnum(e)
 			if e.IsTagged() {
 				// A tagged enum's *type* is a nominal opaque table: field/
 				// index access on a value yields `any` (so `s.__tag`, `s[1]`
@@ -217,7 +230,7 @@ func (c *checker) preResolveAliases(stmts []ast.Statement) {
 				t.AliasName = e.Name.Name
 				c.env.aliases[e.Name.Name] = t
 			} else {
-				c.env.aliases[e.Name.Name] = numberT
+				c.env.aliases[e.Name.Name] = classicEnumType(e)
 			}
 		}
 		if st, ok := s.(*ast.StructStatement); ok && st.Name != nil && len(st.TypeParams) == 0 {
@@ -253,6 +266,56 @@ func (c *checker) structType(s *ast.StructStatement) *Type {
 	t := NewTable(fields, nil)
 	t.AliasName = s.Name.Name
 	return t
+}
+
+// recordEnum notes an enum's variant names so `match` exhaustiveness can
+// enumerate its domain and name the cases an arm list is missing. Called
+// from both the top-level pre-pass and the walker, so an enum declared
+// inside a function body is registered too; re-registering is harmless.
+func (c *checker) recordEnum(e *ast.EnumStatement) {
+	names := make([]string, len(e.Variants))
+	for i, v := range e.Variants {
+		names[i] = v.Name
+	}
+	if e.IsTagged() {
+		c.taggedEnums[e.Name.Name] = names
+	} else {
+		c.classicEnums[e.Name.Name] = names
+	}
+}
+
+// classicEnumType builds the type a classic integer enum's *name* denotes:
+// the union of its members' values. Variants are 1-based and numbered in
+// source order (the runtime contract enumrt implements), so `enum Color RED,
+// GREEN, BLUE end` is `1 | 2 | 3`. The AliasName keeps diagnostics reading
+// `Color` rather than the expansion.
+//
+// A variant-less enum has no inhabitants to enumerate; it falls back to
+// `number` rather than `never`, which would reject every use.
+func classicEnumType(e *ast.EnumStatement) *Type {
+	if len(e.Variants) == 0 {
+		return numberT
+	}
+	members := make([]*Type, len(e.Variants))
+	for i := range e.Variants {
+		members[i] = NewNumberLiteral(float64(i+1), "")
+	}
+	t := NewUnion(members...)
+	// NewUnion may have collapsed to a single member; copy before naming it
+	// so the shared singleton isn't mutated.
+	named := *t
+	named.AliasName = e.Name.Name
+	return &named
+}
+
+// classicEnumNamespaceType builds the type of a classic enum's namespace
+// value: one field per variant, each typed as its own singleton number.
+func classicEnumNamespaceType(e *ast.EnumStatement) *Type {
+	fields := make([]TableField, len(e.Variants))
+	for i, v := range e.Variants {
+		fields[i] = TableField{Key: v.Name, Type: NewNumberLiteral(float64(i+1), "")}
+	}
+	return NewTable(fields, nil)
 }
 
 // taggedEnumNamespaceType builds the type of a tagged enum's namespace
@@ -402,6 +465,7 @@ func (c *checker) walkStatement(s ast.Statement) {
 		if n.Name == nil {
 			break
 		}
+		c.recordEnum(n)
 		if n.IsTagged() {
 			// Tagged enum: bind the namespace value to a table typing each
 			// variant. Payload variants are constructors `(P...) -> Enum`;
@@ -410,12 +474,13 @@ func (c *checker) walkStatement(s ast.Statement) {
 			c.env.define(n.Name.Name, c.taggedEnumNamespaceType(n))
 			break
 		}
-		// Classic integer enum: bind the value-side as `any` so member
-		// access (`Color.RED`) doesn't get flagged as accessing fields of a
-		// non-structural type. The runtime table is structurally
-		// `{[string]: number}`, but pinning that precisely would force every
-		// user of the alias to disambiguate value-vs-type at the use site.
-		c.env.define(n.Name.Name, anyT)
+		// Classic integer enum: bind the value-side to a table typing each
+		// member as the singleton number it is. `Color.RED` is therefore the
+		// literal `1`, which both satisfies a `: Color` slot and acts as a
+		// discriminator in `if c == Color.RED then`. No indexer is declared,
+		// so a misspelled `Color.REDD` is an error while a dynamic
+		// `Color[name]` still falls back to `any`.
+		c.env.define(n.Name.Name, classicEnumNamespaceType(n))
 	case *ast.StructStatement:
 		// Pre-pass already registered Name as a type alias. Bind the value
 		// side to the constructor function so `Point(1, 2)` / `Point{...}`
@@ -437,7 +502,10 @@ func (c *checker) walkLocalStatement(s *ast.LocalStatement) {
 			}
 			bound = declared
 		} else {
-			bound = values[i]
+			// No annotation: widen, so `local mode = "read"` is a `string`
+			// the programmer can reassign rather than a singleton that
+			// rejects every later value.
+			bound = widen(values[i])
 			if bound.Kind == KindNil {
 				// `local f` / `local f = nil` without an annotation: the
 				// forward-declaration idiom. Pinning the literal nil type
@@ -481,8 +549,9 @@ func (c *checker) walkAssignStatement(s *ast.AssignStatement) {
 			if !ok {
 				// First-time global write: bind to the RHS type so later
 				// reads see it. Matches Lua's "globals materialize on
-				// first assignment" model.
-				c.env.define(tgt.Name, rhs[i])
+				// first assignment" model. Widened for the same reason an
+				// un-annotated local is.
+				c.env.define(tgt.Name, widen(rhs[i]))
 				continue
 			}
 			if !assignable(rhs[i], declared) {
@@ -490,7 +559,7 @@ func (c *checker) walkAssignStatement(s *ast.AssignStatement) {
 			}
 			// The value changed; any active narrowing must absorb the new
 			// type or it would keep vouching for the old one.
-			c.env.widenRefined(tgt.Name, rhs[i])
+			c.env.widenRefined(tgt.Name, widen(rhs[i]))
 		case *ast.IndexExpression:
 			// Field assignment to a table. We currently don't enforce
 			// shape conformance on writes (most Lua tables are open),
@@ -509,8 +578,13 @@ func (c *checker) walkAssignStatement(s *ast.AssignStatement) {
 // sibling arm or past the `end`. Nothing narrows the *subject* — patterns
 // test a value the checker cannot re-associate with the scrutinee expression
 // unless it is a simple name, and v1 does not track that.
+//
+// When the subject's type has a finite domain (a tagged enum, a singleton
+// union, a boolean) the arms are also checked for exhaustiveness — see
+// exhaustive.go.
 func (c *checker) walkMatchStatement(s *ast.MatchStatement) {
-	c.walkExpressionDiscard(s.Subject)
+	subject := c.typeOfExpression(s.Subject)
+	c.checkMatchExhaustive(s, subject)
 
 	for i := range s.Arms {
 		arm := &s.Arms[i]
@@ -795,11 +869,17 @@ func (c *checker) typeOfExpression(e ast.Expression) *Type {
 	case *ast.NilLiteral:
 		return nilT
 	case *ast.BooleanLiteral:
-		return booleanT
-	case *ast.IntegerLiteral, *ast.FloatLiteral:
-		return numberT
+		// Literal expressions carry singleton types so they can satisfy a
+		// singleton annotation (`local m: Mode = "read"`) and discriminate a
+		// union. Every *inference* site widens them back to the base
+		// primitive — see widen() — so untyped code is unaffected.
+		return NewBooleanLiteral(n.Value, "")
+	case *ast.IntegerLiteral:
+		return NewNumberLiteral(float64(n.Value), "")
+	case *ast.FloatLiteral:
+		return NewNumberLiteral(n.Value, "")
 	case *ast.StringLiteral:
-		return stringT
+		return NewStringLiteral(n.Value, "")
 	case *ast.VarargExpression:
 		return anyT
 	case *ast.Identifier:
@@ -1201,6 +1281,12 @@ func (c *checker) typeOfUnary(e *ast.UnaryExpression) *Type {
 	case "-", "~":
 		if !assignable(t, numberT) {
 			c.errAssign(e.Line(), t, numberT)
+		}
+		// Negation of a singleton is a singleton, so `-1` has the type `-1`
+		// and can satisfy a `local n: -1` slot. (`~` is a bitwise complement
+		// whose value depends on integer representation — not folded.)
+		if e.Op == "-" && t.Kind == KindLiteral && t.Lit != nil && t.Lit.Base == KindNumber {
+			return NewNumberLiteral(-t.Lit.Num, "")
 		}
 		return numberT
 	case "not":

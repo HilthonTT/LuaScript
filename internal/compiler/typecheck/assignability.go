@@ -9,6 +9,11 @@ package typecheck
 //   - `never` is the bottom: assigns to anything; nothing assigns to it.
 //   - Primitives match by identical kind only — no implicit number↔string
 //     coercion (matches Lua's strict-equality semantics).
+//   - Literals are singletons: a literal flows into its base primitive
+//     (`"read"` → `string`) and into an equal literal, but a primitive never
+//     flows back into a literal (`string` ↛ `"read"`) — that direction is
+//     exactly the widening a `Mode = "read" | "write"` annotation exists to
+//     reject.
 //   - Optional `T?` ≡ `T | nil`; `nil` flows to any union containing `nil`.
 //   - Union from-side: every member of `from` must flow to `to`.
 //   - Union to-side: there must exist some member of `to` that `from`
@@ -72,6 +77,20 @@ func assignable(from, to *Type) bool {
 				return true
 			}
 		}
+		return false
+	}
+
+	// Literals. Narrowest first: literal → literal requires the same value;
+	// literal → primitive succeeds when the primitive is the literal's base.
+	// The reverse (primitive → literal) is unsound and always fails, which is
+	// what makes an annotated singleton slot meaningful.
+	if from.Kind == KindLiteral {
+		if to.Kind == KindLiteral {
+			return sameLiteral(from.Lit, to.Lit)
+		}
+		return baseKind(from) == to.Kind
+	}
+	if to.Kind == KindLiteral {
 		return false
 	}
 

@@ -30,6 +30,37 @@ func (*TypePrimitive) typeNode()              {}
 func (t *TypePrimitive) TokenLiteral() string { return t.Token.Literal }
 func (t *TypePrimitive) String() string       { return t.Name }
 
+// TypeLiteralKind tags which primitive a TypeLiteral is a singleton of.
+type TypeLiteralKind int
+
+const (
+	LiteralString TypeLiteralKind = iota
+	LiteralNumber
+	LiteralBoolean
+)
+
+// TypeLiteral is a singleton (literal) type: `"read"`, `42`, `true`. It
+// denotes exactly one value, so `type Mode = "read" | "write"` accepts those
+// two strings and rejects every other one. Literal types are what give a
+// union a *finite* domain, which is also what makes `match` exhaustiveness
+// checkable.
+//
+// Raw preserves the source spelling so diagnostics and Program.String()
+// round-trip the programmer's notation (`0x10` stays `0x10`, a string keeps
+// the quoting style it was written with).
+type TypeLiteral struct {
+	BaseNode
+	Kind TypeLiteralKind
+	Str  string  // LiteralString
+	Num  float64 // LiteralNumber
+	Bool bool    // LiteralBoolean
+	Raw  string  // source spelling, used by String()
+}
+
+func (*TypeLiteral) typeNode()              {}
+func (t *TypeLiteral) TokenLiteral() string { return t.Token.Literal }
+func (t *TypeLiteral) String() string       { return t.Raw }
+
 // TypeName references a user-defined type alias by name. Resolution is the
 // type checker's job — the parser only records the name.
 type TypeName struct {

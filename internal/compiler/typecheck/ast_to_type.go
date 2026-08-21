@@ -25,6 +25,16 @@ func (c *checker) resolveAST(n ast.TypeNode) *Type {
 		// `nil` parsed as a "primitive" via parseTypeAtom's special case;
 		// also covered by primitiveByName. Anything else is a parser bug.
 		return anyT
+	case *ast.TypeLiteral:
+		switch t.Kind {
+		case ast.LiteralString:
+			return NewStringLiteral(t.Str, t.Raw)
+		case ast.LiteralNumber:
+			return NewNumberLiteral(t.Num, t.Raw)
+		case ast.LiteralBoolean:
+			return NewBooleanLiteral(t.Bool, t.Raw)
+		}
+		return anyT
 	case *ast.TypeName:
 		// Alias reference — look up. Annotate with the alias name so
 		// diagnostics show the user's spelling rather than the expansion.

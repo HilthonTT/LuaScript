@@ -3,6 +3,7 @@ package typecheck
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -24,10 +25,22 @@ type TypeError struct {
 // or, when only Message is set, just the bare message + line.
 func (e *TypeError) Format() string {
 	if e.Got != nil && e.Want != nil {
-		return fmt.Sprintf("Type %q could not be converted into %q at line %d",
-			e.Got.String(), e.Want.String(), e.Line)
+		return fmt.Sprintf("Type %s could not be converted into %s at line %d",
+			quoteType(e.Got), quoteType(e.Want), e.Line)
 	}
 	return fmt.Sprintf("%s at line %d", e.Message, e.Line)
+}
+
+// quoteType renders a type for an error message. Ordinary types are
+// double-quoted; a string singleton already carries quotes of its own
+// (`"read"`), and double-quoting it again would produce the unreadable
+// `"\"read\""`, so those are wrapped in Luau-style single quotes instead.
+func quoteType(t *Type) string {
+	s := t.String()
+	if strings.Contains(s, "\"") {
+		return "'" + s + "'"
+	}
+	return strconv.Quote(s)
 }
 
 // TypeErrors is the aggregate error type returned by Check. It satisfies
@@ -70,7 +83,43 @@ func (c *checker) errAssign(line int, got, want *Type) {
 	c.errors = append(c.errors, TypeError{
 		Line: line,
 		Code: "incompat-assign",
-		Got:  got,
+		Got:  reportedGot(got, want),
 		Want: want,
 	})
+}
+
+// reportedGot picks how precisely to describe the offending type. When the
+// target mentions a singleton, the exact value is the whole point of the
+// error and is reported verbatim:
+//
+//	Type "\"append\"" could not be converted into "\"read\" | \"write\""
+//
+// When the target is an ordinary primitive the singleton adds noise — the
+// programmer already sees the value in the source — so it widens to the base
+// primitive and the message reads the way it always has:
+//
+//	Type "string" could not be converted into "number"
+func reportedGot(got, want *Type) *Type {
+	if mentionsLiteral(want) {
+		return got
+	}
+	return widen(got)
+}
+
+// mentionsLiteral reports whether `t` is a singleton or a union with one.
+func mentionsLiteral(t *Type) bool {
+	if t == nil {
+		return false
+	}
+	if t.Kind == KindLiteral {
+		return true
+	}
+	if t.Kind == KindUnion {
+		for _, m := range t.Union {
+			if m.Kind == KindLiteral {
+				return true
+			}
+		}
+	}
+	return false
 }

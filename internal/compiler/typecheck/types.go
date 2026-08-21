@@ -12,6 +12,7 @@
 package typecheck
 
 import (
+	"strconv"
 	"strings"
 )
 
@@ -40,6 +41,13 @@ const (
 	KindFunction
 	KindTable
 	KindUnion
+	// KindLiteral is a singleton type: the type inhabited by exactly one
+	// value (`"read"`, `42`, `true`). Lit carries that value and the
+	// primitive it refines. A literal is assignable to its base primitive
+	// but not the reverse, which is what makes `type Mode = "read" | "write"`
+	// reject `"append"`, and what gives such a union a *finite* domain —
+	// the property `match` exhaustiveness checking relies on.
+	KindLiteral
 	// KindTypeParam is a generic type variable (`T` inside `function f<T>`).
 	// Within a generic body it behaves gradually — assignable to and from
 	// anything, so opaque type-variable code never produces spurious errors.
@@ -58,6 +66,7 @@ type Type struct {
 	Fn    *FunctionShape // KindFunction
 	Table *TableShape    // KindTable
 	Union []*Type        // KindUnion (always ≥ 2 members; flattened, deduped)
+	Lit   *LiteralValue  // KindLiteral
 
 	// AliasName preserves the user-written alias for diagnostics. Set when
 	// resolving a TypeName; the structural Kind/Fn/Table fields are still
@@ -92,6 +101,21 @@ type FunctionShape struct {
 type StructCtor struct {
 	Name  string
 	Shape *TableShape
+}
+
+// LiteralValue is the single value a KindLiteral type denotes, plus the
+// primitive Kind it refines (KindString, KindNumber, or KindBoolean). Only
+// the field selected by Base is meaningful.
+//
+// Numbers are compared as float64 regardless of how they were written, so
+// the literal types `1` and `1.0` are the same type — matching Lua 5.4's own
+// equality, where `1 == 1.0`.
+type LiteralValue struct {
+	Base Kind
+	Str  string
+	Num  float64
+	Bool bool
+	Raw  string // source spelling, for diagnostics
 }
 
 // TableShape is a structural table type. Fields are ordered for stable
@@ -196,6 +220,8 @@ func Same(a, b *Type) bool {
 	case KindNumber, KindString, KindBoolean, KindNil,
 		KindAny, KindUnknown, KindNever:
 		return true
+	case KindLiteral:
+		return sameLiteral(a.Lit, b.Lit)
 	case KindTypeParam:
 		return a.AliasName == b.AliasName
 	case KindFunction:
@@ -204,6 +230,24 @@ func Same(a, b *Type) bool {
 		return sameTable(a.Table, b.Table)
 	case KindUnion:
 		return sameUnion(a.Union, b.Union)
+	}
+	return false
+}
+
+func sameLiteral(a, b *LiteralValue) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	if a.Base != b.Base {
+		return false
+	}
+	switch a.Base {
+	case KindString:
+		return a.Str == b.Str
+	case KindNumber:
+		return a.Num == b.Num
+	case KindBoolean:
+		return a.Bool == b.Bool
 	}
 	return false
 }
@@ -311,6 +355,8 @@ func (t *Type) String() string {
 		return "unknown"
 	case KindNever:
 		return "never"
+	case KindLiteral:
+		return formatLiteral(t.Lit)
 	case KindTypeParam:
 		if t.AliasName != "" {
 			return t.AliasName
@@ -328,6 +374,24 @@ func (t *Type) String() string {
 		return strings.Join(parts, " | ")
 	}
 	return "<invalid>"
+}
+
+func formatLiteral(l *LiteralValue) string {
+	if l == nil {
+		return "?"
+	}
+	if l.Raw != "" {
+		return l.Raw
+	}
+	switch l.Base {
+	case KindString:
+		return strconv.Quote(l.Str)
+	case KindNumber:
+		return strconv.FormatFloat(l.Num, 'g', -1, 64)
+	case KindBoolean:
+		return strconv.FormatBool(l.Bool)
+	}
+	return "?"
 }
 
 func formatFunction(f *FunctionShape) string {
@@ -403,4 +467,101 @@ func NewTable(fields []TableField, indexer *Indexer) *Type {
 		Kind:  KindTable,
 		Table: &TableShape{Fields: fields, Indexer: indexer},
 	}
+}
+
+// Literal constructors. Raw is the source spelling used in diagnostics; pass
+// "" to let formatLiteral derive one.
+
+// NewStringLiteral builds the singleton type of one string value.
+func NewStringLiteral(v, raw string) *Type {
+	return &Type{Kind: KindLiteral, Lit: &LiteralValue{Base: KindString, Str: v, Raw: raw}}
+}
+
+// NewNumberLiteral builds the singleton type of one number value.
+func NewNumberLiteral(v float64, raw string) *Type {
+	return &Type{Kind: KindLiteral, Lit: &LiteralValue{Base: KindNumber, Num: v, Raw: raw}}
+}
+
+// NewBooleanLiteral builds the singleton type of one boolean value.
+func NewBooleanLiteral(v bool, raw string) *Type {
+	return &Type{Kind: KindLiteral, Lit: &LiteralValue{Base: KindBoolean, Bool: v, Raw: raw}}
+}
+
+// baseKind reports the primitive Kind a type behaves as for kind-based
+// reasoning (`type(x) == "string"`, truthiness, orderability). For a literal
+// that is the primitive it refines; for everything else it is the Kind
+// itself. Narrowing and the falsy/truthy splits all go through this so a
+// union of literals behaves like a union of its base primitives.
+func baseKind(t *Type) Kind {
+	if t != nil && t.Kind == KindLiteral && t.Lit != nil {
+		return t.Lit.Base
+	}
+	if t == nil {
+		return KindAny
+	}
+	return t.Kind
+}
+
+// widen replaces literal types with the primitives they refine, recursing
+// through unions. Inference sites that bind a *mutable* slot widen, because
+// pinning `local x = "read"` to the singleton `"read"` would reject every
+// later assignment; annotated slots keep whatever the annotation says. This
+// mirrors TypeScript's literal widening and Luau's singleton handling.
+//
+// Container contents widen too: `{ mode = "read" }` infers `{ mode: string }`.
+// To keep a literal inside a table, annotate the slot (`local c: Config = ...`)
+// or assert it (`"read" :: Mode`).
+func widen(t *Type) *Type {
+	if t == nil {
+		return t
+	}
+	switch t.Kind {
+	case KindLiteral:
+		if p := primitiveForKind(baseKind(t)); p != nil {
+			return p
+		}
+		return t
+	case KindUnion:
+		out := make([]*Type, 0, len(t.Union))
+		changed := false
+		for _, m := range t.Union {
+			w := widen(m)
+			if w != m {
+				changed = true
+			}
+			out = append(out, w)
+		}
+		if !changed {
+			return t
+		}
+		return NewUnion(out...)
+	}
+	return t
+}
+
+// literalMembers returns the literal members of `t` (itself, if `t` is a
+// literal) and whether *every* member is a literal — i.e. whether `t` denotes
+// a finite, enumerable set of values. `match` exhaustiveness uses the second
+// result to decide whether a subject's domain can be covered at all.
+func literalMembers(t *Type) ([]*LiteralValue, bool) {
+	if t == nil {
+		return nil, false
+	}
+	switch t.Kind {
+	case KindLiteral:
+		if t.Lit == nil {
+			return nil, false
+		}
+		return []*LiteralValue{t.Lit}, true
+	case KindUnion:
+		out := make([]*LiteralValue, 0, len(t.Union))
+		for _, m := range t.Union {
+			if m.Kind != KindLiteral || m.Lit == nil {
+				return nil, false
+			}
+			out = append(out, m.Lit)
+		}
+		return out, len(out) > 0
+	}
+	return nil, false
 }

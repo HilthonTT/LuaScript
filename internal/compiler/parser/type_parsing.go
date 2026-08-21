@@ -1,6 +1,8 @@
 package parser
 
 import (
+	"strconv"
+
 	"github.com/hilthontt/luascript/internal/compiler/ast"
 	"github.com/hilthontt/luascript/internal/compiler/parser/errors"
 	"github.com/hilthontt/luascript/internal/compiler/token"
@@ -10,7 +12,7 @@ import (
 // left-to-right around parseTypeAtom (which itself handles the `?` postfix).
 //
 //	T   :=  Atom { '|' Atom }
-//	Atom := Primitive | Name | '(' ... ')' [ '->' Returns ] | TableType
+//	Atom := Primitive | Literal | Name | '(' ... ')' [ '->' Returns ] | TableType
 //	      | Atom '?'
 //
 // The function returns nil and records a parser error on failure, following
@@ -57,6 +59,10 @@ func (p *Parser) parseTypeAtom() ast.TypeNode {
 		tok := p.curToken
 		p.nextToken()
 		t = &ast.TypePrimitive{BaseNode: baseAt(tok), Name: "nil"}
+	case p.curTokenIs(token.String), p.curTokenIs(token.Int), p.curTokenIs(token.Float),
+		p.curTokenIs(token.True), p.curTokenIs(token.False), p.curTokenIs(token.Minus):
+		// Singleton (literal) type: `"read"`, `42`, `-1`, `true`.
+		t = p.parseTypeLiteral()
 	case p.curTokenIs(token.Ident):
 		// Identifier-led atom: distinguish built-in primitives from user
 		// alias references purely by name. The set of primitives is closed.
@@ -79,7 +85,7 @@ func (p *Parser) parseTypeAtom() ast.TypeNode {
 	default:
 		p.errorAt(p.curToken, errors.SyntaxError, "type",
 			"expected a type, got "+describeToken(p.curToken),
-			"valid types: a name (`number`, `MyAlias`), a function type `(A) -> B`, a table `{ x: T }`, or a union `A | B`")
+			"valid types: a name (`number`, `MyAlias`), a literal (`\"read\"`, `42`, `true`), a function type `(A) -> B`, a table `{ x: T }`, or a union `A | B`")
 		return nil
 	}
 
@@ -421,4 +427,80 @@ func isPrimitiveTypeName(s string) bool {
 		return true
 	}
 	return false
+}
+
+// parseTypeLiteral parses a singleton type: a string, number (with optional
+// leading `-`), or boolean literal appearing in type position. It reuses the
+// expression-level literal parsers so type-position numbers accept exactly
+// the syntax expression-position numbers do (hex, floats, exponents) and
+// convert identically. Returns nil and records an error on failure.
+func (p *Parser) parseTypeLiteral() ast.TypeNode {
+	tok := p.curToken
+
+	switch {
+	case p.curTokenIs(token.String):
+		p.nextToken()
+		return &ast.TypeLiteral{
+			BaseNode: baseAt(tok),
+			Kind:     ast.LiteralString,
+			Str:      tok.Literal,
+			Raw:      strconv.Quote(tok.Literal),
+		}
+
+	case p.curTokenIs(token.True), p.curTokenIs(token.False):
+		v := p.curTokenIs(token.True)
+		p.nextToken()
+		return &ast.TypeLiteral{
+			BaseNode: baseAt(tok),
+			Kind:     ast.LiteralBoolean,
+			Bool:     v,
+			Raw:      strconv.FormatBool(v),
+		}
+	}
+
+	// Numeric, possibly negated. `-` binds only to a number here; there is no
+	// other prefix operator in type position.
+	negate := false
+	if p.curTokenIs(token.Minus) {
+		negate = true
+		p.nextToken()
+		tok = p.curToken // the number itself, for Raw and position
+		if !p.curTokenIs(token.Int) && !p.curTokenIs(token.Float) {
+			p.errorAt(p.curToken, errors.SyntaxError, "type",
+				"expected a number after '-' in a literal type, got "+describeToken(p.curToken),
+				"negative literal types look like `-1`")
+			return nil
+		}
+	}
+
+	var expr ast.Expression
+	if p.curTokenIs(token.Int) {
+		expr = p.parseIntegerLiteral()
+	} else {
+		expr = p.parseFloatLiteral()
+	}
+	if expr == nil {
+		return nil
+	}
+
+	var num float64
+	switch n := expr.(type) {
+	case *ast.IntegerLiteral:
+		num = float64(n.Value)
+	case *ast.FloatLiteral:
+		num = n.Value
+	default:
+		return nil
+	}
+	raw := tok.Literal
+	if negate {
+		num = -num
+		raw = "-" + raw
+	}
+	return &ast.TypeLiteral{
+		BaseNode: baseAt(tok),
+		Kind:     ast.LiteralNumber,
+		Num:      num,
+		Raw:      raw,
+	}
 }

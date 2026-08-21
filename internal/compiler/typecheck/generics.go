@@ -167,7 +167,12 @@ func unify(declared, actual *Type, subst map[string]*Type) {
 	if declared.Kind == KindTypeParam {
 		if _, tracked := subst[declared.AliasName]; tracked {
 			if subst[declared.AliasName] == nil {
-				subst[declared.AliasName] = actual
+				// Widen: `identity("hi")` should infer `T = string`, not the
+				// singleton `"hi"`. An unconstrained type parameter describes
+				// a slot the caller will keep using, so the useful inference
+				// is the primitive. Callers wanting the singleton say so with
+				// `identity("hi" :: "hi")`.
+				subst[declared.AliasName] = widen(actual)
 			}
 		}
 		return

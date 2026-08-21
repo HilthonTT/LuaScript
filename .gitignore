@@ -46,4 +46,7 @@ CLAUDE.md
 
 client/node_modules/
 # Output written by examples/48_plot_module.lsc
+# Scratch charts written by examples/48_plot_module.lsc. They land in the
+# working directory, which is the repo root for the documented invocation.
+scratch_*.svg
 examples/scratch_*.svg

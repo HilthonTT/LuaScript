@@ -158,7 +158,8 @@ tells them apart and integer arithmetic stays exact.`,
 			{Name: "tointeger", Kind: EntryFunction, Signature: "math.tointeger(v): number?",
 				Summary: "Returns v as an integer when it has an exact integer value, otherwise nil."},
 			{Name: "type", Kind: EntryFunction, Signature: `math.type(v): string?`,
-				Summary: `Returns "integer" or "float" for a number, and nil for anything else.`},
+				Summary: `Returns "integer" or "float" for a number, and nil for anything else.`,
+				Detail:  `Auto-global only — the math module does not export it.`},
 			{Name: "random", Kind: EntryFunction, Signature: "math.random([m [, n]]): number",
 				Summary: "A float in [0,1) with no arguments, an integer in [1,m] with one, or an integer in [m,n] with two."},
 			{Name: "randomseed", Kind: EntryFunction, Signature: "math.randomseed([x]): number, number",
@@ -282,11 +283,15 @@ print(coroutine.resume(co, 10))  --> true  20`,
 		RuntimeModule: "io",
 		RuntimeGlobal: "io",
 		Title:         "file and stream I/O",
-		Synopsis: `io.write("no newline")        -- auto-global: read and write only
-local io = require("io")      -- full Lua 5.4 io library`,
-		Detail: `Like math, io exists twice. The auto-global table holds only read and
-write; everything else — open, lines, tmpfile, the standard streams and
-file handles — needs require("io"). Entries below say which.
+		Synopsis: `io.write("no newline")        -- auto-global, no require needed
+local io = require("io")      -- the same library, named explicitly`,
+		Detail: `Lua 5.4 exposes io without a require, and so does luascript: the global
+io reaches the full library. require("io") returns the same module, and
+is worth writing when you want the dependency to be visible.
+
+The global table itself holds only the standard streams; everything else
+is reached through its metatable, so iterating it with pairs lists far
+less than io actually provides.
 
 io.open returns a file handle whose methods are documented under
 io.file. For path manipulation, directory creation and process-level

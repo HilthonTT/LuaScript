@@ -449,3 +449,102 @@ func TestLexerModeDirectiveOnlyAtHead(t *testing.T) {
 		t.Errorf("ModeDirective = %q, want empty (mid-file directive ignored)", got)
 	}
 }
+
+// Literal (singleton) types in type position.
+
+func TestLocalAnnotationLiteral(t *testing.T) {
+	cases := []struct {
+		src     string
+		wantStr string
+		check   func(*testing.T, *ast.TypeLiteral)
+	}{
+		{`local x: "read" = "read"`, `"read"`, func(t *testing.T, l *ast.TypeLiteral) {
+			if l.Kind != ast.LiteralString || l.Str != "read" {
+				t.Errorf("got kind=%v str=%q", l.Kind, l.Str)
+			}
+		}},
+		{"local x: 42 = 42", "42", func(t *testing.T, l *ast.TypeLiteral) {
+			if l.Kind != ast.LiteralNumber || l.Num != 42 {
+				t.Errorf("got kind=%v num=%v", l.Kind, l.Num)
+			}
+		}},
+		{"local x: -1 = -1", "-1", func(t *testing.T, l *ast.TypeLiteral) {
+			if l.Kind != ast.LiteralNumber || l.Num != -1 {
+				t.Errorf("got kind=%v num=%v", l.Kind, l.Num)
+			}
+		}},
+		{"local x: 0x10 = 16", "0x10", func(t *testing.T, l *ast.TypeLiteral) {
+			if l.Num != 16 {
+				t.Errorf("hex literal type: got num=%v, want 16", l.Num)
+			}
+		}},
+		{"local x: 1.5 = 1.5", "1.5", func(t *testing.T, l *ast.TypeLiteral) {
+			if l.Num != 1.5 {
+				t.Errorf("got num=%v", l.Num)
+			}
+		}},
+		{"local x: true = true", "true", func(t *testing.T, l *ast.TypeLiteral) {
+			if l.Kind != ast.LiteralBoolean || !l.Bool {
+				t.Errorf("got kind=%v bool=%v", l.Kind, l.Bool)
+			}
+		}},
+		{"local x: false = false", "false", func(t *testing.T, l *ast.TypeLiteral) {
+			if l.Kind != ast.LiteralBoolean || l.Bool {
+				t.Errorf("got kind=%v bool=%v", l.Kind, l.Bool)
+			}
+		}},
+	}
+	for _, c := range cases {
+		ty := firstLocalType(t, c.src)
+		lit, ok := ty.(*ast.TypeLiteral)
+		if !ok {
+			t.Fatalf("%q: expected *ast.TypeLiteral, got %T", c.src, ty)
+		}
+		// Raw preserves the source spelling, so the node round-trips.
+		if lit.String() != c.wantStr {
+			t.Errorf("%q: String() = %q, want %q", c.src, lit.String(), c.wantStr)
+		}
+		c.check(t, lit)
+	}
+}
+
+func TestLiteralUnionType(t *testing.T) {
+	ty := firstLocalType(t, `local x: "read" | "write" | 1 = "read"`)
+	u, ok := ty.(*ast.TypeUnion)
+	if !ok {
+		t.Fatalf("expected *ast.TypeUnion, got %T", ty)
+	}
+	if len(u.Members) != 3 {
+		t.Fatalf("expected 3 members, got %d", len(u.Members))
+	}
+	if got, want := u.String(), `"read" | "write" | 1`; got != want {
+		t.Errorf("String() = %q, want %q", got, want)
+	}
+}
+
+func TestOptionalLiteralType(t *testing.T) {
+	ty := firstLocalType(t, `local x: "read"? = nil`)
+	if got, want := ty.String(), `"read"?`; got != want {
+		t.Errorf("String() = %q, want %q", got, want)
+	}
+}
+
+func TestLiteralTypeInAliasAndSignature(t *testing.T) {
+	src := `type Mode = "read" | "write"
+	local function f(m: Mode, n: 1): "ok" return "ok" end`
+	p := newWithSource(src)
+	if _, err := p.ParseProgram(); err != nil {
+		t.Fatalf("parse error: %s", err.Message)
+	}
+}
+
+func TestDanglingMinusInTypeIsAnError(t *testing.T) {
+	p := newWithSource(`local x: - = 1`)
+	_, err := p.ParseProgram()
+	if err == nil {
+		t.Fatal("expected a parse error for `local x: - = 1`")
+	}
+	if !strings.Contains(err.Message, "number after '-'") {
+		t.Errorf("unexpected message: %s", err.Message)
+	}
+}

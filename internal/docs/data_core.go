@@ -133,17 +133,33 @@ error binding is optional; the do is not. See examples/55_try_catch.lsc.`},
 			{Name: "throw", Kind: EntryKeyword, Signature: "throw expr",
 				Summary: "Raises expr as an error. A dedicated opcode, not a call to error, so shadowing error cannot re-point it."},
 			{Name: "match", Kind: EntryKeyword, Signature: "match subject do pattern -> expr ... end",
-				Summary: "Pattern-matching statement, desugared in the parser.",
+				Summary: "Pattern-matching statement. A first-class node: the bytecode generator lowers it to one test-and-branch per arm.",
 				Detail: `Destructuring patterns are gated on names declared in the chunk:
 Circle(r) destructures only when Circle is a payload-carrying enum
 variant, and Point{ x = a } only when Point is a struct. Any other
-call-shaped pattern is compared by value. See examples/44_match.lsc.`},
+call-shaped pattern is compared by value.
+
+When the subject's type has a finite domain — a tagged enum, a singleton
+union, an enum, or boolean — the arms are checked for exhaustiveness and
+a missing case is a compile error. Guarded arms do not count as coverage,
+since a guard can fail. An untyped subject is never checked, so plain Lua
+is unaffected. See examples/44_match.lsc.`},
 			{Name: "enum", Kind: EntryKeyword, Signature: "enum Name V1, V2 end",
-				Summary: "Declares an enum. Lowered to a frozen table of auto-incrementing integers; the typechecker treats the alias as number. Payload-carrying (tagged) variants are supported — see examples/43_tagged_enums.lsc."},
+				Summary: "Declares an enum. Lowered to a frozen table of auto-incrementing integers; the typechecker types the alias as the exact literal union of those values (RED, GREEN => 1 | 2), so out-of-range numbers are rejected and match can check exhaustiveness. Payload-carrying (tagged) variants are supported — see examples/43_tagged_enums.lsc."},
 			{Name: "struct", Kind: EntryKeyword, Signature: "struct Name x: number, y: number end",
 				Summary: "Declares a struct type and its constructor. A contextual keyword. See examples/42_structs.lsc."},
 			{Name: "type", Kind: EntryKeyword, Signature: "type Name = T  |  type Box<T> = { value: T }",
-				Summary: "Declares a type alias, optionally generic. A contextual keyword. Aliases may be primitives, unions, optionals, function types or structural tables."},
+				Summary: "Declares a type alias, optionally generic. A contextual keyword. Aliases may be primitives, literals, unions, optionals, function types or structural tables."},
+			{Name: "literal types", Kind: EntryKeyword, Signature: `type Mode = "read" | "write" | "append"`,
+				Summary: "A string, number or boolean literal is a type of its own, inhabited by that one value.",
+				Detail: `A singleton is assignable to its base primitive but not the reverse, so
+a slot annotated "read" | "write" rejects every other string. Comparing
+against one narrows a union (if m == "read" then ...), and a union of
+singletons is what gives match a domain to check exhaustively.
+
+Inference widens: local m = "read" is a string, so it stays assignable.
+Write the annotation (local m: Mode = "read") or assert ("read" :: Mode)
+to keep the singleton. See examples/05_types.lsc.`},
 			{Name: "and", Kind: EntryKeyword, Signature: "a and b",
 				Summary: "Short-circuit conjunction: returns a when a is falsy, otherwise b. The typechecker narrows across it."},
 			{Name: "or", Kind: EntryKeyword, Signature: "a or b",

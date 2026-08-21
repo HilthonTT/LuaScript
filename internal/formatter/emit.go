@@ -126,9 +126,18 @@ func (e *emitter) blockContent(b *ast.Block, opts Options) Doc {
 		}
 	}
 
-	for _, stmt := range b.Statements {
+	for i, stmt := range b.Statements {
 		appendTriviaUntil(stmt.Line())
-		lines = append(lines, e.statement(stmt, opts))
+		doc := e.statement(stmt, opts)
+		// Lua ignores line breaks, so a statement that begins with `(` fuses
+		// onto whatever precedes it: `f(x)` followed by `("s"):upper()` parses
+		// as a single call `f(x)("s"):upper()`. The source must have carried a
+		// separating `;` to parse at all — re-emit one, or the formatted file
+		// means something different from the file we were given.
+		if i+1 < len(b.Statements) && statementStartsWithParen(b.Statements[i+1]) {
+			doc = concat(doc, text(";"))
+		}
+		lines = append(lines, doc)
 	}
 	if b.Return != nil {
 		appendTriviaUntil(b.Return.Line())
@@ -143,6 +152,42 @@ func (e *emitter) blockContent(b *ast.Block, opts Options) Doc {
 		parts = append(parts, ln)
 	}
 	return concat(parts...)
+}
+
+// statementStartsWithParen reports whether a statement's first token is `(`.
+// Only an expression statement or an assignment can start that way; every
+// other statement begins with a keyword or a name.
+func statementStartsWithParen(s ast.Statement) bool {
+	switch n := s.(type) {
+	case *ast.ExpressionStatement:
+		return leadsWithParen(n.Expression)
+	case *ast.AssignStatement:
+		if len(n.Targets) == 0 {
+			return false
+		}
+		return leadsWithParen(n.Targets[0])
+	}
+	return false
+}
+
+// leadsWithParen walks to the leftmost primary of an expression and reports
+// whether it is a parenthesised one. `("s"):upper()` is a method call whose
+// object is a ParenExpression, so the check has to descend rather than test
+// the top node.
+func leadsWithParen(e ast.Expression) bool {
+	switch n := e.(type) {
+	case *ast.ParenExpression:
+		return true
+	case *ast.CallExpression:
+		return leadsWithParen(n.Func)
+	case *ast.MethodCallExpression:
+		return leadsWithParen(n.Object)
+	case *ast.IndexExpression:
+		return leadsWithParen(n.Object)
+	case *ast.BinaryExpression:
+		return leadsWithParen(n.Left)
+	}
+	return false
 }
 
 // statement dispatches on AST type. Every case returns a Doc that fits on
@@ -646,11 +691,43 @@ func (e *emitter) unary(u *ast.UnaryExpression, opts Options) Doc {
 // binary emits a left-flat / right-break chain. Repeated same-precedence
 // operators get grouped so a long `a + b + c + d` breaks before each
 // operator at the same indent rather than nesting.
+// binary renders `a op b`, flattening a run of the SAME operator into a
+// single group.
+//
+// Flattening is what makes the output stable. Emitted one node at a time,
+// `a .. b .. c .. d` nests a group inside a group inside a group, each
+// adding its own indent; when the outermost breaks, the inner ones make
+// their own fit decisions and the result is a staircase. Re-formatting that
+// staircase produces different decisions again — i.e. formatting was not
+// idempotent, so its output was not a canonical form.
+//
+// With the chain flat, every operand breaks together at one indent level.
+//
+// Only children with the *same* operator are absorbed, and explicit
+// parentheses survive parsing as ParenExpression nodes rather than
+// BinaryExpression ones — so `a - (b - c)` is never flattened into
+// `a - b - c`, which would change what it means.
 func (e *emitter) binary(b *ast.BinaryExpression, opts Options) Doc {
+	operands := e.binaryChain(b, b.Op, opts)
+	rest := make([]Doc, 0, len(operands)-1)
+	for _, operand := range operands[1:] {
+		rest = append(rest, line(), text(b.Op+" "), operand)
+	}
 	return group(concat(
-		e.expr(b.Left, opts),
-		nest(opts.indent(), concat(line(), text(b.Op+" "), e.expr(b.Right, opts))),
+		operands[0],
+		nest(opts.indent(), concat(rest...)),
 	))
+}
+
+// binaryChain collects the operands of a maximal run of `op`, left to right.
+func (e *emitter) binaryChain(x ast.Expression, op string, opts Options) []Doc {
+	if b, ok := x.(*ast.BinaryExpression); ok && b.Op == op {
+		return append(
+			e.binaryChain(b.Left, op, opts),
+			e.binaryChain(b.Right, op, opts)...,
+		)
+	}
+	return []Doc{e.expr(x, opts)}
 }
 
 func (e *emitter) index(ix *ast.IndexExpression, opts Options) Doc {
@@ -737,6 +814,10 @@ func (e *emitter) typeNode(t ast.TypeNode, opts Options) Doc {
 	switch v := t.(type) {
 	case *ast.TypePrimitive:
 		return text(v.Name)
+	case *ast.TypeLiteral:
+		// Raw is the source spelling, so a singleton round-trips exactly as
+		// written (`0x10` stays `0x10`).
+		return text(v.Raw)
 	case *ast.TypeName:
 		return text(v.Name)
 	case *ast.TypeOptional:

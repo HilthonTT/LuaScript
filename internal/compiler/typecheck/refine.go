@@ -14,6 +14,9 @@ package typecheck
 //
 //   - type guards:   type(x) == "T"   /   typeof(x) == "T"   (and ~=)
 //   - nil guards:    x == nil          /   x ~= nil
+//   - literal guards: x == "read"       /   x ~= 3   (narrows a singleton
+//                    union such as `type Mode = "read" | "write"`, and the
+//                    members of a classic enum)
 //   - truthiness:    if x then ...     (then-branch: x is non-nil)
 //   - negation:      not <cond>        (swaps the then/else narrowing)
 //   - and / or:      conjunction propagates to the then-branch; disjunction
@@ -159,7 +162,138 @@ func (c *checker) refineEquality(a, b ast.Expression, eq bool) refinement {
 	if name, ok := identName(b); ok && isNilLiteral(a) {
 		return c.refineNilGuard(name, eq)
 	}
+	// x == <literal> — the discriminator for a singleton union. `Color.RED`
+	// counts as a literal too, since a classic enum's members are typed as
+	// the singleton numbers they are.
+	if name, ok := identName(a); ok {
+		if lit := c.staticLiteralType(b); lit != nil {
+			return c.refineLiteralGuard(name, lit, eq)
+		}
+	}
+	if name, ok := identName(b); ok {
+		if lit := c.staticLiteralType(a); lit != nil {
+			return c.refineLiteralGuard(name, lit, eq)
+		}
+	}
 	return nil
+}
+
+// staticLiteralType returns the singleton type of an expression whose value
+// is knowable without evaluating anything — a literal, or a dotted read of a
+// field that is itself typed as a singleton (`Color.RED`, `Mode.Read`).
+// Returns nil for everything else.
+//
+// Deliberately does NOT go through typeOfExpression: refine() must stay
+// side-effect free, and typeOfExpression records errors.
+func (c *checker) staticLiteralType(e ast.Expression) *Type {
+	switch n := e.(type) {
+	case *ast.ParenExpression:
+		return c.staticLiteralType(n.Inner)
+	case *ast.StringLiteral:
+		return NewStringLiteral(n.Value, "")
+	case *ast.IntegerLiteral:
+		return NewNumberLiteral(float64(n.Value), "")
+	case *ast.FloatLiteral:
+		return NewNumberLiteral(n.Value, "")
+	case *ast.BooleanLiteral:
+		return NewBooleanLiteral(n.Value, "")
+	case *ast.IndexExpression:
+		base, ok := n.Object.(*ast.Identifier)
+		if !ok {
+			return nil
+		}
+		name, ok := staticIndexName(n)
+		if !ok {
+			return nil
+		}
+		bt, ok := c.env.lookup(base.Name)
+		if !ok || bt == nil || bt.Kind != KindTable || bt.Table == nil {
+			return nil
+		}
+		for _, f := range bt.Table.Fields {
+			if f.Key == name && f.Type != nil && f.Type.Kind == KindLiteral {
+				return f.Type
+			}
+		}
+	}
+	return nil
+}
+
+// refineLiteralGuard narrows `name` on an `x == <literal>` test. `eq` true →
+// the equality holds, so x is exactly that singleton; false → x is everything
+// in its type *except* that singleton, which is only representable when the
+// type is a union of literals.
+func (c *checker) refineLiteralGuard(name string, lit *Type, eq bool) refinement {
+	t, ok := c.env.lookup(name)
+	if !ok || t == nil {
+		return nil
+	}
+	var nt *Type
+	if eq {
+		nt = narrowToLiteral(t, lit)
+	} else {
+		nt = removeLiteral(t, lit)
+	}
+	if nt == nil || Same(nt, t) {
+		return nil
+	}
+	return refinement{name: nt}
+}
+
+// narrowToLiteral keeps only the part of `t` that can equal `lit`.
+//
+//   - `any`/`unknown` refine to the singleton, matching how a type guard
+//     refines the gradual top.
+//   - a union keeps the member equal to `lit`.
+//   - a base primitive of the right kind refines to the singleton
+//     (`string` under `s == "read"` becomes `"read"`).
+//   - anything else collapses to `never` — an impossible branch.
+func narrowToLiteral(t, lit *Type) *Type {
+	if t == nil || lit == nil {
+		return nil
+	}
+	switch t.Kind {
+	case KindAny, KindUnknown:
+		return lit
+	case KindUnion:
+		kept := make([]*Type, 0, 1)
+		for _, m := range t.Union {
+			if Same(m, lit) || (m.Kind != KindLiteral && m.Kind == baseKind(lit)) {
+				kept = append(kept, lit)
+				break
+			}
+		}
+		return NewUnion(kept...)
+	}
+	if Same(t, lit) {
+		return t
+	}
+	if t.Kind == baseKind(lit) {
+		return lit
+	}
+	return neverT
+}
+
+// removeLiteral drops the member of `t` equal to `lit`. Only a union of
+// literals can express the result — "every string except \"read\"" is not a
+// type we can represent, so a base primitive is returned unchanged.
+func removeLiteral(t, lit *Type) *Type {
+	if t == nil || lit == nil {
+		return nil
+	}
+	if t.Kind == KindUnion {
+		kept := make([]*Type, 0, len(t.Union))
+		for _, m := range t.Union {
+			if !Same(m, lit) {
+				kept = append(kept, m)
+			}
+		}
+		return NewUnion(kept...)
+	}
+	if Same(t, lit) {
+		return neverT
+	}
+	return t
 }
 
 // refineTypeGuard narrows `name` based on a `type(name) == "kind"` test.
@@ -258,13 +392,13 @@ func narrowToKind(t *Type, k Kind) *Type {
 	case KindUnion:
 		kept := make([]*Type, 0, len(t.Union))
 		for _, m := range t.Union {
-			if m.Kind == k {
+			if baseKind(m) == k {
 				kept = append(kept, m)
 			}
 		}
 		return NewUnion(kept...)
 	}
-	if t.Kind == k {
+	if baseKind(t) == k {
 		return t
 	}
 	return neverT
@@ -283,13 +417,13 @@ func removeKind(t *Type, k Kind) *Type {
 	if t.Kind == KindUnion {
 		kept := make([]*Type, 0, len(t.Union))
 		for _, m := range t.Union {
-			if m.Kind != k {
+			if baseKind(m) != k {
 				kept = append(kept, m)
 			}
 		}
 		return NewUnion(kept...)
 	}
-	if t.Kind == k {
+	if baseKind(t) == k {
 		return neverT
 	}
 	return t
@@ -308,13 +442,13 @@ func keepKinds(t *Type, kinds ...Kind) *Type {
 	if t.Kind == KindUnion {
 		kept := make([]*Type, 0, len(t.Union))
 		for _, m := range t.Union {
-			if want(m.Kind) {
+			if want(baseKind(m)) {
 				kept = append(kept, m)
 			}
 		}
 		return NewUnion(kept...)
 	}
-	if want(t.Kind) {
+	if want(baseKind(t)) {
 		return t
 	}
 	return neverT
