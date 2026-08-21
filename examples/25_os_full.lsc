@@ -32,3 +32,17 @@ os.remove(p2)
 
 print("--- execute ---")
 print("shell exists ", os.execute())
+
+print()
+print("--- working directory ---")
+-- Two names for the same thing: getcwd is the POSIX spelling, pwd the
+-- shell one. Use whichever reads better next to the surrounding code.
+print("getcwd()     ", os.getcwd())
+print("pwd() agrees ", os.pwd() == os.getcwd())
+
+print()
+print("--- setlocale ---")
+-- Present for Lua compatibility only. Go has no locale switch, so this
+-- reports the current setting and cannot change it — which is worth
+-- knowing before you write code that depends on switching one.
+print("setlocale()  ", os.setlocale())

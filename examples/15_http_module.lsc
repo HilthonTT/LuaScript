@@ -1,4 +1,196 @@
-local http = require("http")
+--!nocheck
+-- The `http` module: an HTTP client.
+--
+--   local http = require("http")
+--
+-- Every call — shorthand or full — returns the same response table:
+--
+--   status       number   the HTTP status code
+--   status_text  string   the status line, e.g. "200 OK"
+--   body         string   the response body
+--   ok           boolean  true when status is 2xx
+--   headers      table    header name -> value, multiple values comma-joined
+--   headers_raw  table    header name -> array of values
+--   url          string   the URL the response came from, AFTER redirects
+--
+-- Read Set-Cookie from `headers_raw`, never `headers`: a response may set
+-- several cookies, and joining them with a comma produces a string no cookie
+-- parser can take apart.
+--
+-- NOTE: the sections marked [network] below reach out to the internet. They
+-- are wrapped in pcall so this file still runs to completion offline; you
+-- will see a "skipped" line instead of a response.
 
-local r = http.get("https://example.com", { timeout = 10 })
-print(r.status, r.ok, r.body)
+local http = require("http")
+local json = require("json")
+
+print("=== version and method constants ===")
+print("http.VERSION:", http.VERSION)
+-- The method names are exposed as constants so `method = http.MethodPost`
+-- can't be a typo that silently sends a GET.
+print("MethodGet   :", http.MethodGet)
+print("MethodPost  :", http.MethodPost)
+print("MethodPut   :", http.MethodPut)
+print("MethodPatch :", http.MethodPatch)
+print("MethodDelete:", http.MethodDelete)
+print("MethodHead  :", http.MethodHead)
+print("also present: MethodOptions, MethodTrace")
+print()
+
+print("=== encode_url (no network needed) ===")
+-- Percent-encodes a table into a query string. Array-valued keys repeat.
+print(http.encode_url({ q = "lua script", page = 2 }))
+print(http.encode_url({ tag = { "a", "b" } }))
+print(http.encode_url({ ["odd key"] = "a&b=c" }))
+print()
+
+print("=== request options ===")
+-- These are recognised by every call, shorthand or not:
+--
+--   body              string  the raw request body
+--   json              any     serialised to JSON, sets Content-Type
+--   form              table   URL-encoded, sets Content-Type
+--   headers           table   request headers (these WIN over json/form)
+--   query             table   appended to the URL as a query string
+--   timeout           number  seconds
+--   username/password string  HTTP basic auth
+--   follow_redirects  boolean false makes the 3xx itself the response
+--
+-- Only one of body/json/form makes sense per request.
+local opts = {
+    json = { name = "Ada", langs = { "lsc" } },
+    headers = { ["X-Request-Id"] = "demo-1" },
+    query = { verbose = "1" },
+    timeout = 10,
+}
+print("opts.json encodes to:", json.encode(opts.json))
+print("opts.query becomes  :", http.encode_url(opts.query))
+print()
+
+-- Two helpers so the network sections degrade gracefully: `attempt` swallows
+-- transport failures (offline, DNS, timeout), and `body_json` only decodes a
+-- body that actually arrived and actually parses. A public demo endpoint that
+-- is having a bad day should not take the walkthrough down with it.
+local function attempt(label, fn)
+    local ok, res = pcall(fn)
+    if not ok then
+        print(label, "skipped -", tostring(res):sub(1, 60))
+        return nil
+    end
+    return res
+end
+
+local function body_json(res)
+    if not res or not res.ok then
+        return nil
+    end
+    local ok, decoded = pcall(json.decode, res.body)
+    if not ok then
+        return nil
+    end
+    return decoded
+end
+
+print("=== [network] GET shorthand ===")
+local r = attempt("GET example.com:", function()
+    return http.get("https://example.com", { timeout = 10 })
+end)
+if r then
+    print("status      :", r.status, r.status_text)
+    print("ok          :", r.ok)
+    print("url         :", r.url)
+    print("content-type:", r.headers["Content-Type"])
+    print("body bytes  :", #r.body)
+end
+print()
+
+print("=== [network] http.request — the full surface ===")
+-- The shorthands are sugar over this. opts.url is required; method defaults
+-- to GET.
+local r2 = attempt("POST httpbin:", function()
+    return http.request({
+        method = http.MethodPost,
+        url = "https://httpbin.org/post",
+        json = { hello = "world" },
+        headers = { ["X-Demo"] = "luascript" },
+        query = { trace = "1" },
+        timeout = 15,
+    })
+end)
+if r2 then
+    print("status:", r2.status, r2.status_text)
+    -- httpbin echoes the request back, so this shows what we actually sent.
+    local echoed = body_json(r2)
+    if echoed then
+        print("we sent json:", json.encode(echoed.json))
+        print("we sent hdr :", echoed.headers["X-Demo"])
+    else
+        print("(echo endpoint unavailable - nothing to show)")
+    end
+end
+print()
+
+print("=== [network] reading multi-valued headers ===")
+local r3 = attempt("cookie response:", function()
+    return http.get("https://httpbin.org/cookies/set?a=1&b=2", {
+        timeout = 15,
+        follow_redirects = false,   -- keep the 3xx that carries Set-Cookie
+    })
+end)
+if r3 then
+    print("status:", r3.status, r3.status_text)
+    local raw = r3.headers_raw["Set-Cookie"]
+    if raw then
+        for i, v in ipairs(raw) do
+            print(string.format("  Set-Cookie[%d]: %s", i, v))
+        end
+        -- The joined form is lossy for this header — shown only to make the
+        -- point, never to parse:
+        print("  joined (do not parse):", tostring(r3.headers["Set-Cookie"]))
+    else
+        print("  (no Set-Cookie on this response)")
+    end
+end
+print()
+
+print("=== reusable clients ===")
+-- For several requests against one host, new_client shares a base URL,
+-- default headers, a timeout and a connection pool. Per-call headers
+-- override the client's.
+local api = http.new_client({
+    base_url = "https://httpbin.org",
+    headers = { Authorization = "Bearer demo-token", ["X-Client"] = "luascript" },
+    timeout = 15,
+})
+print("client created with base_url https://httpbin.org")
+print("methods: get, head, options, delete, post, put, patch, request")
+
+local r4 = attempt("client GET /get:", function()
+    -- Note the path, not a full URL: it resolves against base_url.
+    return api:get("/get", { headers = { ["X-Client"] = "overridden" } })
+end)
+if r4 then
+    local echoed = body_json(r4)
+    if echoed then
+        print("Authorization survived  :", echoed.headers["Authorization"])
+        print("X-Client was overridden :", echoed.headers["X-Client"])
+    else
+        print("(echo endpoint unavailable - nothing to show)")
+    end
+end
+print()
+
+print("=== error handling ===")
+-- Transport failures (DNS, connection refused, timeout) RAISE. An HTTP
+-- error status does not — 404 is a perfectly good response, so check `ok`.
+local ok, err = pcall(function()
+    return http.get("https://this-host-does-not-exist.invalid", { timeout = 5 })
+end)
+print("bad host raises:", ok, "-", tostring(err):sub(1, 60))
+
+local r5 = attempt("404 response:", function()
+    return http.get("https://httpbin.org/status/404", { timeout = 15 })
+end)
+if r5 then
+    print("status:", r5.status, "| ok:", r5.ok, "-- no error raised")
+end

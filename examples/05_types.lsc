@@ -1,51 +1,168 @@
--- Luau-style gradual types. Annotations are optional; untyped code is
--- implicitly `any` (gradual escape hatch). The checker runs by default;
--- start a file with `--!nocheck` to skip it.
+-- Luau-style gradual types.
+--
+-- Types are a compile-time layer only: the checker runs between the parser
+-- and the bytecode generator, and every type is *erased* before codegen. The
+-- VM never sees an annotation, so nothing here costs anything at run time.
+--
+-- "Gradual" means annotations are optional and an un-annotated slot is `any`,
+-- which is bidirectionally compatible with everything. Precision is opt-in and
+-- arrives exactly where you write it down.
+--
+--   --!strict     every function parameter must be annotated
+--   --!nonstrict  the default: implicit `any` is fine
+--   --!nocheck    skip the type pass entirely
+--
+-- The directive must be on line 1. See 06_strict_mode.lsc for strict mode.
 
--- Primitive annotations on locals.
+print("=== primitives ===")
+-- The closed set: number, string, boolean, nil, any, unknown, never.
 local count: number = 42
 local name: string = "Ada"
 local emphatic: boolean = true
+print(count, name, emphatic)
+print()
 
--- Optional sugar (`T?` ≡ `T | nil`).
+print("=== optionals and unions ===")
+-- `T?` is sugar for `T | nil`. The two are the same type; the spelling is
+-- preserved only so diagnostics echo what you wrote.
 local maybe: string? = nil
-
--- Unions.
 local id: number | string = "user-7"
+print(maybe, id)
 
--- Function annotations: parameters, return type, multi-return.
+-- `x or default` drops nil from the result type, which is why this is a
+-- `string` and not a `string?`.
+local resolved: string = maybe or "anonymous"
+print("resolved:", resolved)
+print()
+
+print("=== literal (singleton) types ===")
+-- A string, number or boolean literal is a type of its own, inhabited by
+-- exactly one value. A union of them is a closed set — the closest thing to
+-- a "string enum".
+type Mode = "read" | "write" | "append"
+
+local function describe(m: Mode): string
+    -- Comparing against a singleton narrows the union inside the branch.
+    if m == "read" then
+        return "opens for reading"
+    elseif m == "write" then
+        return "truncates, then writes"
+    end
+    return "appends at the end"
+end
+
+print("read   ->", describe("read"))
+print("append ->", describe("append"))
+-- describe("nope")  -- Type '"nope"' could not be converted into "Mode"
+
+-- Singletons are assignable to their base primitive, never the reverse.
+local as_string: string = "read"     -- fine: "read" is a string
+-- local back: Mode = as_string      -- rejected: any string is not a Mode
+
+-- Inference *widens*. `local m = "read"` is a `string`, so it stays
+-- assignable; pinning the singleton would reject every later write.
+local m = "read"
+m = "write"                          -- fine, m is a string
+local pinned: Mode = "read"          -- annotate to keep the singleton
+print("widened:", m, "| pinned:", pinned)
+
+-- Numbers and booleans work the same way.
+type Bit = 0 | 1
+local high: Bit = 1
+print("bit:", high)
+print()
+
+print("=== function types ===")
 local function add(a: number, b: number): number
     return a + b
 end
 
+-- Multiple returns are a parenthesised list.
 local function divmod(a: number, b: number): (number, number)
     return a // b, a % b
 end
 
-print("add(2, 3) =", add(2, 3))
-
+print("add(2, 3)     =", add(2, 3))
 local q, r = divmod(17, 5)
 print("divmod(17, 5) =", q, r)
 
--- Type aliases — including structural table shapes.
-type Point = { x: number, y: number }
+-- A function type as a value type: `(params) -> return`.
 type Callback = (number) -> string
-type Numbers = { number }        -- array-shorthand for {[number]: number}
+local render: Callback = function(n: number): string
+    return "<" .. n .. ">"
+end
+print("callback      =", render(9))
+print()
+
+print("=== aliases and table shapes ===")
+type Point = { x: number, y: number }        -- record
+type Numbers = { number }                    -- array shorthand: {[number]: number}
+type Lookup = { [string]: number }           -- explicit indexer
 
 local origin: Point = { x = 0, y = 0 }
-print("origin =", origin.x, origin.y)
+local primes: Numbers = { 2, 3, 5, 7 }
+local ages: Lookup = { ada = 36 }
+print("origin:", origin.x, origin.y, "| primes[3]:", primes[3], "| ages.ada:", ages.ada)
+print()
 
--- Type assertion: programmer-controlled cast. Runtime no-op.
-local payload: any = 7
-local n: number = payload :: number
-print("after assertion:", n + 1)
+print("=== narrowing ===")
+-- The checker tracks what a branch proves about a local. Narrowings live in
+-- a scope of their own, so they never escape the branch that established
+-- them, and an assignment widens them back.
+local function length_of(s: string?): number
+    if s == nil then
+        return 0
+    end
+    -- `s` is a plain `string` here — no `?` to unwrap.
+    return #s
+end
+print("length_of(nil)   :", length_of(nil))
+print("length_of('abcd'):", length_of("abcd"))
 
--- Mixing typed and untyped freely is the whole point of gradual:
--- `untyped()` returns `any`, which flows into a typed slot via the
--- escape-hatch rule.
+-- `type(x) == "..."` narrows a union, and sees through singletons to the
+-- primitive they refine.
+local function stringify(v: number | string): string
+    if type(v) == "number" then
+        return string.format("%.2f", v)
+    end
+    return v
+end
+print("stringify(3)     :", stringify(3))
+print("stringify('hi')  :", stringify("hi"))
+
+-- `assert` narrows the rest of the block, as does an early `return`.
+local function must(s: string?): string
+    assert(s ~= nil, "expected a string")
+    return s:upper()
+end
+print("must('quiet')    :", must("quiet"))
+print()
+
+print("=== unknown, never, any ===")
+-- `unknown` is the *safe* top: everything flows in, nothing flows back out
+-- until you narrow or assert. `any` is the gradual escape hatch: it flows
+-- both ways, which is what keeps untyped Lua working.
+local opaque: unknown = "some payload"
+local revealed: string = opaque :: string    -- assertion: a compile-time cast
+print("revealed:", revealed)
+
+-- `any` in, `any` out — an un-annotated function is fully gradual.
 local function untyped(x) return x * 2 end
 local doubled: number = untyped(21)
-print("doubled =", doubled)
+print("doubled :", doubled)
+print()
 
--- For uses of `count` and the rest so the linter doesn't shadow them.
-print(count, name, emphatic, maybe, id)
+print("=== assertions are not conversions ===")
+-- `expr :: T` tells the checker to believe you. It emits no code and checks
+-- nothing at run time, so an assertion that lies fails later, as a runtime
+-- error, not here.
+local lie: any = "not a number"
+local n = lie :: number
+print("type(n) is really:", type(n))
+
+-- See also:
+--   06_strict_mode.lsc  --!strict
+--   42_structs.lsc      nominal product types
+--   43_tagged_enums.lsc sum types with payloads
+--   44_match.lsc        pattern matching + exhaustiveness
+--   45_generics.lsc     parametric types

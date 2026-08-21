@@ -61,3 +61,94 @@ end
 show("zscore:   ", stats.zscore(x))
 show("normalize:", stats.normalize(x))
 show("cumsum:   ", stats.cumsum(x))
+
+-- 7) Aggregates and the other means ----------------------------------------
+-- Which "average" you want depends on what the numbers ARE. The arithmetic
+-- mean suits additive quantities; the geometric mean suits growth rates and
+-- ratios (it is the mean of the logs); the harmonic mean suits rates like
+-- speed, where the denominators are what add up.
+print()
+print("--- aggregates ---")
+print("sum       :", stats.sum(x))
+print("product   :", stats.product(x))
+local growth = { 1.10, 1.05, 1.20 }        -- +10%, +5%, +20%
+print("mean of growth rates   :", string.format("%.4f", stats.mean(growth)))
+print("geomean (the right one):", string.format("%.4f", stats.geomean(growth)))
+local speeds = { 30, 60 }                  -- same distance at each speed
+print("harmonic_mean(30, 60)  :", stats.harmonic_mean(speeds), "-- not 45")
+
+-- A weighted mean, when some observations count for more.
+local grades = { 90, 70, 80 }
+local credits = { 4, 1, 2 }
+print("weighted_mean          :", string.format("%.2f", stats.weighted_mean(grades, credits)))
+print()
+
+-- 8) Population vs sample ---------------------------------------------------
+-- `variance` divides by n-1 (a SAMPLE drawn from a larger population);
+-- `pvariance` divides by n (the data IS the whole population). With small
+-- n the difference is not subtle.
+print("--- population vs sample ---")
+print("variance  (n-1):", string.format("%.4f", stats.variance(x)))
+print("pvariance (n)  :", string.format("%.4f", stats.pvariance(x)))
+print("sem            :", string.format("%.4f", stats.sem(x)), "-- precision of the mean")
+print()
+
+-- 9) Quantiles --------------------------------------------------------------
+print("--- quantiles ---")
+for _, q in ipairs({ 0, 0.25, 0.5, 0.75, 1 }) do
+  print(string.format("  quantile(%.2f) = %.3f", q, stats.quantile(x, q)))
+end
+print()
+
+-- 10) Rank correlation ------------------------------------------------------
+-- Pearson (`correlation`) measures a LINEAR relationship; Spearman is
+-- Pearson computed on the ranks, so it detects any monotonic one. On a
+-- curved-but-always-increasing relationship the difference shows.
+print("--- spearman vs pearson ---")
+local xs = { 1, 2, 3, 4, 5, 6 }
+local curved = { 1, 4, 9, 16, 25, 36 }     -- perfectly monotonic, not linear
+print("pearson  :", string.format("%.4f", stats.correlation(xs, curved)))
+print("spearman :", string.format("%.4f", stats.spearman(xs, curved)), "-- exactly 1")
+print()
+
+-- 11) Standardising ---------------------------------------------------------
+print("--- standardize ---")
+show("standardize:", stats.standardize(x))
+print("(mean 0, unit variance -- the same transform zscore applies)")
+print()
+
+-- 12) Histogram -------------------------------------------------------------
+-- Returns { counts, edges }, with one more edge than count. The maximum
+-- value falls in the last bin rather than starting a new one.
+print("--- histogram ---")
+local samples = {}
+for i = 1, 50 do samples[i] = (i * 7) % 20 end
+local h = stats.histogram(samples, 5)
+for i = 1, #h.counts do
+  print(string.format("  [%5.2f, %5.2f) %-10s %d",
+    h.edges[i], h.edges[i + 1], string.rep("#", h.counts[i]), h.counts[i]))
+end
+print()
+
+-- 13) The normal distribution ----------------------------------------------
+-- pdf is the height of the bell curve at x; cdf is the area to its left,
+-- i.e. P(X <= x). Both default to the standard normal (mu 0, sigma 1).
+print("--- normal ---")
+print("pdf(0)           :", string.format("%.4f", stats.normal_pdf(0)))
+print("cdf(0)           :", string.format("%.4f", stats.normal_cdf(0)), "-- half the mass")
+print("cdf(1.96)        :", string.format("%.4f", stats.normal_cdf(1.96)), "-- the 97.5th pct")
+print("cdf(100, 100, 15):", string.format("%.4f", stats.normal_cdf(100, 100, 15)))
+print()
+
+-- 14) t-tests ---------------------------------------------------------------
+-- Both return { t, df, p }. A small p means the difference is unlikely to
+-- be chance alone; it does NOT mean the difference is large or important.
+print("--- t-tests ---")
+local one = stats.t_test_1sample({ 5.1, 4.9, 5.3, 5.0, 5.2 }, 5)
+print(string.format("1-sample vs mu=5 : t=%.4f df=%s p=%.4f", one.t, tostring(one.df), one.p))
+
+local control = { 12, 14, 11, 13, 15, 12 }
+local treated = { 18, 20, 17, 19, 21, 18 }
+local two = stats.t_test_2sample(control, treated)
+print(string.format("2-sample         : t=%.4f df=%.1f p=%.6f", two.t, two.df, two.p))
+print("p is tiny, so these two samples very likely differ")

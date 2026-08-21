@@ -43,3 +43,26 @@ print()
 
 -- quote escapes regex metacharacters for literal matching.
 print("quote:", regexp.quote("a.b*c"))
+
+-- --- validating a pattern before you use it ---
+-- `regexp.compile` raises on a bad pattern. When the pattern came from a
+-- user — a search box, a config file, a CLI flag — you usually want to
+-- report the problem rather than unwind, and `is_valid` answers without
+-- raising.
+print()
+print("--- is_valid ---")
+for _, pat in ipairs({ "^a+b$", "[0-9]{2,4}", "(unclosed", "a**", "\d+" }) do
+    print(string.format("  %-12s -> %s", pat, tostring(regexp.is_valid(pat))))
+end
+
+local function safe_compile(pattern)
+    if not regexp.is_valid(pattern) then
+        return nil, "not a valid pattern: " .. pattern
+    end
+    return regexp.compile(pattern)
+end
+
+local re, err = safe_compile("(unclosed")
+print("  safe_compile bad  :", re, err)
+local re2 = safe_compile("[aeiou]")
+print("  safe_compile good :", re2 ~= nil)

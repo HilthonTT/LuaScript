@@ -7,20 +7,27 @@ from the repo root:
 go run ./cmd/luascript examples/01_basics.lsc
 ```
 
-Two need a little more: `08_stdlib.lsc` (see [below](#running-the-module-examples))
-and `53_plugin.lsc` (needs cgo on linux/darwin/freebsd — **will not run on
-Windows**; use WSL).
+A few need a little more:
+
+- `08_stdlib.lsc` — see [below](#running-the-module-examples)
+- `53_plugin.lsc` — needs cgo on linux/darwin/freebsd (**not Windows**; use WSL)
+- `31_ui_module.lsc` — build with `-tags luascript_ui`
+- `15_http_module.lsc` — the sections marked `[network]` reach the internet;
+  they are wrapped in `pcall`, so the file still runs to completion offline
+- `16_httpserver_module.lsc` — set `HTTPSERVER_DEMO=1` to actually bind a port
+  and serve. Without it the file demonstrates the handler contract and exits,
+  because `:listen` blocks until the process is killed.
 
 ## Language core
 
 | File | What it shows |
 | ---- | ------------- |
-| `01_basics.lsc` | variables, control flow, primitive values, logical operators |
-| `02_functions.lsc` | recursion, closures and upvalues, multi-return, higher-order functions |
-| `03_tables_and_metatables.lsc` | records, arrays, methods, operator overloading via `__add`, `__index` |
-| `04_coroutines.lsc` | `coroutine.create` / `resume` / `yield` / `wrap` |
+| `01_basics.lsc` | values and types, integer/float subtypes, scope, truthiness, every loop form |
+| `02_functions.lsc` | recursion, closures and upvalues, multi-return adjustment, varargs, higher-order functions |
+| `03_tables_and_metatables.lsc` | records, arrays, the table library, `__index`/`__newindex`, operator overloading, inheritance chains |
+| `04_coroutines.lsc` | the four states, values flowing both ways, `wrap` as an iterator, errors, `close`, pipelines |
 | `11_compounds.lsc` | compound assignment operators (`x op= e`) |
-| `22_string_interpolation.lsc` | backtick interpolation: `` `hello {name}` `` desugars to `..` |
+| `22_string_interpolation.lsc` | backtick interpolation: `` `hello {name}` `` desugars to `..`; escaping, and the call-shorthand trap |
 | `26_patterns.lsc` | full Lua-pattern surface (`%a %d %w` classes, `()` captures, `%b()`, `%f[set]`) |
 | `32_defer.lsc` | `defer call()` — LIFO cleanup on return, fall-off-end, and error unwinding |
 | `33_typeof_sizeof.lsc` | the `typeof` / `sizeof` builtins — int/float distinction, `__type` hook |
@@ -34,13 +41,13 @@ Windows**; use WSL).
 
 | File | What it shows |
 | ---- | ------------- |
-| `05_types.lsc` | the full Luau-style surface — primitives, optionals, unions, function types, aliases, assertions |
-| `06_strict_mode.lsc` | `--!strict` enforcement and what it rejects |
+| `05_types.lsc` | the full Luau-style surface — primitives, optionals, unions, **literal (singleton) types**, function types, aliases, narrowing, assertions |
+| `06_strict_mode.lsc` | the three mode directives, what `--!strict` adds, and what it does not |
 | `42_structs.lsc` | `struct Name { field: T }` — nominal product types, positional/named construction, nesting |
 | `43_tagged_enums.lsc` | tagged sum types — payload constructors, nullary singletons, `__tag`/`typeof`, a `Result` pattern |
-| `29_enums.lsc` | bare `enum Name V1, V2 end` — int auto-increment, frozen via `__newindex` proxy |
+| `29_enums.lsc` | bare `enum Name V1, V2 end` — int auto-increment, frozen via `__newindex` proxy, typed as the exact literal union of its values |
 | `14_match.lsc` | `match` basics — value/literal patterns, multi-pattern arms, `_` wildcard |
-| `44_match.lsc` | `match` v2 — typed bindings, `if` guards, enum/struct destructuring, a `Result` pipeline |
+| `44_match.lsc` | `match` v2 — typed bindings, `if` guards, enum/struct destructuring, **exhaustiveness checking**, a `Result` pipeline |
 | `45_generics.lsc` | generics — parametric functions with inference (`map`/`filter`), `Box<T>`, a `Stack<T>` |
 | `46_generics.lsc` | generics, continued — deeper inference and instantiation cases |
 
@@ -57,25 +64,26 @@ Windows**; use WSL).
 
 | File | What it shows |
 | ---- | ------------- |
-| `12_math_module.lsc` | the `math` native module |
+| `12_math_module.lsc` | `math` — and the fact that it exists **twice** with different surfaces (the global lacks `cbrt`/`clamp`/hyperbolics; the module lacks `type`/`maxinteger`/`randomseed`) |
 | `36_math.lsc` | `math` in depth — Lua 5.4 scalar surface plus `mean`/`variance`/`standard_deviation`/`softmax` |
-| `13_json_module.lsc` | the `json` native module |
-| `15_http_module.lsc` | the `http` client — shortcuts, `http.request{...}`, stateful clients |
-| `16_httpserver_module.lsc` | `httpserver` — handlers, `:listen` / `:stop` |
-| `17_crypto_module.lsc` | `crypto` — hashing, HMAC, random bytes |
-| `18_time_module.lsc` | `time` — durations, timers, formatting |
+| `13_json_module.lsc` | `json` — encode/decode, indenting, and the two places JSON and Lua disagree (array-vs-object, `null` vs `nil`) |
+| `15_http_module.lsc` | the `http` client — shortcuts, `http.request{...}`, reusable clients, multi-valued headers |
+| `16_httpserver_module.lsc` | `httpserver` — the handler contract, why it is serialised, `:listen` / `:stop` |
+| `17_crypto_module.lsc` | `crypto` — hashes, HMAC, password hashing, PBKDF2, constant-time comparison, encodings, secure randomness |
+| `18_time_module.lsc` | `time` — wall vs monotonic clocks, layouts, parsing, formatting, sleeping |
 | `19_regexp_module.lsc` | `regexp` (Go regex; `:capture`, not `:match`) |
 | `20_uuid_module.lsc` | `uuid` |
 | `21_sort_module.lsc` | `sort` — `sort` / `stable` / `reverse` / `is_sorted` |
-| `23_io.lsc` | the full Lua-5.4 `io` library (file handles, `:read`/`:write`/`:lines`/`:seek`) |
-| `24_bit_utf8.lsc` | `bit32` and `utf8` |
+| `23_io.lsc` | the full Lua-5.4 `io` library — file handles, `:read`/`:write`/`:lines`/`:seek`, the standard streams, `io.input`/`io.output` |
+| `24_bit_utf8.lsc` | `bit32` (fields, rotates, byte order) and `utf8` (bytes vs characters, `offset`, `charpattern`) |
 | `25_os_full.lsc` | the expanded `os` surface (`date`, `time`, `clock`, `execute`, `rename`, `tmpname`, `setlocale`) |
 | `27_debug_module.lsc` | `debug` — `traceback`, `getinfo`, hook stubs |
-| `28_compression_module.lsc` | `compression` — gzip, zlib, deflate, run-length |
-| `30_std_module.lsc` | `std` — stack, queue, deque, set, list, heap (requires `cmp`), hashmap |
+| `58_log_module.lsc` | `log` — levels and thresholds, prefixes, redirecting output, and why `log.fatal` exits the process |
+| `28_compression_module.lsc` | `compression` — gzip, zlib, deflate, Huffman, run-length |
+| `30_std_module.lsc` | `std` — stack, queue, deque, set, list, heap (requires `cmp`), hashmap, trie, B-tree |
 | `54_queue_module.lsc` | `queue` — priority job queue (delays, retries, backpressure, metrics) and channels |
 | `31_ui_module.lsc` | the `ui` desktop module (Fyne). Run with `-tags luascript_ui` |
-| `56_testing.lsc` | `test` — describe/test/skip, hooks, the assertion surface (one test fails on purpose) |
+| `56_testing.lsc` | `test` — describe/test/it/skip, `before_each`/`after_each`, the full assertion surface, `fail` (one test fails on purpose) |
 | `57_db_module.lsc` | `db` — SQL via database/sql. Runs against in-process SQLite, so **no server needed** |
 | `53_plugin.lsc` | `plugin` — load Go packages at run time. **cgo + linux/darwin/freebsd only** |
 
@@ -107,13 +115,13 @@ get a summary.
 | ---- | ------------- |
 | `34_clustering_module.lsc` | `clustering` — k-means (k-means++ seeding), DBSCAN, hierarchical, mean-shift |
 | `35_classification_module.lsc` | `classification` — Naive Bayes (text), KNN, perceptron, logistic regression, SVM |
-| `37_stats_module.lsc` | `stats` — median, mode, quantiles, iqr, covariance, correlation, skew/kurtosis, describe |
-| `38_linalg_module.lsc` | `linalg` — dot, norm, matmul, transpose, det, inverse, solve |
+| `37_stats_module.lsc` | `stats` — median, mode, quantiles, iqr, covariance, correlation, skew/kurtosis, describe, the three means, population vs sample, histograms, the normal distribution, t-tests |
+| `38_linalg_module.lsc` | `linalg` — dot, norm, matmul, transpose, det, inverse, solve, rank, least squares, QR, Cholesky, eigendecomposition |
 | `39_csv_module.lsc` | `csv` — parse/stringify/read/write, header + numeric coercion, custom delimiters |
-| `40_dataframe_module.lsc` | `dataframe` — select/filter/with_column/sort/group_by/describe/to_csv, pretty `print` |
-| `41_ml_module.lsc` | `ml` — a feed-forward neural network (topology, training, prediction) |
-| `47_ndarray_module.lsc` | `ndarray` — dense N-D arrays, broadcasting, operators, axis reductions, matmul |
-| `48_plot_module.lsc` | `plot` — dependency-free SVG charting. Writes `scratch_*.svg` here (gitignored) |
+| `40_dataframe_module.lsc` | `dataframe` — select/filter/with_column/sort/group_by/describe, building from rows or CSV, pretty `print` |
+| `41_ml_module.lsc` | `ml` — a feed-forward neural network (topology, training, prediction, persistence) |
+| `47_ndarray_module.lsc` | `ndarray` — dense N-D arrays, broadcasting, operators, axis reductions, matmul, concat |
+| `48_plot_module.lsc` | `plot` — dependency-free SVG charting: line, bar, scatter, histogram. Writes `scratch_*.svg` into the working directory (gitignored) |
 
 ## Running the module examples
 

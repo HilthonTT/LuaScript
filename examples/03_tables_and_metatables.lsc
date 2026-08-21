@@ -1,17 +1,111 @@
--- Tables, methods, metatables. The `__index` and `__add` metamethods
--- give you objects, dispatch, and operator overloading.
+-- Tables and metatables.
+--
+-- The table is Lua's ONLY data structure: records, arrays, sets, objects,
+-- modules and namespaces are all tables. A metatable is a second table
+-- hanging off the first that says what to do when the normal rules run out
+-- — a missing key, an operator applied to something that isn't a number,
+-- a value passed to `tostring`. That one mechanism is what gives Lua
+-- inheritance and operator overloading without any dedicated syntax.
 
--- Plain table as a record.
+print("=== tables as records ===")
 local point = { x = 1, y = 2 }
-print("point =", point.x, point.y)
+print("point.x, point.y :", point.x, point.y)
+print("point['x']       :", point["x"])   -- `.x` is sugar for ["x"]
+point.z = 3                               -- tables are open: add any time
+print("added z          :", point.z)
+point.z = nil                             -- and removing is assigning nil
+print("removed z        :", point.z)
+print()
 
--- Table as an array; ipairs walks 1..n until a hole.
+print("=== tables as arrays ===")
+-- Arrays are just tables with keys 1..n. Lua indexes from 1.
 local primes = { 2, 3, 5, 7, 11 }
-for i, p in ipairs(primes) do
-    print(i, "->", p)
-end
+print("first, last :", primes[1], primes[#primes])
+print("length      :", #primes)
+primes[#primes + 1] = 13                  -- the idiomatic append
+print("after append:", #primes, table.concat(primes, " "))
 
--- Vec with operator overloading via __add.
+-- `#` is only meaningful on a sequence — keys 1..n with no holes. With a
+-- hole the result is any "border", which is why you should never poke
+-- holes in an array you intend to measure.
+local holey = { 1, 2, nil, 4 }
+print("holey length:", #holey, "(unspecified — do not rely on this)")
+print()
+
+print("=== mixed tables ===")
+-- A table can hold both parts at once. `ipairs` walks only the array part;
+-- `pairs` walks everything, in unspecified order.
+local mixed = { "a", "b", name = "letters", count = 2 }
+io.write("ipairs:")
+for i, v in ipairs(mixed) do io.write(" ", i, "=", v) end
+print()
+local keys = {}
+for k in pairs(mixed) do keys[#keys + 1] = tostring(k) end
+table.sort(keys)
+print("pairs :", table.concat(keys, " "))
+print()
+
+print("=== the table library ===")
+local list = { 3, 1, 2 }
+table.insert(list, 4)          -- append
+table.insert(list, 1, 0)       -- insert at a position
+print("after inserts:", table.concat(list, " "))
+table.remove(list, 1)          -- remove by position
+print("after remove :", table.concat(list, " "))
+table.sort(list)
+print("sorted       :", table.concat(list, " "))
+table.sort(list, function(a, b) return a > b end)
+print("sorted desc  :", table.concat(list, " "))
+print("concat w/ sep:", table.concat(list, ", "))
+print()
+
+print("=== __index: what happens on a miss ===")
+-- Reading a key a table does not have consults `__index`. As a TABLE it is
+-- a fallback to look in; as a FUNCTION it is called with (table, key).
+local defaults = { colour = "black", size = 10 }
+local style = setmetatable({ size = 14 }, { __index = defaults })
+print("own key      :", style.size)      -- 14, found directly
+print("inherited    :", style.colour)    -- black, via __index
+print("still missing:", style.weight)    -- nil, defaults has no weight
+
+local computed = setmetatable({}, {
+    __index = function(t, key)
+        return "generated:" .. key
+    end,
+})
+print("function form:", computed.anything)
+
+-- `rawget` skips the metatable entirely — useful to ask "is this key
+-- really here?" rather than "can I read it?".
+print("rawget       :", rawget(style, "colour"), "(nil: it is not own)")
+print()
+
+print("=== __newindex: what happens on a write to a missing key ===")
+-- Note the asymmetry: __newindex only fires for keys the table does NOT
+-- already have. Writing over an existing key goes straight through.
+local log = {}
+local audited = setmetatable({ existing = 1 }, {
+    __newindex = function(t, key, value)
+        log[#log + 1] = key
+        rawset(t, key, value)     -- rawset, or we would recurse forever
+    end,
+})
+audited.fresh = "a"
+audited.existing = 2              -- no metamethod: the key is already there
+print("intercepted writes:", table.concat(log, " "))
+print("values             :", audited.fresh, audited.existing)
+
+-- A read-only table falls out of the same hook — reject instead of storing.
+local frozen = setmetatable({}, {
+    __newindex = function() error("this table is read-only", 2) end,
+})
+local ok, err = pcall(function() frozen.x = 1 end)
+print("read-only write   :", ok, "-", err)
+print()
+
+print("=== objects: __index pointing at a method table ===")
+-- The standard recipe. `Vec.__index = Vec` makes instances fall back to
+-- the class table for methods.
 local Vec = {}
 Vec.__index = Vec
 
@@ -19,16 +113,79 @@ function Vec.new(x, y)
     return setmetatable({ x = x, y = y }, Vec)
 end
 
-function Vec.__add(a, b)
-    return Vec.new(a.x + b.x, a.y + b.y)
+function Vec:length()                     -- `:` gives an implicit `self`
+    return math.sqrt(self.x * self.x + self.y * self.y)
 end
 
-function Vec:length()
-    return math.sqrt(self.x * self.x + self.y * self.y)
+-- Operator overloading: the metamethod names are fixed.
+function Vec.__add(a, b) return Vec.new(a.x + b.x, a.y + b.y) end
+function Vec.__sub(a, b) return Vec.new(a.x - b.x, a.y - b.y) end
+function Vec.__mul(v, k) return Vec.new(v.x * k, v.y * k) end
+function Vec.__eq(a, b) return a.x == b.x and a.y == b.y end
+function Vec.__len(v) return 2 end
+function Vec.__tostring(v) return "(" .. v.x .. ", " .. v.y .. ")" end
+
+function Vec:describe()                   -- Vec3 below inherits this one
+    return "a vector of length " .. self:length()
 end
 
 local v1 = Vec.new(3, 0)
 local v2 = Vec.new(0, 4)
-local v3 = v1 + v2
-print("v3 =", v3.x, v3.y)
-print("|v3| =", v3:length())
+print("v1 + v2   :", tostring(v1 + v2))     -- __tostring makes this readable
+print("v1 - v2   :", tostring(v1 - v2))
+print("v1 * 2    :", tostring(v1 * 2))
+print("|v1 + v2| :", (v1 + v2):length())
+print("equality  :", Vec.new(1, 2) == Vec.new(1, 2))  -- __eq, not identity
+print("#v1       :", #v1)                              -- __len
+print()
+
+print("=== inheritance is a chain of __index ===")
+local Vec3 = setmetatable({}, { __index = Vec })   -- Vec3 inherits from Vec
+Vec3.__index = Vec3
+Vec3.__tostring = function(v) return "(" .. v.x .. ", " .. v.y .. ", " .. v.z .. ")" end
+
+function Vec3.new(x, y, z)
+    local self = Vec.new(x, y)
+    self.z = z
+    return setmetatable(self, Vec3)
+end
+
+function Vec3:length()
+    return math.sqrt(self.x ^ 2 + self.y ^ 2 + self.z ^ 2)
+end
+
+local v3 = Vec3.new(1, 2, 2)
+print("v3        :", tostring(v3))
+print("overridden:", v3:length())     -- Vec3's own length wins
+-- `describe` exists only on Vec. The lookup misses v3, misses Vec3, then
+-- follows Vec3's OWN metatable to Vec — two hops up the chain.
+print("inherited :", v3:describe())
+print()
+
+print("=== __call makes a table callable ===")
+local adder = setmetatable({ base = 10 }, {
+    __call = function(self, n) return self.base + n end,
+})
+print("adder(5):", adder(5))
+print()
+
+print("=== the metamethod catalogue ===")
+-- Arithmetic  __add __sub __mul __div __mod __pow __unm __idiv
+-- Bitwise     __band __bor __bxor __bnot __shl __shr
+-- Comparison  __eq __lt __le
+-- Other       __index __newindex __call __tostring __len __concat
+--             __close __gc __mode __name __metatable
+--
+-- `__metatable` hides the real one from getmetatable and blocks
+-- setmetatable — that is how `enum` protects itself (see 29_enums.lsc).
+local guarded = setmetatable({}, { __metatable = "locked" })
+print("getmetatable:", getmetatable(guarded))
+local ok2, err2 = pcall(function() setmetatable(guarded, {}) end)
+print("setmetatable:", ok2, "-", err2)
+print()
+
+print("=== see also ===")
+print("  42_structs.lsc      typed records, without the boilerplate above")
+print("  43_tagged_enums.lsc sum types")
+print("  30_std_module.lsc   ready-made stacks, queues, sets, heaps")
+print("  33_typeof_sizeof.lsc  the __type hook")

@@ -1,17 +1,115 @@
---!nocheck
+-- The `json` module: JSON encoding and decoding.
+--
+--   local json = require("json")
+--
+-- Two functions and two sentinels. The interesting parts are the two places
+-- where JSON and Lua don't line up one-to-one, and what the module does
+-- about each:
+--
+--   1. Lua has ONE table type for both objects and arrays, so `encode`
+--      picks by shape — keys exactly 1..n means array, anything else means
+--      object. An empty table has no keys to go on; it encodes as `{}`,
+--      and `json.empty_array` is how you ask for `[]` instead.
+--
+--   2. JSON `null` decodes to `nil` by default, and a nil is
+--      indistinguishable from an absent key — inside an array it even
+--      truncates the rest. `json.null` is a sentinel you can decode to
+--      instead when the difference matters.
+--
+-- Decoding preserves integers where the source text allows it, so a round
+-- trip does not silently turn 1 into 1.0.
+
 local json = require("json")
 
-print("=== JSON Module Test ===")
-print("VERSION:", json.VERSION)
+print("=== version ===")
+print("json.VERSION:", json.VERSION)
 print()
 
-local value = setmetatable({
-    first_name = "John",
-    last_name = "Doe",
-})
-local encoded_value = json.encode(value)
-print(encoded_value)
+print("=== encode ===")
+-- A record: string keys, so an object.
+local user = { name = "Ada", id = 7, admin = true }
+print("object :", json.encode(user))
 
-local decoded_value = json.decode(encoded_value)
-print(decoded_value.first_name)
-print(decoded_value.last_name)
+-- Keys exactly 1..n, so an array.
+print("array  :", json.encode({ 10, 20, 30 }))
+
+-- Nested structures work as you'd expect.
+local doc = {
+    title = "notes",
+    tags = { "lua", "json" },
+    meta = { pages = 3, draft = false },
+}
+print("nested :", json.encode(doc))
+print()
+
+print("=== indented output ===")
+-- opts.indent takes a number of spaces, or the literal string to indent
+-- with. Output is compact by default.
+print(json.encode(doc, { indent = 2 }))
+print()
+print("-- tab-indented --")
+print(json.encode({ a = 1, b = { 2, 3 } }, { indent = "\t" }))
+print()
+
+print("=== decode ===")
+local decoded = json.decode('{"first_name":"John","last_name":"Doe","age":41}')
+print("first_name:", decoded.first_name)
+print("last_name :", decoded.last_name)
+print("age       :", decoded.age, math.type(decoded.age))
+
+-- Integers survive the round trip; a decimal point makes a float.
+local nums = json.decode("[1, 2.5, 3]")
+print("1   ->", nums[1], math.type(nums[1]))
+print("2.5 ->", nums[2], math.type(nums[2]))
+print()
+
+print("=== round trip ===")
+local original = { id = 42, scores = { 1, 2, 3 }, label = "ok" }
+local text = json.encode(original)
+local back = json.decode(text)
+print("text     :", text)
+print("back.id  :", back.id, "| back.scores[2]:", back.scores[2])
+print()
+
+print("=== the empty-table ambiguity ===")
+-- An empty Lua table is both an empty array and an empty object. encode
+-- has to choose; it chooses object.
+print("{}                 ->", json.encode({}))
+print("json.empty_array   ->", json.encode(json.empty_array))
+print("nested empty array ->", json.encode({ items = json.empty_array }))
+print()
+
+print("=== nulls ===")
+-- By default a JSON null becomes nil, which vanishes.
+local dflt = json.decode('{"a":1,"b":null,"c":3}')
+print("default: b is", tostring(dflt.b), "-- indistinguishable from absent")
+
+-- Inside an array that is worse: the nil truncates the sequence.
+local truncated = json.decode("[1, null, 3]")
+print("default: #[1,null,3] =", #truncated)
+
+-- Pass a sentinel to keep nulls distinguishable.
+local kept = json.decode('{"a":1,"b":null,"c":3}', { null = json.null })
+print("sentinel: b == json.null   ->", kept.b == json.null)
+print("sentinel: c survives       ->", kept.c)
+
+local arr = json.decode("[1, null, 3]", { null = json.null })
+print("sentinel: #[1,null,3]      ->", #arr)
+
+-- Compare the sentinel by identity — it is an empty table, so a shape
+-- comparison would match any other empty table.
+print("encoding json.null         ->", json.encode({ v = json.null }))
+print()
+
+print("=== errors ===")
+-- Both functions raise rather than returning nil, so wrap them in pcall at
+-- the boundary where untrusted text enters your program.
+local ok, err = pcall(function() return json.decode("{oops") end)
+print("malformed input  :", ok, "-", err)
+
+local ok2, err2 = pcall(function() return json.decode('{"a":1} trailing') end)
+print("trailing content :", ok2, "-", err2)
+
+-- Functions have no JSON representation.
+local ok3, err3 = pcall(function() return json.encode({ f = print }) end)
+print("unencodable value:", ok3, "-", err3)

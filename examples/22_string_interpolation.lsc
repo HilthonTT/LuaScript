@@ -1,2 +1,96 @@
-local name = `my name is {5 * 8 + 3}!`
+-- String interpolation: `` `text {expr} text` ``.
+--
+-- Only BACKTICK-quoted strings interpolate. A `"..."` or `'...'` string is
+-- emitted verbatim even when it contains braces, so JSON payloads, Lua
+-- patterns and `string.format` templates are never touched.
+--
+-- The whole feature is a parse-time desugar into `..` concatenation: the
+-- parser splits the string, wraps each `{expr}` in `tostring(...)`, and
+-- joins the pieces. Nothing downstream — typechecker, bytecode generator,
+-- VM — knows interpolation ever existed, which is also why there is no
+-- runtime cost beyond the concatenation you would have written yourself.
+
+print("=== the basics ===")
+local name = "Ada"
 print(`Hello, {name}!`)
+
+-- Any expression is allowed inside the braces, not just a variable.
+print(`2 + 2 = {2 + 2}`)
+print(`five factorial-ish: {5 * 8 + 3}`)
+print()
+
+print("=== what goes in the braces ===")
+local user = { first = "Grace", langs = { "COBOL", "FLOW-MATIC" } }
+local function shout(s) return s:upper() .. "!" end
+
+print(`field access : {user.first}`)
+print(`indexing     : {user.langs[1]}`)
+print(`method call  : {user.first:lower()}`)
+print(`function call: {shout("hopper")}`)
+print(`conditional  : {if #user.langs > 1 then "several" else "one"}`)
+print(`nested calls : {string.format("%05.2f", math.pi)}`)
+print()
+
+print("=== every value is tostring'd ===")
+-- Each `{expr}` is wrapped in `tostring()`, so non-strings need no
+-- conversion and nil does not blow up the concatenation.
+print(`number : {42}`)
+print(`float  : {1 / 3}`)
+print(`boolean: {1 > 2}`)
+print(`nil    : {nil}`)
+print(`table  : {({})}`)
+
+-- `tostring` honours `__tostring`, so your own types render however you say.
+local temp = setmetatable({ c = 21 }, {
+    __tostring = function(self) return self.c .. "°C" end,
+})
+print(`metatable: {temp}`)
+print()
+
+print("=== braces that are not interpolation ===")
+-- Interpolation structure is decided on the RAW source text, before escape
+-- sequences are decoded — otherwise `\u{7B}` would look like the start of an
+-- expression. So the unicode escapes for `{` and `}` are the reliable way to
+-- put a literal brace in a backtick string:
+print(`unicode escape: \u{7B}not an expression\u{7D}`)
+
+-- A closing brace on its own is not structure either, so it needs nothing:
+print(`a lone } is fine`)
+
+-- `\{` also suppresses interpolation, but mind the wart: `\{` is not one of
+-- Lua's escape sequences, so the backslash survives into the output.
+print(`\{name} keeps its backslash`)
+
+-- Simplest of all: a plain quoted string never interpolates to begin with.
+print("plain string: {name} is untouched")
+print()
+
+print("=== interaction with the call-shorthand rule ===")
+-- Lua lets you call a function with a bare string literal: `f"x"` means
+-- `f("x")`. A backtick string is a string literal too, so the same applies —
+-- which is occasionally what you want:
+local function announce(s) return "** " .. s .. " **" end
+print(announce`interpolated {name}`)
+
+-- ...and occasionally a trap. Lua ignores line breaks, so when one statement
+-- ends in a call and the NEXT line begins with a string literal — backtick
+-- or quoted — the two fuse into a single call:
+--
+--   print(greeting)          -- looks like two statements...
+--   `{name} says hi`         -- ...but parses as print(greeting)(`...`)
+--
+-- End the first statement with a `;` to break the chain, exactly as you
+-- would for a `"..."` literal. 14_match.lsc hits the same rule between
+-- match arms.
+local greeting = "hi"
+print(greeting);
+print(`{name} says {greeting}`)
+print()
+
+print("=== when NOT to reach for it ===")
+-- Interpolation always concatenates left to right. For padding, precision
+-- or repeated arguments, string.format is clearer and does the formatting
+-- work interpolation deliberately leaves out:
+local qty, price = 3, 4.5
+print(`plain      : {qty} x {price} = {qty * price}`)
+print(string.format("formatted  : %2d x %6.2f = %6.2f", qty, price, qty * price))

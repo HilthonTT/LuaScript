@@ -1,4 +1,3 @@
---!nocheck
 -- enum: a frozen, integer-auto-increment lookup table plus a type
 -- alias of the same name. Variants are 1-based and assigned in source
 -- order. The visible table is a proxy whose metatable refuses writes
@@ -40,11 +39,17 @@ print("setmetatable   :", ok3, "-", err3)
 print()
 
 -- --- typed parameters (Luau-style) ---
--- The enum name is also registered as a type alias in the typecheck
--- environment. Functions can annotate parameters with `: Color` and
--- the checker will accept the annotation. v1 aliases the enum to
--- `number` so any number satisfies the slot — precise literal-union
--- typing is a follow-up.
+-- The enum name is also registered as a type alias, and it denotes the
+-- *exact* set of values the runtime can produce: `Color` is the literal
+-- union `1 | 2 | 3`. So `name_of(Color.GREEN)` type-checks, `name_of(2)`
+-- does too (2 really is a Color), and `name_of(99)` is a compile error:
+--
+--   Type "99" could not be converted into "Color"
+--
+-- Each member is a singleton in its own right — `Color.RED` has the type
+-- `1` — which is what lets `c == Color.RED` narrow the union inside a
+-- branch, and what gives `match` a finite domain to check exhaustively
+-- (see 44_match.lsc).
 print("--- typed parameters ---")
 local function name_of(c: Color): string
     if c == Color.RED then return "red"

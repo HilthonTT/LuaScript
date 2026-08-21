@@ -1,5 +1,5 @@
 -- ndarray: dense N-dimensional numeric arrays (NumPy-style).
--- Run: go run ./cmd examples/47_ndarray_module.lsc
+-- Run: go run ./cmd/luascript examples/47_ndarray_module.lsc
 local nd = require("ndarray")
 
 print("== construction ==")
@@ -47,3 +47,50 @@ print("\n== equality & interop ==")
 print("a == copy(a):", a == a:copy())
 print("to_table row 1, col 2:", a:to_table()[1][2])
 print("is_ndarray(a):", nd.is_ndarray(a), " is_ndarray({}):", nd.is_ndarray({}))
+
+-- --- constructors, beyond zeros and eye ---
+print()
+print("--- more constructors ---")
+-- `full` fills a shape with one value; `ones` is the common case of it.
+print("ones({2, 3})     :", tostring(nd.ones({ 2, 3 })))
+print("full(7, {2, 2})  :", tostring(nd.full(7, { 2, 2 })))
+
+-- `from_table` is a synonym of `array` — the name reads better when the
+-- source is an existing nested table rather than a literal.
+local nested = { { 1, 2 }, { 3, 4 } }
+local built = nd.from_table(nested)
+print("from_table       :", tostring(built))
+print("same as array    :", tostring(nd.array(nested)))
+print()
+
+-- --- matmul ---
+-- Matrix product. Note the one asymmetry worth remembering: two VECTORS
+-- give their dot product as a plain number, not a 1x1 array.
+print("--- matmul ---")
+local m1 = nd.array({ { 1, 2 }, { 3, 4 } })
+local m2 = nd.array({ { 5, 6 }, { 7, 8 } })
+print("matrix x matrix  :", tostring(nd.matmul(m1, m2)))
+
+local v1 = nd.array({ 1, 2, 3 })
+local v2 = nd.array({ 4, 5, 6 })
+local dotted = nd.matmul(v1, v2)
+print("vector x vector  :", dotted, "(a number:", type(dotted) .. ")")
+
+-- Matrix times vector gives a vector.
+print("matrix x vector  :", tostring(nd.matmul(m1, nd.array({ 1, 1 }))))
+print()
+
+-- --- concat ---
+-- Joins two arrays end to end. Note the limitation: it is 1-D only, so
+-- stacking matrices is not what this is for.
+print("--- concat ---")
+local head = nd.array({ 1, 2, 3 })
+local tail = nd.array({ 4, 5 })
+print("concat 1-D        :", tostring(nd.concat(head, tail)))
+print("length            :", nd.concat(head, tail):shape()[1])
+
+-- Higher dimensions raise rather than silently flattening.
+local ok, err = pcall(function()
+    return nd.concat(nd.array({ { 1, 2 } }), nd.array({ { 3, 4 } }))
+end)
+print("2-D concat        :", ok, "-", tostring(err):sub(1, 58))

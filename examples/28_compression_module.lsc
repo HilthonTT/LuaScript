@@ -90,3 +90,32 @@ for _, pair in ipairs(encoded.codes) do
 end
 print("decoded      :", compression.decode(encoded))
 print("roundtrip ok :", compression.decode(encoded) == msg)
+
+-- --- run-length encoding ---
+-- The simplest compressor there is: replace a run of identical bytes with
+-- the byte and a count. It is here to be READ rather than used — the format
+-- is the module's own, not an interchange standard.
+--
+-- RLE only helps when the input actually has runs. On data that does not,
+-- every "run" is length 1 and the output is bigger than the input, which is
+-- worth seeing rather than being told.
+print()
+print("--- run-length ---")
+local runs = "aaaaabbbccccccccd"
+local mixed = "abcdefghij"
+
+-- The counts are raw bytes, so the encoded form is not printable text —
+-- shown as hex here.
+local function hex(str)
+    return (str:gsub(".", function(c) return string.format("%02x", c:byte()) end))
+end
+
+for _, sample in ipairs({ runs, mixed }) do
+    local rle = compression.rle_encode(sample)
+    print(string.format("  input   : %-18s (%d bytes)", sample, #sample))
+    print(string.format("  encoded : %-18s (%d bytes)", hex(rle), #rle))
+    print(string.format("  ratio   : %.2fx", #rle / #sample))
+    print("  restored:", compression.rle_decode(rle),
+        "| lossless:", compression.rle_decode(rle) == sample)
+    print()
+end

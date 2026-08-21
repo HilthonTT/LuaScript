@@ -87,4 +87,92 @@ end)
 -- skip() records a test without running it; the body is optional.
 t.skip("not written yet")
 
+
+-- --- test.it: the same thing, read aloud ---
+-- `it` is an alias for `test`. Which you use is purely about how the name
+-- reads next to its describe: `t.describe("a queue")` + `t.it("pops in order")`.
+t.describe("test.it", function()
+    t.it("reads as a sentence", function()
+        t.assert_eq(1 + 1, 2)
+    end)
+end)
+
+-- --- after_each, and when hooks run ---
+-- before_each runs before every test in scope; after_each runs after every
+-- one INCLUDING a test that failed. That last part is what makes after_each
+-- the right place for cleanup: a failing test still releases its resources.
+t.describe("hooks", function()
+    local events = {}
+
+    t.before_each(function() events[#events + 1] = "before" end)
+    t.after_each(function() events[#events + 1] = "after" end)
+
+    t.it("records its own hook", function()
+        events[#events + 1] = "test-1"
+        t.assert_eq(events[1], "before")
+    end)
+
+    t.it("sees the previous test's after", function()
+        -- By now: before, test-1, after, before
+        t.assert_eq(events[3], "after")
+        t.assert_eq(#events, 4)
+    end)
+end)
+
+-- --- the rest of the assertion surface ---
+t.describe("assertions", function()
+    t.it("assert_false accepts nil and false", function()
+        t.assert_false(false)
+        t.assert_false(nil)                 -- nil counts as false
+        t.assert_false(1 > 2, "comparisons work too")
+    end)
+
+    t.it("distinguishes nil from absent-but-present", function()
+        local rec = { present = false }
+        t.assert_not_nil(rec.present)       -- false is NOT nil
+        t.assert_nil(rec.missing)           -- a key that was never set
+        t.assert_false(rec.present)         -- ...and it is still false
+    end)
+
+    t.it("assert_nil is not assert_false", function()
+        -- This is the distinction that catches real bugs: a function that
+        -- returns `false` and one that returns nothing look the same to a
+        -- truthiness check, and different to these two.
+        local function returns_false() return false end
+        local function returns_nothing() end
+        t.assert_not_nil(returns_false())
+        t.assert_nil(returns_nothing())
+    end)
+end)
+
+-- --- test.fail: marking the unreachable ---
+-- For a branch that should never be taken. Better than `assert(false)`
+-- because the message says what was supposed to be impossible.
+t.describe("fail", function()
+    t.it("marks an unreachable branch", function()
+        local function classify(n)
+            if n > 0 then return "positive" end
+            if n < 0 then return "negative" end
+            return "zero"
+        end
+
+        local kind = classify(5)
+        if kind == "positive" then
+            t.assert_eq(kind, "positive")
+        elseif kind == "negative" or kind == "zero" then
+            t.fail("classify(5) should never land here, got " .. kind)
+        else
+            t.fail("classify returned something unexpected: " .. tostring(kind))
+        end
+    end)
+
+    t.it("is the honest way to write a not-yet-covered case", function()
+        local ok = pcall(function() error("boom") end)
+        if ok then
+            t.fail("the call was supposed to raise")
+        end
+        t.assert_false(ok)
+    end)
+end)
+
 print("\n-- done. `luascript test examples/tests` prints a summary too.")

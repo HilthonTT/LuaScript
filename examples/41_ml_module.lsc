@@ -64,3 +64,28 @@ local restored = ml.load(blob)
 local a = net:predict({ 1, 0 })
 local b = restored:predict({ 1, 0 })
 print(string.format("restored model agrees: %.6f == %.6f", a[1], b[1]))
+
+-- 6) Persisting to a file ---------------------------------------------------
+-- Two pairs, and it is worth keeping them straight:
+--
+--   net:marshal()   -> a JSON string      ml.load(blob)      -> net
+--   net:save(path)  -> writes that file   ml.load_file(path) -> net
+--
+-- Use marshal/load when the model travels through something else — a
+-- database column, an HTTP body. Use save/load_file when it is just a file.
+local path = os.tmpname()
+net:save(path)
+local from_disk = ml.load_file(path)
+
+print()
+print("--- file round trip ---")
+print("wrote model to:", path)
+print("weights        :", net:num_weights(), "->", from_disk:num_weights())
+for _, input in ipairs({ { 0, 0 }, { 0, 1 }, { 1, 0 }, { 1, 1 } }) do
+  local before = net:predict(input)[1]
+  local after = from_disk:predict(input)[1]
+  print(string.format("  {%d, %d} -> %.6f | reloaded %.6f | identical %s",
+    input[1], input[2], before, after,
+    tostring(math.abs(before - after) < 1e-12)))
+end
+os.remove(path)

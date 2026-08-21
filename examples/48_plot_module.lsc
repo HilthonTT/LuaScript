@@ -1,5 +1,5 @@
 -- plot: render numeric data to standalone SVG charts (no dependencies).
--- Run: go run ./cmd examples/48_plot_module.lsc
+-- Run: go run ./cmd/luascript examples/48_plot_module.lsc
 local plot = require("plot")
 
 -- A multi-series figure with shared, auto-ranged axes.
@@ -31,7 +31,43 @@ for i = 1, 200 do
 end
 plot.histogram(samples, 10):title("sample distribution"):save("scratch_hist.svg")
 print("wrote scratch_line.svg, scratch_bar.svg, scratch_hist.svg")
+print("(they land in the working directory, and are gitignored)")
 
 -- The SVG is just a string you can inspect or embed anywhere.
 local svg = plot.line({ 1, 2, 3 }, { 3, 1, 2 }):to_svg()
 print("svg starts with:", svg:sub(1, 30))
+
+-- --- the one-call constructors ---
+-- plot.figure gives you an empty figure to add series to, which is what you
+-- want for a multi-series chart. When there is only one series, the
+-- constructors below build the whole figure in a single call.
+print()
+print("--- plot.bar ---")
+-- Categories on one axis, values on the other. Labels are strings, so this
+-- is the chart for data that is NOT numeric on the x axis.
+local bar = plot.bar({ "apples", "pears", "figs", "plums" }, { 12, 7, 19, 4 }, "stock")
+bar:title("fruit stock"):ylabel("count"):save("scratch_bar.svg")
+print("bar figure:", tostring(bar))
+
+print("--- plot.scatter ---")
+-- Points with no line joining them — the chart for showing whether two
+-- numeric variables are related, rather than how one evolves.
+local px, py = {}, {}
+for i = 1, 40 do
+  px[i] = i
+  py[i] = i * 0.8 + (i % 7) * 3        -- a deterministic scatter around a trend
+end
+local scatter = plot.scatter(px, py, "observations")
+scatter:title("y against x"):xlabel("x"):ylabel("y"):save("scratch_scatter.svg")
+print("scatter figure:", tostring(scatter))
+
+print()
+print("Which constructor to reach for:")
+print("  plot.line      an ordered series — time, a sweep, a trend")
+print("  plot.scatter   unordered pairs — correlation, clusters")
+print("  plot.bar       labelled categories — counts per name")
+print("  plot.histogram one series, binned — the shape of a distribution")
+print("  plot.figure    an empty canvas, for several series at once")
+
+print()
+print("All four charts written: scratch_line, scratch_bar, scratch_hist, scratch_scatter (.svg)")

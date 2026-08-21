@@ -1,51 +1,168 @@
 --!nocheck
--- The `httpserver` module: a serialized HTTP server.
+-- The `httpserver` module: a blocking, serialised HTTP server.
 --
--- Handlers run one at a time on the script's own thread, so they can
--- freely use any.lsc value without worrying about concurrency.
+--   local httpserver = require("httpserver")
 --
--- A handler receives a `req` table and returns either:
---   * a string                       -> 200, text/plain, that body
---   * a table { status =, body =, headers = }  -> full control
-local httpserver = require("httpserver")
+-- The one thing to understand before anything else: `:listen` blocks the VM
+-- goroutine and dispatches handlers ONE AT A TIME through a buffered channel.
+-- That is deliberate, not a limitation to work around — the VM has no locks,
+-- so running Lua on two goroutines would corrupt it.
+--
+-- Two consequences follow:
+--
+--   * Handlers can touch any value in the script — upvalues, tables, the
+--     lot — with no concurrency worries at all. There is no other thread.
+--   * Handlers must be QUICK. While one runs, nothing else is served. Long
+--     work belongs on a queue (see 54_queue_module.lsc).
+--
+-- Request bodies are capped at 8 MiB; larger ones get a 413.
+--
+-- Because :listen blocks, this file does NOT start serving by default —
+-- otherwise it would hang forever and you could never see the rest of the
+-- output. Set the env var to serve for real:
+--
+--   bash:       HTTPSERVER_DEMO=1 go run ./cmd/luascript examples/16_httpserver_module.lsc
+--   PowerShell: $env:HTTPSERVER_DEMO=1; go run ./cmd/luascript examples/16_httpserver_module.lsc
 
-print("=== HTTP Server Module Test ===")
-print("VERSION:", httpserver.VERSION)
+local httpserver = require("httpserver")
+local json = require("json")
+
+print("=== version ===")
+print("httpserver.VERSION:", httpserver.VERSION)
 print()
 
 local server = httpserver.new()
 
+-- --- the handler contract ------------------------------------------------
+-- A handler receives a `req` table:
+--
+--   method       string  "GET", "POST", ...
+--   path         string  "/users"
+--   query        string  the raw query string, un-parsed
+--   body         string  the request body
+--   host         string
+--   remote_addr  string
+--   headers      table   header name -> value
+--
+-- ...and returns either:
+--
+--   a string                                   -> 200, text/plain, that body
+--   { status =, body =, headers = }            -> full control
+--
+-- Handlers are ordinary Lua functions, which means you can call them
+-- directly to see their shape — no socket required. That is exactly what
+-- the "dry run" section below does, and it is also how you unit-test them.
+
+print("=== registering routes ===")
+
+-- Handlers are named here rather than written inline, so the dry run below
+-- can call the very same functions the server will call.
+
 -- A plain-string handler: 200 text/plain.
-server:get("/", function(req)
+local function handle_root(req)
     return "Hello from luascript! You asked for " .. req.path
-end)
+end
 
 -- A table handler: full control over status and headers.
-server:get("/json", function(req)
+local function handle_json(req)
     return {
         status = 200,
         headers = { ["Content-Type"] = "application/json" },
-        body = '{"message":"hello","path":"' .. req.path .. '"}',
+        body = json.encode({ message = "hello", path = req.path }),
     }
-end)
+end
+
+-- Handlers close over script state freely — serialisation means this
+-- counter needs no lock and can never race.
+local hits = 0
+local function handle_count(req)
+    hits = hits + 1
+    return { status = 200, body = "hits: " .. hits }
+end
 
 -- Echo back a POST body.
-server:post("/echo", function(req)
-    return {
-        status = 200,
-        body = "you sent: " .. req.body,
-    }
-end)
+local function handle_echo(req)
+    return { status = 200, body = "you sent: " .. req.body }
+end
 
--- Custom 404.
-server:set_not_found(function(req)
+local function handle_put_item(req)
+    return { status = 204, body = "" }
+end
+
+local function handle_missing(req)
     return { status = 404, body = "no such route: " .. req.method .. " " .. req.path }
-end)
+end
 
-print("Routes registered: GET /, GET /json, POST /echo")
-print("Custom 404 handler installed.")
+server:get("/", handle_root)
+server:get("/json", handle_json)
+server:get("/count", handle_count)
+server:post("/echo", handle_echo)
+-- `:route` is the general form; get/post/put/patch/delete/head/options are
+-- shorthands for it.
+server:route("PUT", "/item", handle_put_item)
+-- Called when no route matches.
+server:set_not_found(handle_missing)
+
+print("GET  /        -> plain string handler")
+print("GET  /json    -> table handler with headers")
+print("GET  /count   -> closes over a script-level counter")
+print("POST /echo    -> echoes the request body")
+print("PUT  /item    -> registered via :route")
+print("404           -> custom handler installed")
 print()
-print("To start serving, uncomment the line below and run again,")
-print("then visit http://localhost:18080/ in a browser or with curl.")
 
-server:listen(":18080")  -- NOTE: this call BLOCKS until the process is killed.
+-- --- dry run -------------------------------------------------------------
+print("=== dry run: calling handlers directly ===")
+-- Nothing here touches the network. It shows the request table a handler
+-- sees and the response it returns.
+local function fake_req(method, path, body)
+    return {
+        method = method,
+        path = path,
+        query = "",
+        body = body or "",
+        host = "localhost:18080",
+        remote_addr = "127.0.0.1:54321",
+        headers = { ["User-Agent"] = "dry-run" },
+    }
+end
+
+local function show(label, res)
+    if type(res) == "string" then
+        print(label, "-> 200 (string)", res)
+    else
+        print(label, "->", res.status, res.body)
+    end
+end
+
+show("GET  /       ", handle_root(fake_req("GET", "/")))
+show("GET  /json   ", handle_json(fake_req("GET", "/json")))
+show("POST /echo   ", handle_echo(fake_req("POST", "/echo", '{"a":1}')))
+show("PUT  /item   ", handle_put_item(fake_req("PUT", "/item")))
+show("GET  /nowhere", handle_missing(fake_req("GET", "/nowhere")))
+print()
+
+-- The counter really is ordinary shared state, and because handlers never
+-- run concurrently it needs no protection:
+print("=== serialised state ===")
+print("hits before:", hits)
+show("GET  /count  ", handle_count(fake_req("GET", "/count")))
+show("GET  /count  ", handle_count(fake_req("GET", "/count")))
+print("hits after :", hits)
+print()
+
+-- --- serving for real ----------------------------------------------------
+print("=== listening ===")
+if os.getenv("HTTPSERVER_DEMO") then
+    print("Serving on http://localhost:18080/ — Ctrl-C to stop.")
+    print("Try:  curl localhost:18080/       curl localhost:18080/json")
+    print("      curl -X POST -d hi localhost:18080/echo")
+    -- Blocks until :stop() is called (safe from inside a handler) or the
+    -- process is killed. On a clean :stop, :listen returns and execution
+    -- continues here.
+    server:listen(":18080")
+    print("server stopped cleanly")
+else
+    print("HTTPSERVER_DEMO is not set, so :listen was skipped.")
+    print("Set it to bind :18080 and serve for real (this blocks).")
+end

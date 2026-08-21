@@ -1,29 +1,145 @@
--- Demo for the bit32 and utf8 native modules.
+-- The `bit32` and `utf8` modules.
+--
+--   local bit32 = require("bit32")
+--   local utf8  = require("utf8")
+--
+-- `bit32` predates Lua 5.3's native bitwise operators and works on 32-bit
+-- unsigned values. When you just want to mask or shift a number, prefer the
+-- operators — `x & 0xFF`, `x << 2`, `~x` — which are 64-bit and compile to
+-- a single instruction. Reach for bit32 when you specifically need 32-bit
+-- wraparound semantics, or the field helpers (extract/replace/rotate) that
+-- the operators don't provide. 11_compounds.lsc covers the operator forms.
+--
+-- `utf8` is the Lua 5.4 library for treating a string as a sequence of code
+-- points instead of bytes. Lua strings are byte strings — `#s` and `s:sub`
+-- count BYTES — so anything user-facing needs these functions.
 
 local bit32 = require("bit32")
-local utf8  = require("utf8")
+local utf8 = require("utf8")
 
--- bit32: classic bit-twiddling
-print("band      ", bit32.band(0xF0F0, 0x0FF0))            -- 0x00F0 = 240
-print("bor       ", bit32.bor(0xF000, 0x000F))             -- 0xF00F = 61455
-print("bxor      ", bit32.bxor(0xFFFF, 0x0F0F))            -- 0xF0F0 = 61680
-print("bnot      ", bit32.bnot(0))                          -- 0xFFFFFFFF = 4294967295
-print("lshift    ", bit32.lshift(1, 8))                     -- 256
-print("rshift    ", bit32.rshift(0x100, 4))                 -- 16
-print("arshift   ", bit32.arshift(0xFFFFFFFE, 1))           -- still all-ones except low bit
-print("lrotate   ", bit32.lrotate(0x80000001, 1))           -- 0x00000003
-print("extract   ", bit32.extract(0xABCD, 4, 4))            -- nibble 1: 0xC = 12
-print("replace   ", bit32.replace(0xABCD, 0xE, 4, 4))       -- 0xAECD
-print("btest     ", bit32.btest(0xF0, 0x80))                -- true
-print("bswap     ", bit32.bswap(0x11223344))                -- 0x44332211 = 1144201745
+print("=== bit32: the basics ===")
+print("band(0xF0F0, 0x0FF0) :", bit32.band(0xF0F0, 0x0FF0), "-- 0x00F0")
+print("bor (0xF000, 0x000F) :", bit32.bor(0xF000, 0x000F), "-- 0xF00F")
+print("bxor(0xFFFF, 0x0F0F) :", bit32.bxor(0xFFFF, 0x0F0F), "-- 0xF0F0")
+print("bnot(0)              :", bit32.bnot(0), "-- 0xFFFFFFFF, note the 32-bit width")
+print("btest(0xF0, 0x80)    :", bit32.btest(0xF0, 0x80), "-- any bits in common?")
 
--- utf8: code-point work
-local hi = "héllo " .. utf8.char(0x1F44B)
-print("utf8.len  ", utf8.len(hi))                            -- 7
-print("char back ", utf8.char(0x4E2D, 0x6587))               -- 中文
+-- band/bor/bxor/btest are variadic, which is handy for combining flags.
+print("band of three        :", bit32.band(0xFF, 0x3F, 0x0F))
+print()
+
+print("=== shifts and rotates ===")
+print("lshift(1, 8)         :", bit32.lshift(1, 8))
+print("rshift(0x100, 4)     :", bit32.rshift(0x100, 4))
+-- arshift keeps the sign bit, so shifting a "negative" 32-bit pattern right
+-- fills with ones rather than zeros.
+print("rshift (0xFFFFFFFE,1):", bit32.rshift(0xFFFFFFFE, 1))
+print("arshift(0xFFFFFFFE,1):", bit32.arshift(0xFFFFFFFE, 1), "-- sign-extending")
+
+-- Rotates move bits off one end and back in at the other — nothing is lost,
+-- which is what distinguishes them from shifts.
+print("lrotate(0x80000001,1):", bit32.lrotate(0x80000001, 1), "-- 0x00000003")
+print("rrotate(0x00000003,1):", bit32.rrotate(0x00000003, 1), "-- 0x80000001")
+print("rotate round trip    :", bit32.rrotate(bit32.lrotate(0xDEADBEEF, 7), 7) == 0xDEADBEEF)
+print()
+
+print("=== bit fields ===")
+-- extract/replace read and write an n-bit field at a bit offset, which
+-- beats hand-rolling `(x >> off) & mask` every time.
+print("extract(0xABCD, 4, 4):", bit32.extract(0xABCD, 4, 4), "-- the 0xC nibble")
+print("extract(0xFF00, 8, 8):", bit32.extract(0xFF00, 8, 8))
+print("replace(0xABCD,0xE,4,4):", string.format("0x%X", bit32.replace(0xABCD, 0xE, 4, 4)))
+-- Width defaults to 1, so a single bit needs no third argument.
+print("extract bit 15       :", bit32.extract(0x8000, 15))
+
+-- Packing several small values into one word, and getting them back.
+local packed = 0
+packed = bit32.replace(packed, 5, 0, 4)     -- 4-bit field at offset 0
+packed = bit32.replace(packed, 9, 4, 4)     -- 4-bit field at offset 4
+packed = bit32.replace(packed, 200, 8, 8)   -- 8-bit field at offset 8
+print("packed               :", string.format("0x%X", packed))
+print("unpacked             :", bit32.extract(packed, 0, 4),
+    bit32.extract(packed, 4, 4), bit32.extract(packed, 8, 8))
+print()
+
+print("=== byte order ===")
+-- bswap reverses the four bytes — the little-endian/big-endian conversion.
+print("bswap(0x11223344)    :", string.format("0x%X", bit32.bswap(0x11223344)))
+print("bswap is its own inverse:", bit32.bswap(bit32.bswap(0x11223344)) == 0x11223344)
+print()
+
+print("=== bytes vs characters ===")
+-- This is the whole reason the utf8 library exists.
+local s = "héllo"
+print("the string     :", s)
+print("#s   (bytes)   :", #s)
+print("utf8.len (chars):", utf8.len(s))
+print("s:sub(1, 2)    :", s:sub(1, 2), "-- cuts the é in half")
+print()
+
+print("=== building and reading code points ===")
+print("utf8.char(0x4E2D, 0x6587) :", utf8.char(0x4E2D, 0x6587))
+print("wave                      :", utf8.char(0x1F44B))
 local cp1, cp2 = utf8.codepoint("AB", 1, 2)
-print("codepoint ", cp1, cp2)                                -- 65, 66
+print("codepoint('AB', 1, 2)     :", cp1, cp2)
+print("codepoint of é            :", utf8.codepoint("héllo", 2))
+print()
 
-for p, c in utf8.codes("héy") do
-    print("codes     ", p, c)
+print("=== iterating ===")
+-- `utf8.codes` yields the BYTE position and the code point of each
+-- character — the right way to walk a string that may not be ASCII.
+for pos, code in utf8.codes("héy") do
+    print(string.format("  byte %d -> U+%04X (%s)", pos, code, utf8.char(code)))
 end
+print()
+
+print("=== utf8.offset: finding character boundaries ===")
+-- Byte position of the n-th character. This is how you slice safely.
+local text = "héllo wörld"
+print("offset(text, 1) :", utf8.offset(text, 1), "-- first char")
+print("offset(text, 3) :", utf8.offset(text, 3), "-- third char, past the é")
+print("offset(text, -1):", utf8.offset(text, -1), "-- negative counts back")
+
+-- A character-correct `sub`: convert character indices to byte indices.
+local function usub(str, i, j)
+    local from = utf8.offset(str, i)
+    local to = utf8.offset(str, j + 1)
+    return str:sub(from, to and to - 1 or #str)
+end
+print("usub(text, 1, 5):", usub(text, 1, 5), "-- five CHARACTERS")
+print("text:sub(1, 5)  :", text:sub(1, 5), "-- five BYTES, so only four chars")
+print()
+
+print("=== utf8.charpattern ===")
+-- A Lua pattern matching exactly one UTF-8 character. Useful with
+-- gmatch/gsub when you want to operate per character.
+-- It is a byte-range pattern, so printing it raw is noise; what matters is
+-- that it matches one character at a time.
+print("charpattern len :", #utf8.charpattern, "bytes of pattern")
+local chars = {}
+for ch in text:gmatch(utf8.charpattern) do
+    chars[#chars + 1] = ch
+end
+print("split into chars:", #chars, "->", table.concat(chars, "|"))
+
+-- Reversing a string correctly needs characters, not bytes.
+local reversed = {}
+for i = #chars, 1, -1 do
+    reversed[#reversed + 1] = chars[i]
+end
+print("reversed        :", table.concat(reversed))
+print("string.reverse  :", text:reverse(), "-- byte-wise, so broken")
+print()
+
+print("=== validation ===")
+-- utf8.len returns nil plus the offending byte position on invalid input,
+-- which makes it a cheap validity check.
+local bad = "abc\xFF\xFEdef"
+local n, where = utf8.len(bad)
+print("utf8.len(valid) :", utf8.len("ok"))
+print("utf8.len(bad)   :", n, "| first bad byte at:", where)
+print()
+
+print("=== see also ===")
+print("  11_compounds.lsc  the native &= |= <<= operators")
+print("  26_patterns.lsc   Lua patterns, which charpattern plugs into")

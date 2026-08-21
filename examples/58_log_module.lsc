@@ -1,0 +1,150 @@
+-- The `log` module: levelled logging.
+--
+--   local log = require("log")
+--
+-- Six levels, ordered by severity:
+--
+--   trace  debug  info  warn  error  fatal
+--
+-- A message whose level sits below the current threshold is dropped
+-- entirely — the arguments are still evaluated, so keep expensive formatting
+-- out of a hot trace call. The default threshold is `info`, so `log.debug`
+-- and `log.trace` are silent until you lower it.
+--
+-- Output goes to STDERR by default, not stdout. That is the right default
+-- for a CLI: your program's actual output stays pipeable while diagnostics
+-- still reach the terminal. `set_output` redirects to a file path, or to the
+-- strings "stdout" / "stderr".
+--
+-- One sharp edge worth knowing up front: `log.fatal` writes its message and
+-- then EXITS THE PROCESS. Deferred blocks do not run, `<close>` variables
+-- are not closed, and nothing after it executes. This example never calls
+-- it — see the last section.
+
+local log = require("log")
+
+print("=== version and levels ===")
+print("log.VERSION:", log.VERSION)
+-- LEVELS maps each level NAME to its severity ordinal. It is keyed by name,
+-- not an array, so `ipairs` yields nothing — sort by value to list them in
+-- order, and compare the ordinals when you need to reason about severity.
+local names = {}
+for name in pairs(log.LEVELS) do
+    names[#names + 1] = name
+end
+table.sort(names, function(a, b) return log.LEVELS[a] < log.LEVELS[b] end)
+for _, name in ipairs(names) do
+    print(string.format("  %-5s = %d", name, log.LEVELS[name]))
+end
+print("warn is more severe than debug:", log.LEVELS.warn > log.LEVELS.debug)
+print()
+
+print("=== the default threshold ===")
+print("get_level():", log.get_level())
+-- Everything below prints to stderr. If you are piping stdout somewhere,
+-- these still appear on your terminal.
+log.info("this is info — visible at the default level")
+log.warn("this is warn")
+log.error("this is error — note it does NOT raise")
+log.debug("this debug line is DROPPED (below the threshold)")
+log.trace("so is this trace line")
+print("(the two lines above produced no output)")
+print()
+
+print("=== lowering the threshold ===")
+log.set_level("debug")
+print("get_level():", log.get_level())
+log.debug("now debug is visible")
+log.trace("trace is still below debug, so still dropped")
+print()
+
+print("=== raising it ===")
+log.set_level("error")
+print("get_level():", log.get_level())
+log.info("dropped")
+log.warn("dropped")
+log.error("only error and above get through now")
+log.set_level("info")   -- back to the default for the rest of the file
+print()
+
+print("=== multiple arguments ===")
+-- The level functions are variadic and stringify like `print` does.
+log.info("started", 1, true, nil)
+log.info("a table:", { 1, 2, 3 })
+print()
+
+print("=== log.log: naming the level dynamically ===")
+-- Useful when the level is data — a config value, or a field on an incoming
+-- record — rather than something you can hard-code at the call site.
+for _, level in ipairs({ "warn", "error", "debug" }) do
+    log.log(level, "dispatched at level", level)
+end
+print("(the debug one was dropped: threshold is back to info)")
+print()
+
+print("=== prefixes ===")
+-- A prefix is printed before every message. Handy for tagging a subsystem
+-- or a worker id in output that several components share.
+log.set_prefix("worker-3")
+log.info("picked up a job")
+log.warn("retrying")
+log.set_prefix("")
+log.info("prefix cleared")
+print()
+
+print("=== redirecting output ===")
+print("get_output():", log.get_output())
+
+-- To a file. `close` releases the handle; the module reopens on the next
+-- set_output.
+local path = os.tmpname()
+log.set_output(path)
+log.info("this line goes to the file")
+log.warn("so does this one")
+log.close()
+
+-- Back to the terminal so the rest of this script is visible.
+log.set_output("stderr")
+print("wrote two lines to", path)
+
+-- Read them back to prove it.
+local f = io.open(path, "r")
+if f then
+    local n = 0
+    for line in f:lines() do
+        n = n + 1
+        print(string.format("  file line %d: %s", n, line))
+    end
+    f:close()
+    os.remove(path)
+end
+print()
+
+print("=== sending logs to stdout ===")
+-- If you would rather have logs interleave with your program's output —
+-- inside a container that only captures stdout, say — ask for it explicitly.
+log.set_output("stdout")
+log.info("this one is on stdout, so it is pipeable")
+log.set_output("stderr")
+print("get_output():", log.get_output())
+print()
+
+print("=== log.fatal ===")
+-- Deliberately NOT called here. `log.fatal("...")` writes the message and
+-- terminates the process immediately:
+--
+--   * deferred blocks do not run
+--   * <close> variables are not closed
+--   * no code after the call executes
+--
+-- That makes it right for genuinely unrecoverable startup failures ("config
+-- file missing"), and wrong for anything a caller might want to handle. For
+-- a recoverable failure use `log.error` (which returns normally) and then
+-- `error`/`throw` so a `pcall` or `try` upstream can deal with it.
+print("not called — it would end the process here")
+
+print()
+print("=== see also ===")
+print("  27_debug_module.lsc  stack introspection")
+print("  23_io.lsc            the io library set_output writes through")
+print("  56_testing.lsc       assertions, for when you want a failure not a log line")

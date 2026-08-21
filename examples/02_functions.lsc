@@ -1,41 +1,184 @@
--- Functions, closures, upvalues, multi-return.
+-- Functions: definitions, multiple returns, varargs, closures.
+--
+-- Functions are first-class values. `function f() end` is sugar for
+-- `f = function() end`, which is why they can be stored in tables, passed
+-- as arguments and returned — all without ceremony.
 
--- Recursion.
+print("=== four ways to write the same thing ===")
+local function named(x) return x + 1 end          -- preferred: local + name
+local anonymous = function(x) return x + 1 end    -- identical, more typing
+local t = {}
+function t.field(x) return x + 1 end              -- sugar for t.field = ...
+function t:method(x) return x + 1 end             -- sugar with implicit `self`
+
+print(named(1), anonymous(1), t.field(1), t:method(1))
+-- `local function f` differs from `local f = function` in one way that
+-- matters: the name is in scope inside the body, so recursion works.
+print()
+
+print("=== recursion ===")
 local function fact(n)
     if n <= 1 then return 1 end
     return n * fact(n - 1)
 end
 print("fact(10) =", fact(10))
 
--- Closures capture upvalues by reference.
-local function counter()
-    local n = 0
-    return function()
-        n = n + 1
-        return n
-    end
-end
+-- Mutual recursion needs the names declared first, or the second is a
+-- global lookup at the time the first is *defined*.
+local is_even, is_odd
+function is_even(n) return n == 0 or is_odd(n - 1) end
+function is_odd(n) return n ~= 0 and is_even(n - 1) end
+print("is_even(10) =", is_even(10))
+print()
 
-local next = counter()
-print(next(), next(), next())   -- 1   2   3
+print("=== arguments are adjusted ===")
+-- At RUN TIME, missing arguments are nil and extra ones are discarded —
+-- Lua never raises on arity.
+local function show(a, b) return tostring(a) .. "," .. tostring(b) end
+print("show(1)    :", show(1))       -- b is nil
+print("show(1, 2) :", show(1, 2))
 
--- Multi-return — Lua spreads the call across the assignment targets.
+-- The TYPE CHECKER is stricter than the runtime in one direction: passing
+-- more arguments than a function declares is a compile error, even when the
+-- function carries no annotations at all.
+--
+--   show(1, 2, 3)
+--   --> call passes 3 args, function expects at most 2
+--
+-- Passing fewer is still fine, because nil is a legitimate value for an
+-- un-annotated (`any`) parameter. Use `...` when you really do want to
+-- accept a variable number, or `--!nocheck` to opt the file out.
+-- Default parameters fill the nil case — see 51_default_params.lsc.
+print()
+
+print("=== multiple returns ===")
 local function divmod(a, b)
     return a // b, a % b
 end
 local q, r = divmod(17, 5)
 print("17 / 5 =", q, "remainder", r)
 
--- Higher-order functions.
-local function map(t, f)
+-- The adjustment rules are worth knowing, because they are where multi-
+-- return surprises people. A call expands to all its values ONLY in the
+-- last position of an expression list.
+print("last position :", divmod(17, 5))       -- both values
+print("not last      :", divmod(17, 5), "x")  -- truncated to one
+print("parenthesised :", (divmod(17, 5)))     -- ( ) truncates to one
+local packed = { divmod(17, 5) }
+print("in a table    :", #packed)
+print()
+
+print("=== varargs ===")
+local function count_args(...)
+    -- `select("#", ...)` counts, including nils; `#{...}` does not.
+    return select("#", ...)
+end
+print("count(1, nil, 3) :", count_args(1, nil, 3))
+
+local function sum(...)
+    local total = 0
+    for _, v in ipairs({ ... }) do
+        total = total + v
+    end
+    return total
+end
+print("sum(1..5)        :", sum(1, 2, 3, 4, 5))
+
+-- `select(n, ...)` drops the first n-1 values.
+local function tail(...) return select(2, ...) end
+print("tail(1, 2, 3)    :", tail(1, 2, 3))
+
+-- table.pack / table.unpack survive nils, which `{...}` does not.
+local function describe(...)
+    local args = table.pack(...)
+    return args.n .. " args, first=" .. tostring(args[1])
+end
+print("pack keeps n     :", describe(nil, nil))
+print("unpack spreads   :", sum(table.unpack({ 10, 20, 30 })))
+print()
+
+print("=== closures capture by reference ===")
+local function counter()
+    local n = 0                  -- an upvalue of the returned function
+    return function()
+        n = n + 1
+        return n
+    end
+end
+local next_id = counter()
+print("three calls:", next_id(), next_id(), next_id())
+
+-- Two closures made by the same call SHARE the upvalue...
+local function pair()
+    local n = 0
+    return function() n = n + 1 return n end,
+           function() return n end
+end
+local bump, peek = pair()
+bump(); bump()
+print("shared upvalue:", peek())
+
+-- ...but each call to the factory makes a fresh one.
+local one, two = counter(), counter()
+print("independent   :", one(), two())
+
+-- The classic loop trap does NOT bite here: Lua's `for` gives each
+-- iteration its own copy of the control variable.
+local fns = {}
+for i = 1, 3 do
+    fns[i] = function() return i end
+end
+print("per-iteration :", fns[1](), fns[2](), fns[3]())
+print()
+
+print("=== higher-order functions ===")
+local function map(list, f)
     local out = {}
-    for i, v in ipairs(t) do
+    for i, v in ipairs(list) do
         out[i] = f(v)
     end
     return out
 end
 
-local doubled = map({1, 2, 3, 4}, function(x) return x * 2 end)
-for _, v in ipairs(doubled) do
-    print(v)
+local function filter(list, pred)
+    local out = {}
+    for _, v in ipairs(list) do
+        if pred(v) then out[#out + 1] = v end
+    end
+    return out
 end
+
+local function reduce(list, f, init)
+    local acc = init
+    for _, v in ipairs(list) do
+        acc = f(acc, v)
+    end
+    return acc
+end
+
+local nums = { 1, 2, 3, 4, 5, 6 }
+local doubled = map(nums, function(x) return x * 2 end)
+local evens = filter(nums, function(x) return x % 2 == 0 end)
+local total = reduce(nums, function(a, x) return a + x end, 0)
+
+print("doubled:", table.concat(doubled, " "))
+print("evens  :", table.concat(evens, " "))
+print("sum    :", total)
+print()
+
+print("=== functions as values ===")
+-- Dispatch tables replace long if/elseif chains.
+local ops = {
+    ["+"] = function(a, b) return a + b end,
+    ["-"] = function(a, b) return a - b end,
+    ["*"] = function(a, b) return a * b end,
+}
+for _, op in ipairs({ "+", "-", "*" }) do
+    print(string.format("  6 %s 3 = %s", op, ops[op](6, 3)))
+end
+print()
+
+print("=== see also ===")
+print("  51_default_params.lsc  default parameter values")
+print("  45_generics.lsc        typed, parametric map/filter")
+print("  32_defer.lsc           running cleanup when a function returns")

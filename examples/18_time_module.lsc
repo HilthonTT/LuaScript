@@ -1,36 +1,142 @@
---!nocheck
--- The `time` module: wall-clock and monotonic time, dates, sleeping.
+-- The `time` module: clocks, formatting, parsing and sleeping.
+--
+--   local time = require("time")
+--
+-- Two clocks, and they answer different questions:
+--
+--   time.now()    WALL CLOCK — "what time is it?" Can jump backwards when
+--                 NTP corrects it or the user changes the timezone. Right
+--                 for timestamps you store or display.
+--   time.clock()  MONOTONIC — "how long since?" Never goes backwards, but
+--                 its zero point is arbitrary and meaningless on its own.
+--                 Right for measuring durations, and wrong for timestamps.
+--
+-- Layouts are Go reference-time layouts: you write out the reference
+-- instant — 2006-01-02 15:04:05 — in the shape you want.
+--
+--   "2006-01-02"           -> 2026-08-21
+--   "02/01/2006 15:04"     -> 21/08/2026 21:03
+--
+-- The spelling is unusual but reads well once it clicks, and the common
+-- ones are exported as constants (DATE, DATETIME, RFC3339, KITCHEN).
+--
+-- `time.format` ALSO accepts a strftime layout, recognised by a `%` in it:
+-- "%Y-%m-%d", the same directives os.date takes. `time.parse` and
+-- `time.parse_utc` do not — see the parsing section.
+
 local time = require("time")
 
-print("=== Time Module Test ===")
-print("VERSION:", time.VERSION)
+print("=== version and layout constants ===")
+print("time.VERSION :", time.VERSION)
+print("RFC3339      :", time.RFC3339)
+print("DATE         :", time.DATE)
+print("DATETIME     :", time.DATETIME)
+print("KITCHEN      :", time.KITCHEN)
 print()
 
--- Wall-clock time.
+print("=== the wall clock ===")
 local now = time.now()
 print("now()    (unix seconds):", now)
 print("now_ms() (unix millis) :", time.now_ms())
+print("seconds from millis    :", math.floor(time.now_ms() / 1000))
 print()
 
--- A short sleep, measured with the monotonic clock.
+print("=== formatting ===")
+-- Default layout is RFC3339.
+print("default (RFC3339):", time.format(now))
+print("DATE             :", time.format(now, time.DATE))
+print("DATETIME         :", time.format(now, time.DATETIME))
+print("KITCHEN          :", time.format(now, time.KITCHEN))
+
+-- strftime, chosen automatically because the layout contains a %.
+print("strftime         :", time.format(now, "%Y-%m-%d %H:%M:%S"))
+print("strftime, wordy  :", time.format(now, "%A, %d %B %Y"))
+
+-- A custom Go layout: write the reference instant the way you want it.
+print("custom Go layout :", time.format(now, "02/01/2006 15:04"))
+
+-- Everything is local by default; pass utc = true for the same instant
+-- rendered in UTC.
+print("local            :", time.format(now, time.DATETIME))
+print("utc              :", time.format(now, time.DATETIME, true))
+print()
+
+print("=== breaking a timestamp apart ===")
+local d = time.date(now)
+print(string.format("  %04d-%02d-%02d %02d:%02d:%02d", d.year, d.month, d.day, d.hour, d.min, d.sec))
+print("  wday (1 = Sunday):", d.wday)
+print("  yday (day of year):", d.yday)
+print("  isdst             :", d.isdst)
+
+-- Same instant, UTC breakdown.
+local u = time.date(now, true)
+print("  local hour:", d.hour, "| utc hour:", u.hour)
+print()
+
+print("=== parsing ===")
+-- parse reads a zone-less layout in the LOCAL zone, so parse and format
+-- round-trip cleanly.
+local stamp = time.parse(time.DATE, "2026-01-31")
+print("parse DATE       :", stamp, "->", time.format(stamp, time.DATETIME))
+
+local precise = time.parse("2006-01-02 15:04:05", "2026-01-31 13:45:00")
+print("parse DATETIME   :", time.format(precise, time.DATETIME))
+
+-- MIND THE ASYMMETRY: `format` accepts strftime layouts, `parse` does not.
+-- A "%Y-%m-%d" layout that formats perfectly will fail to parse — use the
+-- reference-time spelling on the way in.
+local ok_pct, err_pct = pcall(function() return time.parse("%Y/%m/%d", "2026/06/15") end)
+print("parse strftime   :", ok_pct, "-", tostring(err_pct):sub(1, 46))
+print("same, as a layout:", time.format(time.parse("2006/01/02", "2026/06/15"), time.DATE))
+
+-- parse_utc reads the same zone-less text as UTC instead.
+local as_local = time.parse(time.DATE, "2026-01-31")
+local as_utc = time.parse_utc(time.DATE, "2026-01-31")
+print("local vs utc     :", as_local, as_utc, "(differ by your UTC offset)")
+print("offset in hours  :", (as_local - as_utc) / 3600)
+
+-- Text that does not match the layout raises.
+local ok, err = pcall(function() return time.parse(time.DATE, "not a date") end)
+print("bad input raises :", ok, "-", tostring(err):sub(1, 50))
+print()
+
+print("=== round trip ===")
+local original = "2026-03-14"
+local roundtripped = time.format(time.parse(time.DATE, original), time.DATE)
+print(original, "->", roundtripped, "| identical:", original == roundtripped)
+print()
+
+print("=== measuring elapsed time ===")
+-- This is what the monotonic clock is for. Never subtract two time.now()
+-- values to time something: a clock adjustment mid-measurement gives you a
+-- negative or wildly wrong duration.
 local before = time.clock()
-time.sleep(0.05)
+time.sleep(0.05)                       -- fractions are allowed
 local elapsed = time.clock() - before
-print("slept ~0.05s, clock() measured:", elapsed)
+print(string.format("slept 0.05s, measured %.4fs", elapsed))
+
+-- A small stopwatch helper.
+local function timed(label, fn)
+    local start = time.clock()
+    fn()
+    return string.format("%-12s %.4fs", label, time.clock() - start)
+end
+
+print(timed("busy loop", function()
+    local acc = 0
+    for i = 1, 200000 do acc = acc + i end
+end))
+print(timed("sleep 0.02", function() time.sleep(0.02) end))
 print()
 
--- Broken-down date table.
-local d = time.date()
-print("date(): year=" .. d.year .. " month=" .. d.month .. " day=" .. d.day)
-print("        hour=" .. d.hour .. " min=" .. d.min .. " sec=" .. d.sec)
-print("        wday=" .. d.wday .. " yday=" .. d.yday)
+print("=== sleeping blocks everything ===")
+-- time.sleep blocks the VM goroutine: nothing else in your program runs,
+-- including coroutines and queue workers. To wait without stalling the
+-- world, use queue.after or queue.tick (54_queue_module.lsc).
+print("time.sleep   -> blocks the VM, simple and fine in a script")
+print("queue.after  -> schedules work, keeps the VM free")
 print()
 
--- Formatting and parsing.
-local unix = 1700000000
-print("format default :", time.format(unix))
-print("format DATE    :", time.format(unix, time.DATE))
-print("format DATETIME:", time.format(unix, time.DATETIME))
-
-local parsed = time.parse(time.DATETIME, "2023-11-14 22:13:20")
-print("parse round-trip unix:", parsed)
+print("=== see also ===")
+print("  25_os_full.lsc       os.date / os.time / os.clock")
+print("  54_queue_module.lsc  non-blocking delays and timers")

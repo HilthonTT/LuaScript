@@ -1,12 +1,18 @@
--- match v2: on top of the value/literal patterns from 14_match.lsc, `match`
--- now supports typed binding patterns, destructuring of structs and tagged
--- enums, and `if` guards. It stays a parser-level desugar (a `do` block with
--- a matched-flag driving a sequence of guarded `if`s), so there is no runtime
--- machinery beyond ordinary Lua.
+-- `match`, part 2: typed bindings, guards, destructuring, and exhaustiveness.
+-- Part 1 (14_match.lsc) covers value patterns and the `_` wildcard.
+--
+-- `match` is a first-class statement, not a desugar: the parser produces an
+-- ast.MatchStatement and the bytecode generator lowers it to one
+-- test-and-branch per arm. Keeping the node means the type checker can bind
+-- and narrow arm binders, the formatter can round-trip `match` source, and
+-- codegen emits a real jump chain rather than re-reading a flag before every
+-- arm.
+--
+-- The scrutinee is evaluated exactly once and arms are tried top to bottom.
 
 -- --- typed binding patterns ---------------------------------------------
--- `name: Type` matches when the value has that runtime type and binds it.
--- Primitives probe `type()`; named types (structs/enums) probe `typeof()`.
+-- `name: Type` matches when the value has that runtime type, and binds it.
+-- Primitives probe `type()`; named types (structs, enums) probe `typeof()`.
 -- `_: Type` tests without binding; `x: any` binds anything.
 print("=== typed bindings ===")
 local function describe(v): string
@@ -26,7 +32,7 @@ print()
 
 -- --- guards --------------------------------------------------------------
 -- `pattern if <cond> -> body`. If the guard fails, control falls through to
--- the next arm — so overlapping patterns disambiguate by guard.
+-- the next arm, so overlapping patterns disambiguate by guard.
 print("=== guards ===")
 local function sign(n: number): string
     match n do
@@ -56,7 +62,6 @@ local function area(s: Shape): number
         Shape.Circle(r)  -> return 3.14159 * r * r
         Shape.Rect(w, h) -> return w * h
         Shape.Unit       -> return 0
-        _                -> return -1
     end
     return -1
 end
@@ -65,8 +70,76 @@ print("area(Rect 3x4) :", area(Shape.Rect(3, 4)))
 print("area(Unit)     :", area(Shape.Unit))
 print()
 
+-- --- exhaustiveness ------------------------------------------------------
+-- `area` above has no `_` arm, and it does not need one: the checker knows
+-- `Shape` has exactly three variants and that all three are handled.
+--
+-- Drop an arm and it becomes a compile error:
+--
+--   match s do
+--       Shape.Circle(r)  -> return 3.14159 * r * r
+--       Shape.Rect(w, h) -> return w * h
+--   end
+--   --> `match` on enum "Shape" does not handle 1 case: Shape.Unit
+--
+-- This matters because an unmatched `match` is a *no-op* at run time —
+-- control simply falls out of the statement. In a function whose arms all
+-- `return`, that surfaces as a silent nil far from the real mistake.
+--
+-- A subject's domain is enumerable in exactly three situations:
+--
+--   a tagged enum      Shape       -> { Circle, Rect, Unit }
+--   a singleton union  Mode below  -> { "read", "write", "append" }
+--                      (a classic `enum` is one: Color -> 1 | 2 | 3)
+--   a boolean                      -> { true, false }
+--
+-- Anything else — `any`, `string`, an un-annotated local — has no finite
+-- domain, so nothing is reported and plain Lua is unaffected.
+print("=== exhaustiveness ===")
+type Mode = "read" | "write" | "append"
+
+local function verb(m: Mode): string
+    match m do
+        "read"   -> return "reading";
+        "write"  -> return "writing";
+        "append" -> return "appending"
+    end
+    return "?"
+end
+print("verb('read')   :", verb("read"))
+print("verb('append') :", verb("append"))
+
+-- Comma-joined alternatives cover every value they list.
+local function is_write(m: Mode): boolean
+    match m do
+        "write", "append" -> return true;
+        "read"            -> return false
+    end
+    return false
+end
+print("is_write('append'):", is_write("append"))
+
+-- Two ways to opt out, both explicit:
+--   * a `_` arm — the catch-all, which always satisfies the check
+--   * a typed arm the subject flows into (`n: number` over a classic enum)
+enum Color RED, GREEN, BLUE end
+local function hex(c: Color): string
+    match c do
+        Color.RED -> return "#f00";
+        _         -> return "#" .. c
+    end
+    return "?"
+end
+print("hex(RED)       :", hex(Color.RED))
+print("hex(BLUE)      :", hex(Color.BLUE))
+
+-- A guard can fail, so a *guarded* arm never counts as covering its case.
+-- This is why the `sign` function above still needs its `_` arm.
+print()
+
 -- --- destructuring structs ----------------------------------------------
 -- `Struct{ field = binder }` matches by nominal type and binds named fields.
+-- Only the fields you name are bound; the rest are ignored.
 print("=== struct destructuring ===")
 struct Point { x: number, y: number }
 
@@ -85,6 +158,23 @@ print("quadrant(1, -2)  :", quadrant(Point(1, -2)))
 print("quadrant(42)     :", quadrant(42))
 print()
 
+-- --- when a pattern is NOT a destructure ---------------------------------
+-- Destructuring is gated on names declared in this chunk: `Circle(r)` reads
+-- a `__tag` only because `Circle` is a payload-carrying variant here, and
+-- `Point{ x = a }` only because `Point` is a struct here. Any other
+-- call-shaped pattern is an ordinary value pattern, compared with `==`:
+print("=== call-shaped value patterns ===")
+local function double(n) return n * 2 end
+local v = 8
+match v do
+    double(4) -> print("8 == double(4), compared by value")
+    _         -> print("no match")
+end
+print()
+
+-- Variants and structs imported from another module are therefore matched
+-- by value too — use a guard on `__tag` for those.
+
 -- --- a Result pipeline combining everything -----------------------------
 print("=== Result pipeline ===")
 enum Result
@@ -99,11 +189,11 @@ local function checked_sqrt(n: number): Result
     return Result.Ok(math.sqrt(n))
 end
 
+-- No `_` arm: the checker confirms Ok and Err are the whole of Result.
 local function render(r: Result): string
     match r do
         Result.Ok(v)    -> return "ok: " .. v
         Result.Err(msg) -> return "error: " .. msg
-        _               -> return "?"
     end
     return "?"
 end

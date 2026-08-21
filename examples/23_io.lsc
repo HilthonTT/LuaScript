@@ -50,3 +50,99 @@ tf:close()
 
 -- Clean up
 os.remove(tmp)
+
+-- --- io exists twice, and the two are not the same ---
+-- The auto-global `io` table holds only `read` and `write` — enough for a
+-- script that prints and prompts, available with no require. The MODULE you
+-- get from require("io") is the full Lua 5.4 library: open, lines, close,
+-- flush, input, output and the standard handles.
+print()
+print("=== the two ios ===")
+-- Lua 5.4 exposes `io` without a require, and so does luascript — the
+-- global reaches the FULL library, not a cut-down one. This file writes
+-- `local io = require("io")` at the top anyway, which is worth doing when
+-- you want the dependency to be visible at the top of the file.
+print("global io.open  :", type(_G.io.open))
+print("global io.lines :", type(_G.io.lines))
+print("same table      :", _G.io == io)
+
+-- One oddity: the global table itself only holds the standard streams, and
+-- everything else arrives through its metatable. So `pairs(io)` lists far
+-- less than io actually provides.
+local visible = {}
+for k in pairs(_G.io) do visible[#visible + 1] = k end
+table.sort(visible)
+print("pairs(io) shows :", table.concat(visible, " "))
+local iolib = io
+print()
+
+-- --- io.write: printing without the print ---
+-- print adds tabs between arguments and a newline at the end. io.write does
+-- neither, which is what you want when building a line piece by piece.
+print("=== io.write ===")
+io.write("no", " ", "separators", " ", "and no newline")
+io.write(" <- still the same line\n")
+io.write("numbers work too: ", 42, " ", 3.5, "\n")
+
+-- It honours __tostring, like print does.
+local temp = setmetatable({ c = 21 }, { __tostring = function(s) return s.c .. "C" end })
+io.write("metatable: ", tostring(temp), "\n")
+print()
+
+-- --- the standard handles ---
+print("=== stdout, stderr, stdin ===")
+print("io.stdout:", tostring(iolib.stdout))
+print("io.stderr:", tostring(iolib.stderr))
+print("io.stdin :", tostring(iolib.stdin))
+-- They are ordinary file handles, so every file method works on them.
+iolib.stdout:write("written straight to stdout\n")
+iolib.stderr:write("written to stderr (diagnostics go here)\n")
+print()
+
+-- --- io.read ---
+-- Reads from the CURRENT input file, stdin by default. Formats:
+--   "l"  a line without its newline (the default)
+--   "L"  a line with its newline
+--   "n"  a number
+--   "a"  everything remaining
+--
+-- Reading stdin would block this example, so the demonstration below
+-- redirects input to a file first.
+print("=== io.read and io.input ===")
+local tmp = os.tmpname()
+local w = iolib.open(tmp, "w")
+w:write("first line\nsecond line\n42\nthe rest of it\n")
+w:close()
+
+-- io.input(path) sets the default input file, so io.read reads from there.
+iolib.input(tmp)
+print('read("l") :', iolib.read("l"), "-- newline stripped")
+print('read("L") :', string.format("%q", iolib.read("L")), "-- newline kept")
+print('read("n") :', iolib.read("n"), "-- parsed as a number")
+print('read("a") :', string.format("%q", iolib.read("a")), "-- everything left")
+
+-- Put stdin back, or every later read would still come from the file.
+iolib.input(iolib.stdin)
+print("input restored to stdin")
+print()
+
+-- --- io.output, io.flush and io.close ---
+-- The mirror image: io.output redirects what io.write writes.
+print("=== io.output ===")
+local out = os.tmpname()
+iolib.output(out)
+iolib.write("this went to a file, not your terminal\n")
+iolib.flush()          -- push buffered bytes out before anyone reads them
+iolib.close()          -- with no argument: closes the CURRENT output file
+iolib.output(iolib.stdout)
+
+local check = iolib.open(out, "r")
+print("file contains:", (check:read("a"):gsub("\n", "")))
+check:close()
+
+os.remove(tmp)
+os.remove(out)
+print()
+print("Rule of thumb: io.input/io.output change global state, so set them")
+print("back when you are done. An explicit handle (f:read, f:write) is")
+print("almost always the clearer choice.")

@@ -1,35 +1,178 @@
--- Coroutines: cooperative scheduling via create / resume / yield.
+-- Coroutines: cooperative multitasking.
+--
+-- A coroutine is a function that can suspend itself mid-execution and be
+-- resumed later, picking up exactly where it left off — local variables,
+-- call stack and all. That makes it the natural way to write producers,
+-- iterators and state machines that would otherwise need a pile of
+-- explicit state.
+--
+-- Implementation note: luascript runs coroutines on real goroutines
+-- synchronised by channels. They still BEHAVE exactly like Lua's — exactly
+-- one runs at a time, and control changes hands only at an explicit
+-- `resume` or `yield`. This is cooperative concurrency, not parallelism, so
+-- you never need a lock. For actual background work, use the `queue`
+-- module (54_queue_module.lsc), which keeps every Lua call on the VM's own
+-- goroutine.
 
+print("=== the four states ===")
+-- suspended  created but not running (the state after create, and after a yield)
+-- running    currently executing
+-- normal     resumed another coroutine and is waiting for it
+-- dead       returned or errored; cannot be resumed again
+local co = coroutine.create(function()
+    coroutine.yield()
+end)
+print("after create :", coroutine.status(co))
+coroutine.resume(co)
+print("after resume :", coroutine.status(co))   -- suspended again, at the yield
+coroutine.resume(co)
+print("after finish :", coroutine.status(co))   -- dead
+print("resume again :", coroutine.resume(co))   -- false + an error message
+print()
+
+print("=== values flow BOTH ways ===")
+-- resume(co, ...)  ->  the arguments become the result of `yield` inside
+-- yield(...)       ->  the arguments become the extra results of `resume`
+--
+-- The first resume is special: its arguments are the coroutine function's
+-- own parameters.
+local adder = coroutine.create(function(a)
+    print("  body got initial a =", a)
+    local b = coroutine.yield(a + 1)      -- hands a+1 out, waits for a value
+    print("  body got resumed b =", b)
+    return b * 2                          -- a return, not a yield: now dead
+end)
+print("resume(co, 1) ->", coroutine.resume(adder, 1))    -- true  2
+print("resume(co, 10)->", coroutine.resume(adder, 10))   -- true  20
+print()
+
+print("=== a producer ===")
 local function producer()
-    for i = 1, 5 do
+    for i = 1, 3 do
         coroutine.yield("item " .. i)
     end
-    return "done"
+    return "done"                        -- the final value, delivered once
 end
 
-local co = coroutine.create(producer)
-
+local p = coroutine.create(producer)
 while true do
-    local ok, value = coroutine.resume(co)
+    local ok, value = coroutine.resume(p)
     if not ok then
         print("error:", value)
         break
     end
-    print(coroutine.status(co), "->", value)
-    if coroutine.status(co) == "dead" then
-        break
-    end
+    print(string.format("  %-9s -> %s", coroutine.status(p), value))
+    if coroutine.status(p) == "dead" then break end
+end
+print()
+
+print("=== coroutine.wrap: the ergonomic form ===")
+-- `wrap` returns a plain function that resumes on each call. It drops the
+-- `ok` flag — errors propagate to the caller instead of being returned —
+-- which makes it a drop-in iterator for a generic `for`.
+local function range(n, step)
+    step = step or 1
+    return coroutine.wrap(function()
+        for i = 1, n, step do
+            coroutine.yield(i)
+        end
+    end)
 end
 
--- coroutine.wrap is the iterator-friendly form.
-local function range(n)
+io.write("range(6, 2):")
+for v in range(6, 2) do
+    io.write(" ", v)
+end
+print()
+
+-- Any traversal you can write as a loop, you can hand out as an iterator.
+local function walk(t, prefix)
+    prefix = prefix or ""
+    return coroutine.wrap(function()
+        local function visit(node, path)
+            for k, v in pairs(node) do
+                local here = path == "" and tostring(k) or path .. "." .. k
+                if type(v) == "table" then
+                    visit(v, here)
+                else
+                    coroutine.yield(here, v)
+                end
+            end
+        end
+        visit(t, prefix)
+    end)
+end
+
+local config = { server = { host = "localhost", port = 8080 }, debug = true }
+local leaves = {}
+for path, value in walk(config) do
+    leaves[#leaves + 1] = path .. "=" .. tostring(value)
+end
+table.sort(leaves)
+print("flattened  :", table.concat(leaves, " "))
+print()
+
+print("=== errors ===")
+-- With `create`/`resume`, an error comes back as `false, message` — resume
+-- is a protected call, so it never unwinds your stack.
+local boom = coroutine.create(function() error("something broke") end)
+print("resume     :", coroutine.resume(boom))
+print("status     :", coroutine.status(boom))   -- dead
+
+-- With `wrap`, the same error is raised in the caller instead.
+local wrapped = coroutine.wrap(function() error("same, but raised") end)
+local ok, err = pcall(wrapped)
+print("wrap+pcall :", ok, "-", err)
+print()
+
+print("=== introspection ===")
+-- `running` returns the current coroutine and whether it is the main one;
+-- `isyieldable` says whether a yield here would be legal.
+local main_co, is_main = coroutine.running()
+print("main: is_main =", is_main, "| isyieldable =", coroutine.isyieldable())
+
+coroutine.wrap(function()
+    local _, inner_main = coroutine.running()
+    print("inside: is_main =", inner_main, "| isyieldable =", coroutine.isyieldable())
+end)()
+print()
+
+print("=== close ===")
+-- `close` releases a suspended coroutine's resources without running the
+-- rest of its body. Use it when you abandon a producer part-way.
+local abandoned = coroutine.create(function()
+    coroutine.yield(1)
+    print("  this line never runs")
+end)
+coroutine.resume(abandoned)
+print("close   :", coroutine.close(abandoned))
+print("status  :", coroutine.status(abandoned))
+print()
+
+print("=== a two-coroutine pipeline ===")
+-- Producer and consumer taking turns. Neither holds the whole sequence in
+-- memory, and neither needs a callback.
+local function numbers(n)
     return coroutine.wrap(function()
         for i = 1, n do coroutine.yield(i) end
     end)
 end
 
-print()
-print("range via wrap:")
-for v in range(4) do
-    print(v)
+local function squares(source)
+    return coroutine.wrap(function()
+        for v in source do
+            coroutine.yield(v * v)
+        end
+    end)
 end
+
+local out = {}
+for v in squares(numbers(6)) do
+    out[#out + 1] = v
+end
+print("squares:", table.concat(out, " "))
+print()
+
+print("=== see also ===")
+print("  54_queue_module.lsc  real background work: jobs and channels")
+print("  55_try_catch.lsc     a try region travels with a coroutine's frames")

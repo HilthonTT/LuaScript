@@ -76,3 +76,54 @@ print("hm name      =", hm:get("name"))
 print("hm born      =", hm:get("born"))
 print("hm has name  =", hm:contains("name"))
 print("hm has nope  =", hm:contains("nope"))
+
+
+-- 8. Trie -- a string prefix tree. Lookup cost depends on the length of the
+-- key, not on how many keys are stored, which is what makes it the right
+-- structure for autocomplete and prefix rules.
+local trie = std.new_trie()
+for _, word in ipairs({ "car", "cart", "carbon", "cat", "dog" }) do
+    trie:insert(word)
+end
+print("trie size    =", trie:size())
+print("find 'cart'  =", trie:find("cart"))
+print("find 'ca'    =", trie:find("ca"))      -- a prefix is not an entry
+print("find 'cow'   =", trie:find("cow"))
+trie:remove("cart")
+print("after remove =", trie:find("cart"), "| size =", trie:size())
+-- `compact` releases nodes left behind by removals; `capacity` reports the
+-- nodes currently allocated.
+print("capacity     =", trie:capacity())
+trie:compact()
+print("compacted    =", trie:capacity())
+
+-- 9. B-tree -- ordered keys with O(log n) search, kept balanced. Unlike the
+-- hashmap, iteration is in KEY ORDER, which is what you want for range
+-- queries and sorted output.
+-- It is a SET of keys, not a key/value map: every argument to insert is
+-- another key, so `bt:insert(50, 500)` stores two of them.
+local bt = std.new_btree()          -- max_keys defaults to 3
+bt:insert(50, 20, 80)               -- variadic: three keys in one call
+for _, k in ipairs({ 10, 30, 70, 90 }) do
+    bt:insert(k)
+end
+print("btree size   =", bt:size())
+print("search 30    =", bt:search(30))     -- true / false, not a value
+print("search 35    =", bt:search(35))
+print("min, max     =", bt:min(), bt:max())
+print("remove 30    =", bt:remove(30), "| size =", bt:size())
+print("remove again =", bt:remove(30))     -- false: already gone
+print("empty        =", bt:empty())
+
+-- The key type is fixed by the FIRST insert. Mixing types afterwards raises
+-- rather than silently ordering numbers against strings.
+local ok, err = pcall(function() bt:insert("a string") end)
+print("mixed types  =", ok, "-", err)
+
+local strings = std.new_btree()
+for _, k in ipairs({ "pear", "apple", "fig" }) do strings:insert(k) end
+print("string btree =", strings:min(), "..", strings:max())
+
+-- Searching for a key of the wrong type is simply "absent", not an error —
+-- so a lookup driven by user input cannot blow up.
+print("wrong type   =", strings:search(42))

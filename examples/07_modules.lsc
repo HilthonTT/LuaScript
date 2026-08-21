@@ -6,8 +6,8 @@
 -- `package.path` automatically, so this example finds `mathx.lsc`
 -- sitting next to it no matter which directory you launch it from:
 --
---    .lsc examples/07_modules.lsc        # from the repo root
---     cd examples &&.lsc 07_modules.lsc  # or from examples/
+--    go run ./cmd/luascript examples/07_modules.lsc   # from the repo root
+--    cd examples && go run ../cmd/luascript 07_modules.lsc
 --
 -- (The plain cwd-relative entries `./?.lsc`, `./src/?.lsc`, … are
 -- still searched too, after the script-directory entries.)

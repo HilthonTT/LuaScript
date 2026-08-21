@@ -48,3 +48,88 @@ print()
 print("--- solve 2x + y = 5, x + 3y = 10 ---")
 local x = linalg.solve({ { 2, 1 }, { 1, 3 } }, { 5, 10 })
 showVec("x:", x) -- expect [1, 3]
+
+-- --- building matrices ---
+-- Constructors for the shapes you would otherwise write out by hand.
+print()
+print("--- constructors ---")
+local function grid(label, m)
+  print(label)
+  for _, row in ipairs(m) do
+    local parts = {}
+    for i, v in ipairs(row) do parts[i] = string.format("%8.3f", v) end
+    print("   [" .. table.concat(parts, " ") .. "]")
+  end
+end
+
+grid("identity(3):", linalg.identity(3))
+grid("zeros(2, 3):", linalg.zeros(2, 3))
+grid("ones(2, 2) :", linalg.ones(2, 2))
+print()
+
+-- --- element-wise and matrix-vector ---
+print("--- sub and matvec ---")
+-- Note the shapes: add/sub/scale work on VECTORS (flat arrays), while
+-- matmul/transpose/det/inverse work on matrices (arrays of rows).
+print("sub({5,7,9}, {1,2,3}) :", table.concat(linalg.sub({ 5, 7, 9 }, { 1, 2, 3 }), ", "))
+
+-- matvec is the common case of matmul: a matrix times a column vector,
+-- with the vector given as a flat array rather than a one-column matrix.
+local m = { { 4, 1 }, { 2, 3 } }
+print("matvec(m, {1, 2})     :", table.concat(linalg.matvec(m, { 1, 2 }), ", "))
+print()
+
+-- --- rank: is this system even solvable? ---
+-- `solve` needs a full-rank square matrix. Checking the rank first tells
+-- you whether to expect an answer, instead of finding out by catching.
+print("--- rank ---")
+local independent = { { 1, 0 }, { 0, 1 } }
+local dependent = { { 1, 2 }, { 2, 4 } }     -- row 2 is row 1 doubled
+print("rank of independent rows:", linalg.rank(independent))
+print("rank of dependent rows  :", linalg.rank(dependent), "-- singular")
+print()
+
+-- --- least squares: more equations than unknowns ---
+-- `solve` wants exactly as many equations as unknowns. Fitting a line to
+-- five points is five equations and two unknowns, which is what lstsq is
+-- for: it finds the answer that misses by the least.
+print("--- lstsq: fitting a line ---")
+local design = {}                             -- columns: [x, 1]
+local ys = {}
+for i = 1, 5 do
+  design[i] = { i, 1 }
+  ys[i] = 2 * i + 1 + (i % 2 == 0 and 0.1 or -0.1)   -- y = 2x + 1, jittered
+end
+local fit = linalg.lstsq(design, ys)
+print(string.format("slope %.4f, intercept %.4f  (true values: 2 and 1)", fit[1], fit[2]))
+print()
+
+-- --- decompositions ---
+-- QR factors A into an orthonormal Q and an upper-triangular R. It is the
+-- numerically stable way to solve least squares, and the engine behind it.
+print("--- QR ---")
+local q, r = linalg.qr({ { 12, -51 }, { 6, 167 } })
+grid("Q:", q)
+grid("R:", r)
+grid("Q*R (back to A):", linalg.matmul(q, r))
+print()
+
+-- Cholesky is the fast, specialised factorisation for a symmetric
+-- positive-definite matrix: the lower-triangular L with L*Lt = A. Think of
+-- it as a matrix square root.
+print("--- Cholesky ---")
+local spd = { { 4, 2 }, { 2, 3 } }
+local lower = linalg.cholesky(spd)
+grid("L:", lower)
+grid("L * Lt (back to A):", linalg.matmul(lower, linalg.transpose(lower)))
+print()
+
+-- eigh gives the eigenvalues and eigenvectors of a SYMMETRIC matrix,
+-- largest first. An eigenvector is a direction the matrix only stretches;
+-- the eigenvalue is how much it stretches by.
+print("--- eigh ---")
+local values, vectors = linalg.eigh({ { 2, 1 }, { 1, 2 } })
+local shown = {}
+for i, v in ipairs(values) do shown[i] = string.format("%.4f", v) end
+print("eigenvalues:", table.concat(shown, ", "), "-- 3 and 1")
+grid("eigenvectors (as columns):", vectors)

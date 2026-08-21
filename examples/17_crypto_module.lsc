@@ -1,35 +1,149 @@
---!nocheck
--- The `crypto` module: hashing, HMAC, encoding, and secure randomness.
+-- The `crypto` module: hashes, HMAC, password hashing, encodings and
+-- secure randomness.
+--
+--   local crypto = require("crypto")
+--
+-- Three things in here are easy to get wrong, so they are called out where
+-- they appear:
+--
+--   1. A HASH is not a password hash. sha256 is designed to be fast, which
+--      is exactly what an attacker guessing passwords wants. Use
+--      password_hash / password_verify for passwords.
+--   2. Comparing secrets with `==` leaks information through how long the
+--      comparison takes. Use constant_time_equal (or hmac_verify).
+--   3. math.random is not a source of secrets. Use random_bytes /
+--      random_int.
+
 local crypto = require("crypto")
 
-print("=== Crypto Module Test ===")
-print("VERSION:", crypto.VERSION)
+print("=== version ===")
+print("crypto.VERSION:", crypto.VERSION)
 print()
 
--- Hash digests (lowercase hex).
+print("=== hash digests ===")
+-- All return lowercase hex. Same input, same digest, every time.
 print("md5    :", crypto.md5("hello"))
 print("sha1   :", crypto.sha1("hello"))
 print("sha256 :", crypto.sha256("hello"))
 print("sha512 :", crypto.sha512("hello"))
+print("sha3   :", crypto.sha3("hello"))
+
+-- md5 and sha1 are broken for anything security-relevant — collisions are
+-- practical. They are here for checksums and interop with old formats.
+-- Reach for sha256 by default.
+print()
+print("one bit of difference changes everything:")
+print("  sha256('hello') :", crypto.sha256("hello"):sub(1, 24) .. "...")
+print("  sha256('hellp') :", crypto.sha256("hellp"):sub(1, 24) .. "...")
 print()
 
--- HMAC.
-print("hmac_sha256:", crypto.hmac_sha256("secret-key", "message"))
+print("=== HMAC: a keyed digest ===")
+-- A plain hash proves nothing about WHO produced it — anyone can hash a
+-- message. An HMAC folds in a secret key, so only a holder of the key
+-- could have produced the tag.
+local key = "secret-key"
+local tag = crypto.hmac_sha256(key, "message")
+print("hmac_sha256    :", tag)
+
+-- `hmac` takes the algorithm by name when you need something other than
+-- sha256 (interop with a service that specified one, say).
+print("hmac('sha512') :", crypto.hmac("sha512", key, "message"):sub(1, 32) .. "...")
+
+-- Verify with hmac_verify, NOT with `==`. It recomputes the tag and
+-- compares in constant time.
+print("verify good tag:", crypto.hmac_verify(key, "message", tag))
+print("verify bad tag :", crypto.hmac_verify(key, "message", string.rep("0", #tag)))
+print("verify tampered:", crypto.hmac_verify(key, "message!", tag))
 print()
 
--- base64 round-trip.
+print("=== constant-time comparison ===")
+-- `a == b` on strings can return as soon as it finds a differing byte, so
+-- the time it takes reveals how much of the secret the attacker guessed
+-- right. constant_time_equal always looks at everything.
+local secret = crypto.sha256("token")
+print("equal    :", crypto.constant_time_equal(secret, secret))
+print("not equal:", crypto.constant_time_equal(secret, crypto.sha256("other")))
+print("(use this for any secret comparison, not just digests)")
+print()
+
+print("=== password hashing ===")
+-- password_hash is deliberately SLOW and salted. The salt means two users
+-- with the same password get different stored values; the slowness means
+-- an attacker with the database still has to spend real time per guess.
+local encoded = crypto.password_hash("correct horse battery staple")
+print("encoded    :", encoded:sub(1, 40) .. "...")
+print("length     :", #encoded, "(salt and parameters travel with the hash)")
+
+-- Two hashes of the SAME password differ, because the salt is fresh.
+local again = crypto.password_hash("correct horse battery staple")
+print("salted     :", encoded ~= again, "(same password, different output)")
+
+-- ...which is why you must verify, never compare.
+print("verify ok  :", crypto.password_verify("correct horse battery staple", encoded))
+print("verify bad :", crypto.password_verify("wrong password", encoded))
+print()
+
+print("=== pbkdf2: deriving a key from a password ===")
+-- Use this when you need raw key MATERIAL (to encrypt with, say) rather
+-- than a stored verifier. You supply the salt and the iteration count.
+local salt = crypto.random_bytes(16)
+local derived = crypto.pbkdf2("passphrase", salt, 10000, 32)
+print("key length :", #derived, "bytes")
+print("as hex     :", crypto.hex_encode(derived):sub(1, 32) .. "...")
+
+-- Same password + same salt + same parameters = same key. That is the
+-- whole point: you can re-derive it instead of storing it.
+local rederived = crypto.pbkdf2("passphrase", salt, 10000, 32)
+print("reproducible:", crypto.constant_time_equal(derived, rederived))
+print()
+
+print("=== encodings ===")
+-- These are NOT encryption. They make bytes safe to put in text.
 local b64 = crypto.base64_encode("luascript")
-print("base64 encoded:", b64)
-print("base64 decoded:", crypto.base64_decode(b64))
-print()
+print("base64 encode :", b64)
+print("base64 decode :", crypto.base64_decode(b64))
 
--- hex round-trip.
+-- base64url swaps + and / for - and _ and is what belongs in a URL or a
+-- JWT segment.
+local tricky = "\xfb\xff?"
+print("base64    of tricky bytes:", crypto.base64_encode(tricky))
+print("base64url of tricky bytes:", crypto.base64url_encode(tricky))
+print("base64url decode         :", #crypto.base64url_decode(crypto.base64url_encode(tricky)), "bytes")
+
 local hx = crypto.hex_encode("luascript")
-print("hex encoded:", hx)
-print("hex decoded:", crypto.hex_decode(hx))
+print("hex encode    :", hx)
+print("hex decode    :", crypto.hex_decode(hx))
 print()
 
--- Secure random bytes (printed as hex so it stays readable).
-local rnd = crypto.random_bytes(16)
-print("random_bytes(16) length:", #rnd)
-print("random_bytes(16) as hex:", crypto.hex_encode(rnd))
+print("=== secure randomness ===")
+-- Backed by the OS entropy source. Unlike math.random, these are safe for
+-- tokens, salts, session ids and nonces.
+local raw = crypto.random_bytes(16)
+print("random_bytes(16) length:", #raw)
+print("random_bytes(16) as hex:", crypto.hex_encode(raw))
+
+-- random_int(n) gives a uniform integer without the modulo bias you get
+-- from `random_bytes(...) % n`.
+local rolls = {}
+for _ = 1, 8 do
+    rolls[#rolls + 1] = crypto.random_int(6) + 1
+end
+print("eight d6 rolls         :", table.concat(rolls, " "))
+
+-- A practical session token: 32 random bytes, URL-safe.
+print("session token          :", crypto.base64url_encode(crypto.random_bytes(24)))
+print()
+
+print("=== putting it together: a signed payload ===")
+-- Sign a message so a recipient with the key can detect tampering.
+local api_key = crypto.random_bytes(32)
+local payload = '{"user":"ada","admin":false}'
+local signature = crypto.hmac_sha256(api_key, payload)
+
+local function verify(body, sig)
+    return crypto.hmac_verify(api_key, body, sig)
+end
+
+print("original accepted :", verify(payload, signature))
+print("tampered rejected :", verify('{"user":"ada","admin":true}', signature))
+print("bad signature     :", verify(payload, string.rep("a", 64)))

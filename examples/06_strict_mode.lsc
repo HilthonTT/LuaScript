@@ -1,21 +1,85 @@
 --!strict
--- `--!strict` opts a file into stricter checks. The first thing strict
--- mode flags is implicit-any parameters: every function parameter must
--- carry an annotation.
+-- Mode directives: how much checking a file opts into.
+--
+-- The FIRST line of a file may carry one of three directives. Anywhere else
+-- it is an ordinary comment and does nothing.
+--
+--   --!strict     every function parameter must be annotated
+--   --!nonstrict  the default — an un-annotated parameter is `any`
+--   --!nocheck    skip the type pass entirely for this file
+--
+-- What varies between the three is only how much is REQUIRED. The rules
+-- themselves do not change: a wrong annotation is an error in nonstrict
+-- mode too, and `--!nocheck` is the only setting that turns checking off.
+--
+-- This file is `--!strict`, so everything below carries annotations.
 
--- Annotations make this strict-clean.
+print("=== strict-clean code ===")
+-- Every parameter and the return type are annotated, so this passes.
 local function greet(name: string, count: number): string
     local result: string = ""
-    for i = 1, count do
+    for _ = 1, count do
         result = result .. "hi " .. name .. " "
     end
     return result
 end
 
 print(greet("Ada", 3))
+print()
 
--- Try un-commenting the line below — strict mode rejects unannotated
--- params with a clear error message (`parameter "n" has no type
--- annotation (--!strict)`).
+print("=== what strict adds ===")
+-- Exactly one thing: an un-annotated parameter becomes an error rather
+-- than an implicit `any`.
 --
--- local function bad(n) return n * 2 end
+--   local function bad(n) return n * 2 end
+--   --> parameter "n" has no type annotation (--!strict)
+--
+-- LOCALS are still inferred, and that is deliberate — the annotation on a
+-- local rarely tells the reader anything the initialiser does not.
+local inferred = 42            -- a number; no annotation needed
+local doubled: number = inferred * 2
+print("inference still applies:", doubled)
+
+-- `...` is fine unannotated: a vararg has no single type to give it.
+local function sum(...): number
+    local total: number = 0
+    for _, v in ipairs({ ... }) do
+        total = total + v
+    end
+    return total
+end
+print("varargs are exempt     :", sum(1, 2, 3))
+print()
+
+print("=== what strict does NOT add ===")
+-- These are errors in EVERY checked mode, strict or not. Strict is about
+-- requiring annotations, not about enforcing them harder.
+--
+--   local n: number = "not a number"
+--   --> Type "string" could not be converted into "number"
+--
+--   local function f(x: number): string return x end
+--   --> Type "number" could not be converted into "string"
+--
+-- If you want a file exempt from all of it, `--!nocheck` on line 1 is the
+-- only switch that does that.
+print("a wrong annotation is an error in nonstrict mode too")
+print()
+
+print("=== annotating an existing file ===")
+-- The useful path is one file at a time: leave the codebase nonstrict, put
+-- `--!strict` at the top of the file you are working on, and let the errors
+-- tell you which signatures are still undecided. `any` remains available as
+-- an explicit escape hatch, and it is honest — it says "this really can be
+-- anything" rather than "I never got round to it".
+local function log_anything(label: string, value: any): string
+    return label .. "=" .. tostring(value)
+end
+print(log_anything("count", 7))
+print(log_anything("flag", true))
+print(log_anything("missing", nil))
+print()
+
+print("=== see also ===")
+print("  05_types.lsc  the type surface these annotations draw on")
+print("  44_match.lsc  exhaustiveness, which types make possible")

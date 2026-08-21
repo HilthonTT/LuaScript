@@ -1,52 +1,163 @@
---!nocheck
-local math = require("math")
+-- The `math` library — which exists TWICE, with different surfaces.
+--
+-- This is the first thing to understand, because getting it wrong gives you
+-- a silent nil rather than an error:
+--
+--   math                  the auto-global. The Lua 5.4 surface, no require.
+--   require("math")       a BIGGER table: hyperbolics, cbrt, erf, deg/rad,
+--                         clamp, softmax, statistical helpers and a full set
+--                         of numeric limits...
+--
+--   ...but it DROPS three names the global has: math.type, math.maxinteger
+--   and math.mininteger, plus randomseed.
+--
+-- So `local math = require("math")` shadows the global and quietly breaks
+-- `math.type(x)` and `math.maxinteger`. This file keeps them apart:
+--
+--   math      the auto-global (Lua 5.4)
+--   mathx     the required module (the extras)
+--
+-- In real code, requiring it under its own name is the habit worth having.
 
-print("=== Math Module Test ===")
-print("VERSION:", math.VERSION)
-print("pi:", math.pi)
-print("huge:", math.huge)
-print("maxinteger:", math.maxinteger)
-print("mininteger:", math.mininteger)
+local mathx = require("math")
+
+print("=== the two surfaces ===")
+for _, name in ipairs({ "abs", "type", "maxinteger", "randomseed", "cbrt", "clamp" }) do
+    print(string.format("  %-11s global=%-8s module=%s",
+        name, type(math[name]), type(mathx[name])))
+end
 print()
 
+print("=== integers and floats ===")
+-- Lua 5.4 keeps a real integer subtype, and math.type is how you ask.
+-- It returns nil for a non-number, so it doubles as a type test.
+print("math.type(3)     =", math.type(3))
+print("math.type(3.0)   =", math.type(3.0))
+print("math.type('3')   =", math.type("3"), "-- not a number at all")
+print("tointeger(3.0)   =", math.tointeger(3.0))
+print("tointeger(3.5)   =", math.tointeger(3.5), "-- nil: no exact integer")
+print("3 == 3.0         =", 3 == 3.0, "-- same value, different subtype")
+print()
+
+print("=== rounding and parts ===")
 local x = -3.7
-local y = 5.2
-
-print("abs(-3.7)     =", math.abs(x))
-print("ceil(-3.7)    =", math.ceil(x))
-print("floor(-3.7)   =", math.floor(x))
-
-local intPart, fracPart = math.modf(x)
-print("modf(-3.7)    =", intPart, fracPart)
+print("abs(-3.7)        =", math.abs(x))
+print("ceil(-3.7)       =", math.ceil(x), "-- toward +inf")
+print("floor(-3.7)      =", math.floor(x), "-- toward -inf")
+local int_part, frac_part = math.modf(x)
+print("modf(-3.7)       =", int_part, frac_part, "-- split, both signed")
+print("fmod(5.2, 2)     =", math.fmod(5.2, 2))
+print("max / min        =", math.max(5.2, -3.7), math.min(5.2, -3.7))
 print()
 
-print("cos(0)        =", math.cos(0))
-print("sin(0)        =", math.sin(0))
-print("tan(0)        =", math.tan(0))
+print("=== powers, roots and logs ===")
+print("sqrt(16)         =", math.sqrt(16))
+print("exp(1)           =", math.exp(1))
+print("log(math.exp(1)) =", math.log(math.exp(1)))
+print("log(8, 2)        =", math.log(8, 2), "-- an explicit base")
+-- cbrt handles negatives, which the exponent form cannot.
+print("cbrt(27)         =", mathx.cbrt(27))
+print("cbrt(-27)        =", mathx.cbrt(-27))
+print("(-27)^(1/3)      =", (-27) ^ (1 / 3), "-- nan, hence cbrt")
 print()
 
-print("acos(1)       =", math.acos(1))
-print("asin(0)       =", math.asin(0))
-print("atan(1)       =", math.atan(1))
+print("=== trigonometry ===")
+print("cos(0), sin(0)   =", math.cos(0), math.sin(0))
+print("tan(0)           =", math.tan(0))
+print("acos(1), asin(0) =", math.acos(1), math.asin(0))
+print("atan(1)          =", math.atan(1), "-- pi/4")
+print("atan(1, 1)       =", math.atan(1, 1), "-- two-argument form, full circle")
+-- deg/rad live on the module, not the global.
+print("deg(pi)          =", mathx.deg(math.pi))
+print("rad(180)         =", mathx.rad(180))
 print()
 
-print("deg(pi)       =", math.deg(math.pi))
-print("rad(180)      =", math.rad(180))
+print("=== hyperbolics (module only) ===")
+-- These show up in catenaries, in the logistic function, and as neural
+-- network activations.
+print("sinh(1)          =", mathx.sinh(1))
+print("cosh(1)          =", mathx.cosh(1))
+print("tanh(1)          =", mathx.tanh(1), "-- squashes into (-1, 1)")
+print("tanh(10)         =", mathx.tanh(10), "-- saturates")
+print("asinh(sinh(1))   =", mathx.asinh(mathx.sinh(1)))
+print("acosh(cosh(1))   =", mathx.acosh(mathx.cosh(1)))
+print("atanh(tanh(1))   =", mathx.atanh(mathx.tanh(1)))
 print()
 
-print("exp(1)        =", math.exp(1))
-print("log(2.71828)  =", math.log(2.71828))
-print("sqrt(16)      =", math.sqrt(16))
+print("=== the error function (module only) ===")
+-- erf is the integral of the normal distribution. erfc is 1 - erf,
+-- computed directly so it stays accurate far out in the tail, where the
+-- subtraction would lose every significant digit.
+print("erf(0)           =", mathx.erf(0))
+print("erf(1)           =", mathx.erf(1))
+print("erf(inf)         =", mathx.erf(math.huge))
+print("erfc(1)          =", mathx.erfc(1))
+print("erf(1) + erfc(1) =", mathx.erf(1) + mathx.erfc(1), "-- always 1")
+print("erfc(5)          =", mathx.erfc(5), "-- 1 - erf(5) would round to 0")
 print()
 
-print("max(5.2, -3.7)=", math.max(y, x))
-print("min(5.2, -3.7)=", math.min(y, x))
-print("fmod(5.2, 2)  =", math.fmod(y, 2))
+print("=== clamp ===")
+-- The idiom you would otherwise write as max(lo, min(hi, x)).
+print("clamp(42, 0, 9)  =", mathx.clamp(42, 0, 9))
+print("clamp(-5, 0, 9)  =", mathx.clamp(-5, 0, 9))
+print("clamp(4, 0, 9)   =", mathx.clamp(4, 0, 9))
 print()
 
-print("tointeger(42.0) =", math.tointeger(42.0))
-print("ult(3, 5)     =", math.ult(3, 5))
-print("ult(5, 3)     =", math.ult(5, 3))
+print("=== constants ===")
+print("pi               =", math.pi)
+print("huge             =", math.huge, "-- and -huge is", -math.huge)
+print("maxinteger       =", math.maxinteger, "(global only)")
+print("mininteger       =", math.mininteger, "(global only)")
+print("e                =", mathx.e)
+print("phi              =", mathx.phi, "-- the golden ratio")
+print("nan              =", mathx.nan, "| nan ~= nan is", mathx.nan ~= mathx.nan)
+print("ln2 / ln10       =", mathx.ln2, mathx.ln10)
+print("log2e / log10e   =", mathx.log2e, mathx.log10e)
+print("sqrt2 / sqrte    =", mathx.sqrt2, mathx.sqrte)
+print("sqrtpi / sqrtphi =", mathx.sqrtpi, mathx.sqrtphi)
 print()
 
-print("random()      =", math.random())
+print("=== fixed-width limits (module only) ===")
+-- Useful when you are talking to a binary format, a C struct or a database
+-- column and need to know what fits.
+print("maxint8  / maxint16 =", mathx.maxint8, mathx.maxint16)
+print("maxint32 / maxint64 =", mathx.maxint32, mathx.maxint64)
+print("minint8  / minint32 =", mathx.minint8, mathx.minint32)
+print("maxuint8 / maxuint32=", mathx.maxuint8, mathx.maxuint32)
+print("maxfloat32          =", mathx.maxfloat32)
+print("maxfloat64          =", mathx.maxfloat64)
+print("smallest nonzero f32=", mathx.smallestnonzerofloat32)
+print()
+
+print("=== unsigned comparison ===")
+-- ult compares two integers as UNSIGNED. -1 as an unsigned 64-bit value is
+-- the largest there is, which is why the two comparisons disagree.
+print("-1 < 5           =", -1 < 5)
+print("ult(-1, 5)       =", math.ult(-1, 5), "-- -1 is huge when unsigned")
+print("ult(3, 5)        =", math.ult(3, 5))
+print()
+
+print("=== randomness ===")
+-- random and randomseed are auto-global; the module does not export
+-- randomseed at all. randomseed returns the two seed components, which is
+-- what you record to reproduce a run.
+local s1, s2 = math.randomseed(42)
+print("randomseed(42)   ->", s1, s2)
+local first = { math.random(100), math.random(100), math.random(100) }
+math.randomseed(42)
+local second = { math.random(100), math.random(100), math.random(100) }
+print("same seed, same sequence:",
+    first[1] == second[1] and first[2] == second[2] and first[3] == second[3])
+print("random()         =", math.random(), "-- float in [0, 1)")
+print("random(6)        =", math.random(6), "-- integer in [1, 6]")
+print("random(10, 20)   =", math.random(10, 20), "-- integer in [10, 20]")
+print()
+print("This generator is for simulations and shuffles, NOT for secrets.")
+print("Tokens, salts and session ids need crypto.random_bytes --")
+print("see 17_crypto_module.lsc.")
+print()
+
+print("=== see also ===")
+print("  36_math.lsc          mean/variance/softmax and the numeric extras")
+print("  37_stats_module.lsc  the full descriptive-statistics surface")
+print("  01_basics.lsc        integer vs float division")
