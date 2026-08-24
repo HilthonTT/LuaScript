@@ -531,3 +531,67 @@ func TestPairsVisitsAllEntries(t *testing.T) {
 	`)
 	assertGlobalEqual(t, v, "s", int64(6))
 }
+
+// Single-target assignments take a fast path in the generator that stores
+// the value straight into the target (no temp slot). These pin the
+// semantics that path has to preserve.
+func TestSingleAssignSemantics(t *testing.T) {
+	v := run(t, `
+		local t = {}
+		t.x = 1
+		t["y"] = 2
+		local k = "z"
+		t[k] = 3
+		g = t.x + t.y + t[k]
+
+		-- the target's own sub-expressions are evaluated exactly once
+		calls = 0
+		local function key()
+			calls = calls + 1
+			return "hit"
+		end
+		t[key()] = 99
+		hits = t.hit
+	`)
+	assertGlobalEqual(t, v, "g", int64(6))
+	assertGlobalEqual(t, v, "calls", int64(1))
+	assertGlobalEqual(t, v, "hits", int64(99))
+}
+
+// A multiple assignment evaluates every value before any store, so a later
+// target's index cannot observe an earlier target's write (Lua 5.4 §3.3.3).
+func TestMultiAssignEvaluatesValuesFirst(t *testing.T) {
+	v := run(t, `
+		local t = {}
+		local i = 1
+		i, t[i] = 2, 10
+		old = t[1]
+		new = t[2]
+		idx = i
+
+		local a, b = 1, 2
+		a, b = b, a
+		swapped = a * 10 + b
+	`)
+	assertGlobalEqual(t, v, "old", int64(10))
+	assertGlobalEqual(t, v, "new", nil)
+	assertGlobalEqual(t, v, "idx", int64(2))
+	assertGlobalEqual(t, v, "swapped", int64(21))
+}
+
+// `x = f()` clamps a multi-value producer to its first result on the fast
+// path just as the general path does.
+func TestSingleAssignClampsMultiValue(t *testing.T) {
+	v := run(t, `
+		local function two() return 1, 2 end
+		local t = {}
+		g = two()
+		t.f = two()
+		field = t.f
+		local n = select("#", two())
+		count = n
+	`)
+	assertGlobalEqual(t, v, "g", int64(1))
+	assertGlobalEqual(t, v, "field", int64(1))
+	assertGlobalEqual(t, v, "count", int64(2))
+}
