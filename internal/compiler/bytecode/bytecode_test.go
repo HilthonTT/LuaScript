@@ -338,9 +338,10 @@ func TestGlobalAssignment(t *testing.T) {
 		},
 	}
 	main := generate(t, stmts)[0]
-	// emitExplistTo → loadint; then SetLocal into temp; GetLocal; SetGlobal x
-	assertOpcodes(t, main, "loadint", "setlocal", "getlocal", "setglobal", "leave")
-	if got := main.Instructions[3].Params[0].(string); got != "x" {
+	// Single target + single value takes compileAssignOne's fast path: the
+	// value is pushed straight into the store, with no temp round-trip.
+	assertOpcodes(t, main, "loadint", "setglobal", "leave")
+	if got := main.Instructions[1].Params[0].(string); got != "x" {
 		t.Errorf("SetGlobal name = %q, want %q", got, "x")
 	}
 }
@@ -1081,4 +1082,60 @@ func TestPlainEnumStillUsesFreeze(t *testing.T) {
 	if gg == nil || gg.Params[0].(string) != "__enum_freeze" {
 		t.Fatalf("expected getglobal __enum_freeze, got %v", opcodes(main))
 	}
+}
+
+// A single-target dot assignment stores straight into SetField — the value
+// must not be staged through a temp local first (compileAssignOne).
+func TestSingleFieldAssignSkipsTemps(t *testing.T) {
+	// t.x = 1   (t global)
+	stmts := []ast.Statement{
+		&ast.AssignStatement{
+			BaseNode: base(1),
+			Targets: []ast.Expression{&ast.IndexExpression{
+				BaseNode: base(1),
+				Object:   ident("t", 1),
+				Index:    strLit("x", 1),
+				IsDot:    true,
+			}},
+			Values: []ast.Expression{intLit(1, 1)},
+		},
+	}
+	main := generate(t, stmts)[0]
+	assertOpcodes(t, main, "getglobal", "loadint", "setfield", "leave")
+}
+
+// Same for a bracketed target: table, key, value, store — no temps.
+func TestSingleIndexAssignSkipsTemps(t *testing.T) {
+	// t[k] = 1   (t, k globals)
+	stmts := []ast.Statement{
+		&ast.AssignStatement{
+			BaseNode: base(1),
+			Targets: []ast.Expression{&ast.IndexExpression{
+				BaseNode: base(1),
+				Object:   ident("t", 1),
+				Index:    ident("k", 1),
+			}},
+			Values: []ast.Expression{intLit(1, 1)},
+		},
+	}
+	main := generate(t, stmts)[0]
+	assertOpcodes(t, main, "getglobal", "getglobal", "loadint", "settable", "leave")
+}
+
+// A *multiple* assignment must keep staging every value into a temp before
+// any store runs — that is what makes `i, t[i] = 2, 10` write to t[old i].
+// The fast path above must not swallow this case.
+func TestMultiAssignStillStagesThroughTemps(t *testing.T) {
+	// a, b = 1, 2   (both globals)
+	stmts := []ast.Statement{
+		&ast.AssignStatement{
+			BaseNode: base(1),
+			Targets:  []ast.Expression{ident("a", 1), ident("b", 1)},
+			Values:   []ast.Expression{intLit(1, 1), intLit(2, 1)},
+		},
+	}
+	main := generate(t, stmts)[0]
+	assertOpcodes(t, main,
+		"loadint", "loadint", "setlocal", "setlocal",
+		"getlocal", "setglobal", "getlocal", "setglobal", "leave")
 }

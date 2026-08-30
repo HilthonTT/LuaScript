@@ -172,6 +172,16 @@ func (g *Generator) emitExplistTo(is *InstructionSet, exprs []ast.Expression, ta
 func (g *Generator) compileAssign(is *InstructionSet, s *ast.AssignStatement) {
 	n := len(s.Targets)
 
+	// `x = e`, `t.f = e` and `t[k] = e` — one target, one value — are the
+	// overwhelmingly common shape and need none of the temp-slot staging
+	// below. That staging exists so a later target cannot observe an
+	// earlier target's store; with a single target there is no such
+	// hazard, so the value can be pushed straight into the store opcode.
+	if n == 1 && len(s.Values) == 1 {
+		g.compileAssignOne(is, s.Targets[0], s.Values[0], s.Line())
+		return
+	}
+
 	// 1) Evaluate every RHS into N temporary local slots.
 	g.current.locals.openScope()
 	tempBase := g.current.locals.maxSlot // for documentation only
@@ -254,6 +264,52 @@ func (g *Generator) compileAssign(is *InstructionSet, s *ast.AssignStatement) {
 	}
 
 	g.current.locals.closeScope()
+}
+
+// compileAssignOne emits the single-target, single-value assignment
+// `target = value` without routing the value through a temp slot. See the
+// fast-path comment in compileAssign for why that is safe here.
+//
+// Sub-expressions of an index target are evaluated before the value, which
+// is the order PUC Lua uses for a single assignment. §3.3.3 leaves the order
+// unspecified for this case; it pins down only that a *multiple* assignment
+// evaluates every value before any store, which compileAssign's general path
+// still does.
+func (g *Generator) compileAssignOne(is *InstructionSet, target, value ast.Expression, line int) {
+	// Name a function literal after the target it is bound to, so
+	// `M.run = function() end` shows up as 'M.run' in a traceback.
+	g.nameFunc(value, assignTargetName(target))
+
+	switch tgt := target.(type) {
+	case *ast.Identifier:
+		g.emitValue(is, value)
+		g.compileStoreName(is, tgt.Name, line)
+	case *ast.IndexExpression:
+		g.compileExpression(is, tgt.Object)
+		if tgt.IsDot {
+			if sl, ok := tgt.Index.(*ast.StringLiteral); ok {
+				g.emitValue(is, value)
+				is.define(SetField, line, sl.Value)
+				return
+			}
+		}
+		g.compileExpression(is, tgt.Index)
+		g.emitValue(is, value)
+		is.define(SetTable, line)
+	default:
+		panic(fmt.Sprintf("bytecode: invalid assignment target %T", target))
+	}
+}
+
+// emitValue pushes exactly one value for `e`, clamping a multi-value
+// producer to its first result. Equivalent to emitExplistTo with a
+// one-expression list and target 1, without the slice.
+func (g *Generator) emitValue(is *InstructionSet, e ast.Expression) {
+	if isMultiValue(e) {
+		g.compileExpressionMulti(is, e, 1)
+		return
+	}
+	g.compileExpression(is, e)
 }
 
 func (g *Generator) compileLocal(is *InstructionSet, s *ast.LocalStatement) {
