@@ -1,24 +1,24 @@
 module github.com/hilthontt/luascript
 
-go 1.26.6
+go 1.27
 
 require (
-	fyne.io/fyne/v2 v2.8.0
+	fyne.io/fyne/v2 v2.8.1
 	github.com/chzyer/readline v1.5.1
-	github.com/gdamore/tcell/v3 v3.4.1
+	github.com/gdamore/tcell/v3 v3.4.2
 	github.com/go-sql-driver/mysql v1.10.0
 	github.com/google/go-cmp v0.7.0
 	github.com/lib/pq v1.12.3
-	github.com/mattn/go-runewidth v0.0.27
-	github.com/mattn/go-sqlite3 v1.14.49
-	github.com/microsoft/go-mssqldb v1.10.0
+	github.com/mattn/go-runewidth v0.0.28
+	github.com/mattn/go-sqlite3 v1.14.50
+	github.com/microsoft/go-mssqldb v1.11.0
 	golang.org/x/crypto v0.55.0
-	modernc.org/sqlite v1.56.0
+	modernc.org/sqlite v1.57.0
 )
 
 require (
 	filippo.io/edwards25519 v1.2.0 // indirect
-	fyne.io/systray v1.12.2 // indirect
+	fyne.io/systray v1.12.3-0.20260810170012-af4e8e793ec4 // indirect
 	github.com/BurntSushi/toml v1.6.0 // indirect
 	github.com/anthonynsimon/bild v0.17.0 // indirect
 	github.com/clipperhouse/displaywidth v0.11.0 // indirect
@@ -34,7 +34,7 @@ require (
 	github.com/fyne-io/oksvg v0.2.0 // indirect
 	github.com/gdamore/encoding v1.0.1 // indirect
 	github.com/go-gl/gl v0.0.0-20260331235117-4566fea9a276 // indirect
-	github.com/go-gl/glfw/v3.4/glfw v0.1.0-pre.1.0.20260707082822-2a407d02d01a // indirect
+	github.com/go-gl/glfw/v3.4/glfw v0.1.0-pre.2 // indirect
 	github.com/go-text/render v0.2.1 // indirect
 	github.com/go-text/typesetting v0.3.4 // indirect
 	github.com/go-text/typesetting-utils v0.0.0-20260422143636-31b43f3b384b // indirect
@@ -58,15 +58,16 @@ require (
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/srwiley/oksvg v0.0.0-20221011165216-be6e8873101c // indirect
 	github.com/srwiley/rasterx v0.0.0-20220730225603-2ab79fcdd4ef // indirect
-	github.com/stretchr/testify v1.11.1 // indirect
+	github.com/stretchr/testify v1.12.1 // indirect
 	github.com/yuin/goldmark v1.8.5 // indirect
-	golang.org/x/image v0.44.0 // indirect
-	golang.org/x/net v0.57.0 // indirect
+	go.yaml.in/yaml/v3 v3.0.5 // indirect
+	golang.org/x/image v0.45.0 // indirect
+	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/term v0.45.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	modernc.org/libc v1.74.4 // indirect
+	modernc.org/libc v1.75.6 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
-	modernc.org/memory v1.11.0 // indirect
+	modernc.org/memory v1.12.1 // indirect
 )
