@@ -14,7 +14,6 @@ end
 return fib(10)
 `
 
-// withTempCache points the cache at a per-test directory.
 func withTempCache(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()

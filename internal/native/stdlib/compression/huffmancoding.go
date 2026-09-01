@@ -5,10 +5,6 @@ import (
 	"sort"
 )
 
-// A Node of an Huffman tree, which can either be a leaf or an internal node.
-// Each node has a weight.
-// A leaf node has an associated symbol, but no children (i.e., left == right == nil).
-// A parent node has a left and right child and no symbol (i.e., symbol == -1).
 type Node struct {
 	left   *Node
 	right  *Node
@@ -16,15 +12,11 @@ type Node struct {
 	weight int
 }
 
-// A SymbolFreq is a pair of a symbol and its associated frequency.
 type SymbolFreq struct {
 	Symbol rune
 	Freq   int
 }
 
-// HuffTree returns the root Node of the Huffman tree by compressing listfreq.
-// The compression produces the most optimal code lengths, provided listfreq is ordered,
-// i.e.: listfreq[i] <= listfreq[j], whenever i < j.
 func HuffTree(listfreq []SymbolFreq) (*Node, error) {
 	if len(listfreq) < 1 {
 		return nil, fmt.Errorf("huffman coding: HuffTree : calling method with empty list of symbol-frequency pairs")
@@ -32,11 +24,10 @@ func HuffTree(listfreq []SymbolFreq) (*Node, error) {
 
 	q1 := make([]Node, len(listfreq))
 	q2 := make([]Node, 0, len(listfreq))
-	for i, x := range listfreq { // after the loop, q1 is a slice of leaf nodes representing listfreq
+	for i, x := range listfreq {
 		q1[i] = Node{left: nil, right: nil, symbol: x.Symbol, weight: x.Freq}
 	}
 
-	//loop invariant: q1, q2 are ordered by increasing weights
 	for len(q1)+len(q2) > 1 {
 		var node1, node2 Node
 		node1, q1, q2 = least(q1, q2)
@@ -45,14 +36,12 @@ func HuffTree(listfreq []SymbolFreq) (*Node, error) {
 			symbol: -1, weight: node1.weight + node2.weight}
 		q2 = append(q2, node)
 	}
-	if len(q1) == 1 { // returns the remaining node in q1, q2
+	if len(q1) == 1 {
 		return &q1[0], nil
 	}
 	return &q2[0], nil
 }
 
-// least removes the node with lowest weight from q1, q2.
-// It returns the node with lowest weight and the slices q1, q2 after the update.
 func least(q1 []Node, q2 []Node) (Node, []Node, []Node) {
 	if len(q1) == 0 {
 		return q2[0], q1, q2[1:]
@@ -66,17 +55,12 @@ func least(q1 []Node, q2 []Node) (Node, []Node, []Node) {
 	return q2[0], q1, q2[1:]
 }
 
-// HuffEncoding recursively traverses the Huffman tree pointed by node to obtain
-// the map codes, that associates a rune with a slice of booleans.
-// Each code is prefixed by prefix and left and right children are labelled with
-// the booleans false and true, respectively.
 func HuffEncoding(node *Node, prefix []bool, codes map[rune][]bool) {
-	if node.symbol != -1 { // base case
+	if node.symbol != -1 {
 		codes[node.symbol] = prefix
 		return
 	}
 
-	// inductive step
 	prefixLeft := make([]bool, len(prefix))
 	copy(prefixLeft, prefix)
 	prefixLeft = append(prefixLeft, false)
@@ -87,9 +71,6 @@ func HuffEncoding(node *Node, prefix []bool, codes map[rune][]bool) {
 	HuffEncoding(node.right, prefixRight, codes)
 }
 
-// HuffEncode encodes the string in by applying the mapping defined by codes.
-// Iteration is byte-wise: Lua strings are byte sequences, and a rune-based
-// walk would collapse non-UTF-8 bytes to U+FFFD and corrupt binary input.
 func HuffEncode(codes map[rune][]bool, in string) []bool {
 	out := make([]bool, 0)
 	for i := 0; i < len(in); i++ {
@@ -98,12 +79,6 @@ func HuffEncode(codes map[rune][]bool, in string) []bool {
 	return out
 }
 
-// Decoding does not walk this tree: the `decode` method in compression.go
-// matches against the codebook instead (see decodeBits), so the tree is only
-// ever built to derive the codes.
-
-// SymbolCountOrd computes the sorted symbol-frequency list of the input
-// message, counting BYTES (symbols are byte values 0..255 — see HuffEncode).
 func SymbolCountOrd(message string) []SymbolFreq {
 	runeCount := make(map[rune]int)
 	for i := 0; i < len(message); i++ {

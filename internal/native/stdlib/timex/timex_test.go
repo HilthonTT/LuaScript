@@ -23,11 +23,6 @@ func runTime(t *testing.T, src string) *vm.VM {
 	return v
 }
 
-// parse used to go through time.Parse, which defaults a zone-less layout to
-// UTC, while date/format render in the local zone. Every round-trip through
-// the module was therefore shifted by the host's UTC offset — invisible in UTC
-// CI, wrong everywhere else. Asserted as a round-trip so the test is
-// zone-independent.
 func TestParseFormatRoundTripsInOneZone(t *testing.T) {
 	v := runTime(t, `
 		local time = require("time")
@@ -40,8 +35,6 @@ func TestParseFormatRoundTripsInOneZone(t *testing.T) {
 	}
 }
 
-// The same consistency has to hold for parse -> date, which reads the calendar
-// fields off the local zone.
 func TestParseDateAgreeOnZone(t *testing.T) {
 	v := runTime(t, `
 		local time = require("time")
@@ -65,7 +58,6 @@ func TestParseDateAgreeOnZone(t *testing.T) {
 	}
 }
 
-// A layout carrying an explicit zone must still win over the local default.
 func TestParseHonoursExplicitZone(t *testing.T) {
 	v := runTime(t, `
 		local time = require("time")
@@ -96,8 +88,6 @@ func TestClockAndNowAreSane(t *testing.T) {
 	}
 }
 
-// Go's reference-time layout ("2006-01-02") is unguessable; strftime is what
-// os.date already accepted, and time.format now takes it too.
 func TestFormatAcceptsStrftime(t *testing.T) {
 	v := runTime(t, `
 		local time = require("time")
@@ -108,14 +98,11 @@ func TestFormatAcceptsStrftime(t *testing.T) {
 	if got := v.Globals.Get("strf"); !vm.Equal(got, "2024-03-15 08:30:00") {
 		t.Errorf("strftime layout gave %v", got)
 	}
-	// The Go layout must keep working — it is still the default.
 	if got := v.Globals.Get("goLayout"); !vm.Equal(got, "2024-03-15 08:30:00") {
 		t.Errorf("Go layout gave %v", got)
 	}
 }
 
-// time.now() returns fractional seconds; passing that straight to format or
-// date used to truncate through IntArg and lose the sub-second part.
 func TestFormatAcceptsFractionalTimestamps(t *testing.T) {
 	v := runTime(t, `
 		local time = require("time")
@@ -132,8 +119,6 @@ func TestFormatAcceptsFractionalTimestamps(t *testing.T) {
 	}
 }
 
-// parse is local and parse_utc is UTC; the difference is the host's offset,
-// so assert the relationship rather than a fixed number.
 func TestParseUTCDiffersFromLocalByOffset(t *testing.T) {
 	v := runTime(t, `
 		local time = require("time")
@@ -141,8 +126,6 @@ func TestParseUTCDiffersFromLocalByOffset(t *testing.T) {
 		utcUnix = time.parse_utc(time.DATETIME, "2024-03-15 08:30:00")
 		roundTrip = time.format(utcUnix, time.DATETIME, true)
 	`)
-	// Whatever the host zone, rendering the UTC parse back in UTC must give
-	// the original text.
 	if got := v.Globals.Get("roundTrip"); !vm.Equal(got, "2024-03-15 08:30:00") {
 		t.Errorf("parse_utc -> format(utc) = %v, want the original stamp", got)
 	}
@@ -152,13 +135,11 @@ func TestParseUTCDiffersFromLocalByOffset(t *testing.T) {
 		t.Fatalf("expected integer timestamps, got %T and %T",
 			v.Globals.Get("localUnix"), v.Globals.Get("utcUnix"))
 	}
-	// The gap is the zone offset, which is a whole number of minutes.
 	if (u-l)%60 != 0 {
 		t.Errorf("local and UTC parses differ by %d seconds, not a whole number of minutes", u-l)
 	}
 }
 
-// date(unix, true) must describe the same instant in UTC.
 func TestDateUTCFlag(t *testing.T) {
 	v := runTime(t, `
 		local time = require("time")
@@ -175,14 +156,11 @@ func TestDateUTCFlag(t *testing.T) {
 			t.Errorf("date(utc).%s = %v, want %d", c.name, got, c.want)
 		}
 	}
-	// isdst completes the os.date("*t") shape.
 	if got := v.Globals.Get("hasIsdst"); !vm.Equal(got, true) {
 		t.Error("date() has no isdst field")
 	}
 }
 
-// UTC never observes DST, so the flag must be false there regardless of the
-// host's own zone.
 func TestIsDSTFalseInUTC(t *testing.T) {
 	v := runTime(t, `
 		local time = require("time")

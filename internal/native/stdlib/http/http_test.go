@@ -11,9 +11,6 @@ import (
 	"github.com/hilthontt/luascript/internal/vm"
 )
 
-// runHTTP runs src against a VM with the http module preloaded. The test
-// server's URL is exposed to the script as the global BASE, so each test can
-// point at its own handler.
 func runHTTP(t *testing.T, base, src string) *vm.VM {
 	t.Helper()
 	chunks, err := compiler.CompileToInstructions(src, parser.NormalMode)
@@ -36,8 +33,6 @@ func eq(t *testing.T, v *vm.VM, name string, want vm.Value) {
 	}
 }
 
-// A request carrying a body but no Content-Type is rejected by many servers,
-// and building the JSON by hand was the only option before opts.json.
 func TestPostJSONSetsBodyAndContentType(t *testing.T) {
 	var gotType, gotBody string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -56,7 +51,6 @@ func TestPostJSONSetsBodyAndContentType(t *testing.T) {
 	if gotType != "application/json" {
 		t.Errorf("Content-Type = %q, want application/json", gotType)
 	}
-	// Field order is map-dependent, so check both orderings.
 	if gotBody != `{"n":3,"name":"ada"}` && gotBody != `{"name":"ada","n":3}` {
 		t.Errorf("body = %q, want the table encoded as a JSON object", gotBody)
 	}
@@ -83,7 +77,6 @@ func TestPostFormSetsBodyAndContentType(t *testing.T) {
 	}
 }
 
-// An explicit header must win over the one json/form would set.
 func TestExplicitContentTypeWins(t *testing.T) {
 	var gotType string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -103,8 +96,6 @@ func TestExplicitContentTypeWins(t *testing.T) {
 	}
 }
 
-// Comma-joining Set-Cookie is forbidden by RFC 6265 and produced a string no
-// cookie parser could take apart; headers_raw keeps the values separate.
 func TestHeadersRawKeepsMultipleValues(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Add("Set-Cookie", "a=1; Path=/")
@@ -124,7 +115,6 @@ func TestHeadersRawKeepsMultipleValues(t *testing.T) {
 	eq(t, v, "n", int64(2))
 	eq(t, v, "first", "a=1; Path=/")
 	eq(t, v, "second", "b=2; Path=/")
-	// The flat view is still there for the common single-valued case.
 	eq(t, v, "joined", "a=1; Path=/, b=2; Path=/")
 }
 
@@ -151,13 +141,10 @@ func TestFollowRedirectsOff(t *testing.T) {
 	`)
 	eq(t, v, "followedStatus", int64(200))
 	eq(t, v, "followedBody", "arrived")
-	// Without this option there was no way to see the 3xx or its Location.
 	eq(t, v, "stoppedStatus", int64(302))
 	eq(t, v, "location", "/dest")
 }
 
-// res.url reports where the response actually came from, which differs from
-// the requested URL once a redirect has been followed.
 func TestResponseURLReflectsRedirect(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/dest", func(w http.ResponseWriter, r *http.Request) {})
@@ -194,7 +181,6 @@ func TestBasicAuth(t *testing.T) {
 	}
 }
 
-// A JSON body that is an array must not be turned into an object.
 func TestJSONBodyEncodesArrays(t *testing.T) {
 	var gotBody string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

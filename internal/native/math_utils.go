@@ -51,7 +51,6 @@ func Maxf(xs []float64) float64 {
 	return m
 }
 
-// ArgMax is the index of the largest element
 func ArgMax(xs []float64) int {
 	max, idx := xs[0], 0
 	for i, x := range xs {
@@ -62,10 +61,6 @@ func ArgMax(xs []float64) int {
 	return idx
 }
 
-// softmax converts a slice of scores into a probability distribution. The
-// max is subtracted before exponentiating for numerical stability (so large
-// inputs don't overflow Exp). An empty input yields an empty output rather
-// than dividing by a zero sum.
 func Softmax(xx []float64) []float64 {
 	if len(xx) == 0 {
 		return []float64{}
@@ -84,7 +79,6 @@ func Softmax(xx []float64) []float64 {
 	return out
 }
 
-// maxOf returns the largest element. Callers must guarantee a non-empty slice.
 func MaxOf(xx []float64) float64 {
 	m := xx[0]
 	for _, x := range xx[1:] {
@@ -95,7 +89,6 @@ func MaxOf(xx []float64) float64 {
 	return m
 }
 
-// minOf returns the smallest element. Callers must guarantee a non-empty slice.
 func MinOf(xx []float64) float64 {
 	m := xx[0]
 	for _, x := range xx[1:] {

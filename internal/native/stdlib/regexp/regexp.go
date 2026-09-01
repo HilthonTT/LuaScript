@@ -7,10 +7,6 @@ import (
 	"github.com/hilthontt/luascript/internal/vm"
 )
 
-// submatchValues turns a FindStringSubmatchIndex result into the whole match
-// followed by each group. A group with a negative offset did not participate
-// in the match and becomes nil — FindStringSubmatch would give "" for both
-// that and a group that matched empty, which callers cannot tell apart.
 func submatchValues(s string, idx []int) []vm.Value {
 	out := make([]vm.Value, 0, len(idx)/2)
 	for i := 0; 2*i+1 < len(idx); i++ {
@@ -23,8 +19,6 @@ func submatchValues(s string, idx []int) []vm.Value {
 	return out
 }
 
-// luaInit converts a 1-based (possibly negative) Lua start position into a
-// 0-based byte offset clamped to [0, len(s)].
 func luaInit(s string, init int64) int {
 	n := int64(len(s))
 	if init < 0 {
@@ -39,7 +33,6 @@ func luaInit(s string, init int64) int {
 	return int(init - 1)
 }
 
-// RegisterRegexpPreload installs the `regexp` module under package.preload.
 func RegisterRegexpPreload(v *vm.VM) {
 	vm.RegisterPreload(v, "regexp", regexpLoader)
 }
@@ -54,7 +47,6 @@ func newRegexp() *vm.Table {
 	m := vm.NewTable(0, 2)
 	methods := vm.NewTable(0, 2)
 
-	// regexp.compile(pattern) -> regex object. An invalid pattern raises.
 	methods.Set("compile", &vm.GoFunc{Name: "regexp:compile", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 		pattern := vm.StringArg("regexp.compile", 1, args)
 		re, err := regexp.Compile(pattern)
@@ -64,14 +56,11 @@ func newRegexp() *vm.Table {
 		return []vm.Value{newRegex(re)}
 	}})
 
-	// regexp.quote(s) -> a pattern that matches s literally.
 	methods.Set("quote", &vm.GoFunc{Name: "regexp:quote", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 		s := vm.StringArg("regexp.quote", 1, args)
 		return []vm.Value{regexp.QuoteMeta(s)}
 	}})
 
-	// regexp.is_valid(pattern) -> boolean. Lets a caller validate a
-	// user-supplied pattern without wrapping compile in a pcall.
 	methods.Set("is_valid", &vm.GoFunc{Name: "regexp:is_valid", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 		pattern := vm.StringArg("regexp.is_valid", 1, args)
 		_, err := regexp.Compile(pattern)
@@ -84,27 +73,16 @@ func newRegexp() *vm.Table {
 	return m
 }
 
-// newRegex wraps a compiled *regexp.Regexp in a stateful object table.
-// The *regexp.Regexp is captured in the method closures so the raw handle
-// never leaks into script space.
 func newRegex(re *regexp.Regexp) *vm.Table {
 	o := vm.NewTable(0, 1)
 	methods := vm.NewTable(0, 6)
 
-	// re:test(s) -> bool.
 	methods.Set("test", &vm.GoFunc{Name: "regex:test", Fn: func(_ *vm.VM, a []vm.Value) []vm.Value {
 		_ = vm.TableArg("regex:test", 1, a)
 		s := vm.StringArg("regex:test", 2, a)
 		return []vm.Value{re.MatchString(s)}
 	}})
 
-	// re:capture(s) -> first match, then any capture groups as extra
-	// return values. Returns nil when there is no match. (Named
-	// `capture` rather than `match` because `match` is a reserved
-	// keyword in.lsc — see the match statement.)
-	//
-	// A group that did not participate in the match comes back as nil rather
-	// than "", so it can be told apart from a group that matched empty.
 	methods.Set("capture", &vm.GoFunc{Name: "regex:capture", Fn: func(_ *vm.VM, a []vm.Value) []vm.Value {
 		_ = vm.TableArg("regex:capture", 1, a)
 		s := vm.StringArg("regex:capture", 2, a)
@@ -115,12 +93,6 @@ func newRegex(re *regexp.Regexp) *vm.Table {
 		return submatchValues(s, idx)
 	}})
 
-	// re:find(s [, init]) -> start, stop (1-based, inclusive), then each
-	// capture. Returns nil when there is no match.
-	//
-	// The positions are what string.find gives for Lua patterns, and without
-	// them there was no way to learn *where* an RE2 match landed — only what
-	// it contained, which is not enough to slice around it.
 	methods.Set("find", &vm.GoFunc{Name: "regex:find", Fn: func(_ *vm.VM, a []vm.Value) []vm.Value {
 		_ = vm.TableArg("regex:find", 1, a)
 		s := vm.StringArg("regex:find", 2, a)
@@ -134,17 +106,11 @@ func newRegex(re *regexp.Regexp) *vm.Table {
 		}
 		caps := submatchValues(s[init:], idx)
 		out := make([]vm.Value, 0, len(caps)+1)
-		// +1 converts a 0-based Go offset to a 1-based Lua index; the end is
-		// inclusive, so it needs no further adjustment past the exclusive bound.
 		out = append(out, int64(init+idx[0]+1), int64(init+idx[1]))
-		// caps[0] is the whole match, already covered by the two positions.
 		out = append(out, caps[1:]...)
 		return out
 	}})
 
-	// re:groups(s) -> table of named captures, or nil when there is no match.
-	// Unnamed groups are omitted; a named group that did not participate is
-	// absent rather than empty.
 	methods.Set("groups", &vm.GoFunc{Name: "regex:groups", Fn: func(_ *vm.VM, a []vm.Value) []vm.Value {
 		_ = vm.TableArg("regex:groups", 1, a)
 		s := vm.StringArg("regex:groups", 2, a)
@@ -163,11 +129,6 @@ func newRegex(re *regexp.Regexp) *vm.Table {
 		return []vm.Value{t}
 	}})
 
-	// re:find_all_captures(s [, limit]) -> array of arrays. Each inner array
-	// holds one match's whole text followed by its groups.
-	//
-	// find_all only yields whole matches, so extracting several fields per
-	// match previously meant a second pass with :capture over each one.
 	methods.Set("find_all_captures", &vm.GoFunc{Name: "regex:find_all_captures", Fn: func(_ *vm.VM, a []vm.Value) []vm.Value {
 		_ = vm.TableArg("regex:find_all_captures", 1, a)
 		s := vm.StringArg("regex:find_all_captures", 2, a)
@@ -185,9 +146,6 @@ func newRegex(re *regexp.Regexp) *vm.Table {
 		return []vm.Value{out}
 	}})
 
-	// re:replace_func(s, fn) -> s with each match replaced by fn(match, ...groups).
-	// The string form of :replace can only rearrange what matched; this can
-	// compute the replacement (upper-case it, look it up, count it).
 	methods.Set("replace_func", &vm.GoFunc{Name: "regex:replace_func", Fn: func(v *vm.VM, a []vm.Value) []vm.Value {
 		_ = vm.TableArg("regex:replace_func", 1, a)
 		s := vm.StringArg("regex:replace_func", 2, a)
@@ -209,8 +167,6 @@ func newRegex(re *regexp.Regexp) *vm.Table {
 		return []vm.Value{b.String()}
 	}})
 
-	// re:find_all(s [, limit]) -> array table of every match string. A
-	// negative limit (the default) means every match.
 	methods.Set("find_all", &vm.GoFunc{Name: "regex:find_all", Fn: func(_ *vm.VM, a []vm.Value) []vm.Value {
 		_ = vm.TableArg("regex:find_all", 1, a)
 		s := vm.StringArg("regex:find_all", 2, a)
@@ -222,8 +178,6 @@ func newRegex(re *regexp.Regexp) *vm.Table {
 		return []vm.Value{t}
 	}})
 
-	// re:replace(s, repl) -> s with every match replaced by repl.
-	// repl may use $1 / ${name} expansion (Go's ReplaceAllString rules).
 	methods.Set("replace", &vm.GoFunc{Name: "regex:replace", Fn: func(_ *vm.VM, a []vm.Value) []vm.Value {
 		_ = vm.TableArg("regex:replace", 1, a)
 		s := vm.StringArg("regex:replace", 2, a)
@@ -231,7 +185,6 @@ func newRegex(re *regexp.Regexp) *vm.Table {
 		return []vm.Value{re.ReplaceAllString(s, repl)}
 	}})
 
-	// re:split(s) -> array table of the substrings between matches.
 	methods.Set("split", &vm.GoFunc{Name: "regex:split", Fn: func(_ *vm.VM, a []vm.Value) []vm.Value {
 		_ = vm.TableArg("regex:split", 1, a)
 		s := vm.StringArg("regex:split", 2, a)

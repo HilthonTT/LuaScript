@@ -41,9 +41,6 @@ func TestCharEncodesASCIIAndMultibyte(t *testing.T) {
 	}
 }
 
-// strings.Builder.WriteRune substitutes U+FFFD for surrogates and for anything
-// above U+10FFFF, so utf8.char used to hand back a string it wasn't asked for.
-// PUC Lua encodes the full 31-bit range verbatim.
 func TestCharEncodesSurrogatesVerbatim(t *testing.T) {
 	v := runUTF8(t, `
 		local utf8 = require("utf8")
@@ -53,7 +50,6 @@ func TestCharEncodesSurrogatesVerbatim(t *testing.T) {
 		b2 = string.byte(s, 2)
 		b3 = string.byte(s, 3)
 	`)
-	// U+D800 in plain UTF-8 is ED A0 80 — not the EF BF BD of U+FFFD.
 	if got := v.Globals.Get("n"); !vm.Equal(got, int64(3)) {
 		t.Fatalf("#utf8.char(0xD800) = %v, want 3", got)
 	}
@@ -65,7 +61,6 @@ func TestCharEncodesSurrogatesVerbatim(t *testing.T) {
 	}
 }
 
-// Beyond U+10FFFF Lua keeps going, up to six bytes.
 func TestCharEncodesAboveUnicodeRange(t *testing.T) {
 	v := runUTF8(t, `
 		local utf8 = require("utf8")

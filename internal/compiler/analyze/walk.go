@@ -7,12 +7,6 @@ import (
 	"github.com/hilthontt/luascript/internal/compiler/ast"
 )
 
-// walker is a generic recursive AST traversal. The.lsc AST has no shared
-// visitor, so the analyzer provides its own. onStmt / onExpr (either may be
-// nil) are invoked on every statement / expression node, parents before
-// children. When stopAtFunc is set, the walk does not descend into nested
-// FunctionExpression bodies — used by the complexity pass, which scores each
-// function independently.
 type walker struct {
 	onStmt     func(ast.Statement)
 	onExpr     func(ast.Expression)
@@ -88,8 +82,6 @@ func (w *walker) walkStmt(s ast.Statement) {
 	case *ast.ExpressionStatement:
 		w.walkExpr(n.Expression)
 	}
-	// BreakStatement, GotoStatement, LabelStatement, TypeAliasStatement,
-	// *ast.Block carry no further nodes the analyzer inspects.
 }
 
 func (w *walker) walkExprs(es []ast.Expression) {
@@ -147,19 +139,14 @@ func (w *walker) walkExpr(e ast.Expression) {
 			w.walkBlock(n.Body)
 		}
 	}
-	// Literals, Identifier, VarargExpression: leaf nodes.
 }
 
-// fnInfo names a function unit for the complexity pass.
 type fnInfo struct {
 	name string
 	line int
 	body *ast.Block
 }
 
-// eachFunction returns the main chunk followed by every FunctionExpression in
-// the program, in source order. Names are taken from the enclosing
-// declaration when there is one; anonymous functions get "function@<line>".
 func eachFunction(prog *ast.Program) []fnInfo {
 	fns := []fnInfo{{name: "main chunk", line: 1, body: prog.Block}}
 	named := map[*ast.FunctionExpression]string{}

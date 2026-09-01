@@ -1,9 +1,5 @@
 package docs
 
-// Base library and language syntax. These names are installed into _G by
-// internal/vm/stdlib.go, internal/vm/loader.go and internal/vm/coroutine.go;
-// they need no require.
-
 var coreTopics = []Topic{
 	{
 		Name:          "_G",

@@ -53,8 +53,6 @@ func TestParseAtomicLiterals(t *testing.T) {
 		{`local a = "hi"`, `"hi"`},
 		{"local a = ...", "..."},
 	}
-	// `...` is only valid in vararg-functions, but parseExpression doesn't
-	// enforce that — semantic checks happen later.
 	for _, c := range cases {
 		t.Run(c.src, func(t *testing.T) {
 			ls := parseExpect1(t, c.src).(*ast.LocalStatement)
@@ -81,27 +79,20 @@ func TestOperatorPrecedence(t *testing.T) {
 		src  string
 		want string
 	}{
-		// Arithmetic associativity & precedence
 		{"local a = 1 + 2 * 3", "(1 + (2 * 3))"},
-		{"local a = (1 + 2) * 3", "(((1 + 2)) * 3)"}, // ParenExpression is preserved (multi→one adjustment); double-paren in render is expected
-		{"local a = 1 - 2 - 3", "((1 - 2) - 3)"},     // left-assoc
-		{"local a = 2 ^ 3 ^ 2", "(2 ^ (3 ^ 2))"},     // right-assoc
-		{"local a = -2 ^ 2", "(-(2 ^ 2))"},           // ^ tighter than unary -
-		{"local a = 1 .. 2 .. 3", "(1 .. (2 .. 3))"}, // right-assoc
-		// or < and < compare
+		{"local a = (1 + 2) * 3", "(((1 + 2)) * 3)"},
+		{"local a = 1 - 2 - 3", "((1 - 2) - 3)"},
+		{"local a = 2 ^ 3 ^ 2", "(2 ^ (3 ^ 2))"},
+		{"local a = -2 ^ 2", "(-(2 ^ 2))"},
+		{"local a = 1 .. 2 .. 3", "(1 .. (2 .. 3))"},
 		{"local a = a or b and c", "(a or (b and c))"},
 		{"local a = a < b == c", "((a < b) == c)"},
-		// Bitwise ladder: | < ~ < & < << = >>
 		{"local a = a | b ~ c", "(a | (b ~ c))"},
 		{"local a = a ~ b & c", "(a ~ (b & c))"},
 		{"local a = a & b << c", "(a & (b << c))"},
-		// Comparison chain (left-assoc, but Lua has no chained comparison
-		// semantics — this is just associativity).
 		{"local a = 1 < 2 < 3", "((1 < 2) < 3)"},
-		// not / # / unary -
 		{"local a = not a and b", "((not a) and b)"},
 		{"local a = #t + 1", "((#t) + 1)"},
-		// .. binds tighter than comparison, looser than +
 		{"local a = a .. b == c", "((a .. b) == c)"},
 		{"local a = 1 + 2 .. 3", "((1 + 2) .. 3)"},
 	}
@@ -379,15 +370,12 @@ func TestTableConstructorAllFieldForms(t *testing.T) {
 	if len(tc.Fields) != 5 {
 		t.Fatalf("fields = %d, want 5", len(tc.Fields))
 	}
-	// Field 0: positional
 	if tc.Fields[0].Key != nil {
 		t.Errorf("field[0] should be array-positional (Key=nil)")
 	}
-	// Field 2: record
 	if _, ok := tc.Fields[2].Key.(*ast.Identifier); !ok || tc.Fields[2].IsBracketed {
 		t.Errorf("field[2] should be record (Ident key, not bracketed)")
 	}
-	// Field 3: bracketed
 	if !tc.Fields[3].IsBracketed {
 		t.Errorf("field[3] should be bracketed")
 	}
@@ -449,7 +437,6 @@ func TestParenExpressionPreserved(t *testing.T) {
 }
 
 func TestPostfixChain(t *testing.T) {
-	// a.b[1]:m(2).c
 	es := parseExpect1(t, "a.b[1]:m(2).c = 3").(*ast.AssignStatement)
 	idx, ok := es.Targets[0].(*ast.IndexExpression)
 	if !ok || !idx.IsDot {
@@ -503,11 +490,6 @@ return fib(10)
 	}
 }
 
-// match statement (first-class ast.MatchStatement)
-
-// matchStmt returns the ast.MatchStatement parsed from src. The statement is
-// the LAST one in the chunk: src may open with enum/struct declarations,
-// since destructure patterns only engage for names declared in the chunk.
 func matchStmt(t *testing.T, src string) *ast.MatchStatement {
 	t.Helper()
 	prog := parse(t, src)
@@ -522,7 +504,6 @@ func matchStmt(t *testing.T, src string) *ast.MatchStatement {
 	return ms
 }
 
-// armPattern returns the pattern of the i-th arm, failing if it is absent.
 func armPattern(t *testing.T, ms *ast.MatchStatement, i int) *ast.MatchPattern {
 	t.Helper()
 	if i >= len(ms.Arms) {
@@ -566,7 +547,6 @@ end`)
 	if len(ms.Arms) != 1 {
 		t.Fatalf("arms = %d, want 1", len(ms.Arms))
 	}
-	// Comma-separated alternatives collapse into ONE value pattern.
 	p := armPattern(t, ms, 0)
 	if p.Kind != ast.MatchValue {
 		t.Fatalf("kind = %v, want MatchValue", p.Kind)
@@ -605,7 +585,6 @@ func TestMatchWildcardOnlyArm(t *testing.T) {
 }
 
 func TestMatchEmpty(t *testing.T) {
-	// An arm-less match still evaluates its scrutinee for side effects.
 	ms := matchStmt(t, "match f() do end")
 	if ms.Subject.String() != "f()" {
 		t.Errorf("subject = %q, want f()", ms.Subject.String())
@@ -616,8 +595,6 @@ func TestMatchEmpty(t *testing.T) {
 }
 
 func TestMatchNests(t *testing.T) {
-	// A nested match is just the outer arm's body statement — no generated
-	// names to collide, which is what the old __match_N counter guarded.
 	ms := matchStmt(t, `match x do
 1 -> match y do
   10 -> print("a")
@@ -651,9 +628,6 @@ end`)
 }
 
 func TestMatchSemicolonBetweenArms(t *testing.T) {
-	// `print("a") "b"` would chain as call-sugar in Lua; the explicit
-	// `;` between arms must terminate the body and let the next pattern
-	// start cleanly.
 	ms := matchStmt(t, `match s do
 "hi" -> print("greeting");
 "bye" -> print("farewell")
@@ -670,8 +644,6 @@ func TestMatchMissingDo(t *testing.T) {
 	}
 }
 
-// TestBreakInsideLoopParses confirms `break` is accepted in each loop
-// construct. Behaviour: parses cleanly with one statement (the loop itself).
 func TestBreakInsideLoopParses(t *testing.T) {
 	cases := []string{
 		"while true do break end",
@@ -690,9 +662,6 @@ func TestBreakInsideLoopParses(t *testing.T) {
 	}
 }
 
-// TestBreakOutsideLoopErrors confirms the parser rejects `break` at chunk
-// scope, inside a `do` block, or inside a function body that is itself
-// inside a loop (function bodies start a fresh loop scope, matching Lua).
 func TestBreakOutsideLoopErrors(t *testing.T) {
 	cases := []string{
 		"break",
@@ -708,7 +677,6 @@ func TestBreakOutsideLoopErrors(t *testing.T) {
 	}
 }
 
-// contains is a tiny helper to keep test assertions readable.
 func contains(s, sub string) bool {
 	for i := 0; i+len(sub) <= len(s); i++ {
 		if s[i:i+len(sub)] == sub {
@@ -750,7 +718,6 @@ func TestParseStructSemicolonSeparators(t *testing.T) {
 }
 
 func TestParseStructIsSoftKeyword(t *testing.T) {
-	// `struct` remains usable as an ordinary identifier.
 	prog := parse(t, `local struct = 5 print(struct)`)
 	if len(prog.Block.Statements) != 2 {
 		t.Fatalf("expected 2 statements, got %d", len(prog.Block.Statements))
@@ -843,8 +810,6 @@ end`)
 }
 
 func TestMatchNominalTypedBindingKeepsTypeName(t *testing.T) {
-	// A nominal type stays a TypeName; codegen is what turns it into a
-	// `typeof()` probe rather than a `type()` one.
 	ms := matchStmt(t, `match v do
 p: Point -> print(p)
 end`)
@@ -869,7 +834,6 @@ end`)
 	if p.Kind != ast.MatchDestructurePos {
 		t.Fatalf("kind = %v, want MatchDestructurePos", p.Kind)
 	}
-	// The dotted path collapses to its last segment — the __tag value.
 	if p.Tag != "Circle" {
 		t.Errorf("tag = %q, want Circle", p.Tag)
 	}
@@ -920,11 +884,9 @@ match s do
 Shape.Rect(_, h) -> print(h)
 end`)
 	p := armPattern(t, ms, 0)
-	// `_` is kept in PosBinds to hold the position...
 	if len(p.PosBinds) != 2 || p.PosBinds[0] != "_" || p.PosBinds[1] != "h" {
 		t.Fatalf("posBinds = %v, want [_ h]", p.PosBinds)
 	}
-	// ...but it never becomes a name in scope.
 	if got := p.Binders(); len(got) != 1 || got[0] != "h" {
 		t.Errorf("binders = %v, want [h]", got)
 	}
@@ -972,7 +934,6 @@ func TestParseGenericApplicationInAnnotation(t *testing.T) {
 }
 
 func TestParseNestedGenericApplication(t *testing.T) {
-	// The `>>` closing tokens must split so `Box<Box<number>>` parses.
 	ls := parseExpect1(t, "local m: Box<Box<number>> = x").(*ast.LocalStatement)
 	if got := ls.Names[0].Type.String(); got != "Box<Box<number>>" {
 		t.Errorf("nested application = %q, want Box<Box<number>>", got)

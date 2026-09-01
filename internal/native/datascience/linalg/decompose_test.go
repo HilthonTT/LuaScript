@@ -5,10 +5,6 @@ import (
 	"testing"
 )
 
-// Each decomposition is checked against the identity that defines it rather
-// than against a table of expected numbers: a hard-coded matrix would only
-// confirm that the code still does whatever it did when the test was written.
-
 func closeTo(a, b, eps float64) bool { return math.Abs(a-b) <= eps }
 
 func assertMatrixEqual(t *testing.T, got, want [][]float64, eps float64, what string) {
@@ -52,7 +48,6 @@ func transposeRaw(a [][]float64) [][]float64 {
 	return out
 }
 
-// L*Lᵀ must reproduce A.
 func TestCholeskyReconstructsInput(t *testing.T) {
 	a := [][]float64{
 		{4, 12, -16},
@@ -63,7 +58,6 @@ func TestCholeskyReconstructsInput(t *testing.T) {
 	if !ok {
 		t.Fatal("cholesky failed on a positive definite matrix")
 	}
-	// L must be lower triangular.
 	for i := range l {
 		for j := i + 1; j < len(l); j++ {
 			if l[i][j] != 0 {
@@ -74,23 +68,18 @@ func TestCholeskyReconstructsInput(t *testing.T) {
 	assertMatrixEqual(t, matmulRaw(l, transposeRaw(l)), a, 1e-9, "L*Lt")
 }
 
-// Failure is the useful signal: it is the test for positive definiteness.
 func TestCholeskyRejectsNonPositiveDefinite(t *testing.T) {
-	// Symmetric but indefinite (eigenvalues of opposite sign).
 	if _, ok := cholesky([][]float64{{0, 1}, {1, 0}}); ok {
 		t.Error("cholesky accepted an indefinite matrix")
 	}
-	// Symmetric negative definite.
 	if _, ok := cholesky([][]float64{{-1, 0}, {0, -1}}); ok {
 		t.Error("cholesky accepted a negative definite matrix")
 	}
-	// Not symmetric at all.
 	if _, ok := cholesky([][]float64{{1, 2}, {3, 1}}); ok {
 		t.Error("cholesky accepted a non-symmetric matrix")
 	}
 }
 
-// Q*R must reproduce A, and QᵀQ must be the identity.
 func TestQRReconstructsAndIsOrthonormal(t *testing.T) {
 	a := [][]float64{
 		{12, -51, 4},
@@ -104,7 +93,6 @@ func TestQRReconstructsAndIsOrthonormal(t *testing.T) {
 	assertMatrixEqual(t, matmulRaw(q, r), a, 1e-9, "Q*R")
 	assertMatrixEqual(t, matmulRaw(transposeRaw(q), q), identityMatrix(3), 1e-9, "Qt*Q")
 
-	// R must be upper triangular.
 	for i := range r {
 		for j := range i {
 			if math.Abs(r[i][j]) > 1e-12 {
@@ -114,7 +102,6 @@ func TestQRReconstructsAndIsOrthonormal(t *testing.T) {
 	}
 }
 
-// A tall matrix is the shape least squares actually needs.
 func TestQRHandlesTallMatrix(t *testing.T) {
 	a := [][]float64{{1, 1}, {1, 2}, {1, 3}, {1, 4}}
 	q, r, ok := qrDecompose(a)
@@ -126,13 +113,11 @@ func TestQRHandlesTallMatrix(t *testing.T) {
 }
 
 func TestQRRejectsDependentColumns(t *testing.T) {
-	// Second column is twice the first.
 	if _, _, ok := qrDecompose([][]float64{{1, 2}, {2, 4}, {3, 6}}); ok {
 		t.Error("qrDecompose accepted linearly dependent columns")
 	}
 }
 
-// A perfect fit must be recovered exactly: y = 2x + 1 through four points.
 func TestLstsqExactFit(t *testing.T) {
 	a := [][]float64{{1, 1}, {1, 2}, {1, 3}, {1, 4}}
 	b := []float64{3, 5, 7, 9}
@@ -145,8 +130,6 @@ func TestLstsqExactFit(t *testing.T) {
 	}
 }
 
-// With noise there is no exact solution, so check the defining property
-// instead: the residual must be orthogonal to every column of A.
 func TestLstsqResidualIsOrthogonalToColumns(t *testing.T) {
 	a := [][]float64{{1, 1}, {1, 2}, {1, 3}, {1, 4}}
 	b := []float64{3.1, 4.9, 7.2, 8.8}
@@ -193,12 +176,10 @@ func TestRank(t *testing.T) {
 	}
 }
 
-// A diagonal matrix has its diagonal as eigenvalues, which pins both the
-// values and the descending order.
 func TestEighDiagonal(t *testing.T) {
 	a := [][]float64{{3, 0, 0}, {0, 1, 0}, {0, 0, 2}}
 	values, _ := eigenSymmetric(a)
-	want := []float64{3, 2, 1} // descending
+	want := []float64{3, 2, 1}
 	for i := range want {
 		if !closeTo(values[i], want[i], 1e-9) {
 			t.Errorf("eigenvalue %d = %g, want %g", i, values[i], want[i])
@@ -206,7 +187,6 @@ func TestEighDiagonal(t *testing.T) {
 	}
 }
 
-// The defining property: A*v = lambda*v for each eigenpair.
 func TestEighSatisfiesEigenEquation(t *testing.T) {
 	a := [][]float64{
 		{6, -2, -1},
@@ -229,8 +209,6 @@ func TestEighSatisfiesEigenEquation(t *testing.T) {
 	}
 }
 
-// Eigenvectors of a symmetric matrix are orthonormal, and the eigenvalues must
-// sum to the trace.
 func TestEighVectorsOrthonormalAndTracePreserved(t *testing.T) {
 	a := [][]float64{
 		{4, 1, 0},
@@ -257,7 +235,6 @@ func TestIsSymmetric(t *testing.T) {
 	if isSymmetric([][]float64{{1, 2}, {3, 4}}) {
 		t.Error("asymmetric matrix reported as symmetric")
 	}
-	// Tolerant of the rounding a covariance matrix accumulates.
 	if !isSymmetric([][]float64{{1, 2}, {2 + 1e-12, 3}}) {
 		t.Error("rounding-level asymmetry should still count as symmetric")
 	}

@@ -6,11 +6,6 @@ import (
 	"github.com/hilthontt/luascript/internal/vm"
 )
 
-// RegisterStdPreload installs the `std` module under package.preload.
-// `require("std")` returns a table of constructors for the data
-// structures defined in this package — stack, queue, deque, set,
-// linked list, heap, hashmap, trie, btree. Each constructor returns a fresh object
-// whose methods are bound to a private Go instance via colon-call.
 func RegisterStdPreload(v *vm.VM) {
 	vm.RegisterPreload(v, "std", stdLoader)
 }
@@ -43,10 +38,6 @@ func newStdModule() *vm.Table {
 	methods.Set("new_hashmap", &vm.GoFunc{Name: "std:new_hashmap", Fn: func(_ *vm.VM, _ []vm.Value) []vm.Value {
 		return []vm.Value{wrapHashMap(DefaultHashMap())}
 	}})
-	// std.new_heap(cmp) — cmp(a,b) must return truthy iff a should
-	// sit *above* b on the heap (i.e. it's a less-than predicate, just
-	// like sort.sort). Without a cmp we'd have no defensible default
-	// ordering for arbitrary Lua values, so it's required.
 	methods.Set("new_heap", &vm.GoFunc{Name: "std:new_heap", Fn: func(v *vm.VM, args []vm.Value) []vm.Value {
 		if len(args) < 1 || args[0] == nil {
 			panic(vm.Errorf("bad argument #1 to 'std.new_heap' (function expected, got nil)"))
@@ -67,24 +58,16 @@ func newStdModule() *vm.Table {
 		h, _ := NewAny(less)
 		return []vm.Value{wrapHeap(h)}
 	}})
-	// std.new_btree(max_keys?) — an ordered B-tree over number OR string
-	// keys (the key type is locked in by the first insert; mixing raises).
-	// max_keys is the per-node key capacity, default 3, minimum 3.
 	methods.Set("new_btree", &vm.GoFunc{Name: "std:new_btree", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 		maxKeys := int(vm.OptInt("std.new_btree", 1, args, 3))
 		if maxKeys < 3 {
 			panic(vm.Errorf("bad argument #1 to 'std.new_btree' (max_keys must be >= 3)"))
 		}
-		// Each node preallocates maxKeys keys + maxKeys+1 children, so an
-		// absurd capacity would OOM on the first insert.
 		if maxKeys > 1<<16 {
 			panic(vm.Errorf("bad argument #1 to 'std.new_btree' (max_keys must be <= %d)", 1<<16))
 		}
 		return []vm.Value{wrapBTree(&btreeBox{maxKeys: maxKeys})}
 	}})
-	// std.new_trie() — a string-keyed prefix tree. insert/find/remove accept
-	// one or more words; remove is lazy (marks non-leaf) so call compact() to
-	// reclaim dead nodes. size() counts words, capacity() counts nodes.
 	methods.Set("new_trie", &vm.GoFunc{Name: "std:new_trie", Fn: func(_ *vm.VM, _ []vm.Value) []vm.Value {
 		return []vm.Value{wrapTrie(NewNode())}
 	}})
@@ -95,8 +78,6 @@ func newStdModule() *vm.Table {
 	return m
 }
 
-// wrapTrie exposes a *Node prefix tree as a Lua object. insert/find/remove
-// take string words; non-string arguments raise the usual bad-argument error.
 func wrapTrie(n *Node) *vm.Table {
 	methods := vm.NewTable(0, 6)
 	methods.Set("insert", &vm.GoFunc{Name: "trie:insert", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
@@ -127,11 +108,6 @@ func wrapTrie(n *Node) *vm.Table {
 	return withMethods(methods)
 }
 
-// btreeBox routes Lua keys to a number- or string-keyed BTree. BTree is
-// generic over constraints.Ordered, so a single tree can't hold arbitrary
-// Lua values: the first insert picks the concrete tree, and every later
-// key must be of the same type. Number keys are stored as float64, so
-// integers beyond 2^53 lose precision.
 type btreeBox struct {
 	maxKeys int
 	count   int
@@ -144,10 +120,6 @@ func btreeKey(fname string, idx int, v vm.Value) (f float64, s string, isNum boo
 	case int64:
 		return float64(k), "", true
 	case float64:
-		// NaN compares false against everything, so it would break the
-		// sorted invariant on insert and be unfindable/unremovable after —
-		// silently corrupting the tree. Reject it like Lua rejects NaN
-		// table keys.
 		if math.IsNaN(k) {
 			panic(vm.Errorf("bad argument #%d to '%s' (key is NaN)", idx, fname))
 		}
@@ -159,8 +131,6 @@ func btreeKey(fname string, idx int, v vm.Value) (f float64, s string, isNum boo
 	}
 }
 
-// numKeyValue returns integral float keys as Lua integers so a tree of
-// inserted ints hands back ints from min/max.
 func numKeyValue(f float64) vm.Value {
 	if f == math.Trunc(f) && f >= math.MinInt64 && f < math.MaxInt64 {
 		return int64(f)
@@ -190,8 +160,6 @@ func (b *btreeBox) insert(fname string, idx int, v vm.Value) {
 	b.count++
 }
 
-// search reports whether the key is present. A key whose type doesn't
-// match the tree's key type is simply absent, not an error.
 func (b *btreeBox) search(fname string, idx int, v vm.Value) bool {
 	f, s, isNum := btreeKey(fname, idx, v)
 	if isNum {
@@ -200,7 +168,6 @@ func (b *btreeBox) search(fname string, idx int, v vm.Value) bool {
 	return b.strs != nil && b.strs.Search(s)
 }
 
-// remove deletes one occurrence of the key, reporting whether it was found.
 func (b *btreeBox) remove(fname string, idx int, v vm.Value) bool {
 	if !b.search(fname, idx, v) {
 		return false
@@ -215,9 +182,6 @@ func (b *btreeBox) remove(fname string, idx int, v vm.Value) bool {
 	return true
 }
 
-// wrapBTree exposes a btreeBox as a Lua object: insert takes one or more
-// keys; remove returns whether the key was found; min/max return nil on
-// an empty tree.
 func wrapBTree(b *btreeBox) *vm.Table {
 	methods := vm.NewTable(0, 7)
 	methods.Set("insert", &vm.GoFunc{Name: "btree:insert", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
@@ -259,9 +223,6 @@ func wrapBTree(b *btreeBox) *vm.Table {
 	return withMethods(methods)
 }
 
-// withMethods builds a method-dispatch table over methods, attaches it
-// via __index to a fresh table, and returns that table. All the wrap*
-// helpers below follow the same shape.
 func withMethods(methods *vm.Table) *vm.Table {
 	t := vm.NewTable(0, 0)
 	mt := vm.NewTable(0, 1)
@@ -519,8 +480,6 @@ func wrapHashMap(hm *HashMap) *vm.Table {
 	return withMethods(methods)
 }
 
-// valuesToTable copies a Go slice into a fresh 1-indexed Lua table.
-// Shared by Set:values and LinkedList:to_array.
 func valuesToTable(vs []any) *vm.Table {
 	t := vm.NewTable(len(vs), 0)
 	for i, v := range vs {

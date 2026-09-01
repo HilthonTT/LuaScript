@@ -8,9 +8,6 @@ import (
 	"github.com/hilthontt/luascript/internal/compiler/parser"
 )
 
-// TestIntFloatSubtypePreserved checks Lua 5.4's int/float subtype rules: an
-// integral float (2.0) stays a float through arithmetic and tonumber, so
-// mixed-operand results are floats, not collapsed integers.
 func TestIntFloatSubtypePreserved(t *testing.T) {
 	v := run(t, `
 		a = math.type(2.0 + 3)
@@ -28,9 +25,6 @@ func TestIntFloatSubtypePreserved(t *testing.T) {
 	assertGlobalEqual(t, v, "f", "5.0")
 }
 
-// TestNumericForOverflowTerminates guards the for-loop overflow fix: a loop
-// that steps onto math.maxinteger/mininteger must terminate, not wrap and run
-// forever.
 func TestNumericForOverflowTerminates(t *testing.T) {
 	v := run(t, `
 		up = 0
@@ -51,7 +45,6 @@ func TestNumericForOverflowTerminates(t *testing.T) {
 	assertGlobalEqual(t, v, "normal", int64(15))
 }
 
-// TestNumericForFloatLimitNaN — a NaN limit yields zero iterations.
 func TestNumericForFloatLimitNaN(t *testing.T) {
 	v := run(t, `
 		n = 0
@@ -60,10 +53,6 @@ func TestNumericForFloatLimitNaN(t *testing.T) {
 	assertGlobalEqual(t, v, "n", int64(0))
 }
 
-// TestNumericForControlVariableIsInternal pins Lua 5.4 §3.3.5: the visible
-// loop variable is a per-iteration local, so assigning to it inside the body
-// must not perturb the iteration. The counter lives in a hidden slot the body
-// cannot name.
 func TestNumericForControlVariableIsInternal(t *testing.T) {
 	v := run(t, `
 		seen = {}
@@ -91,7 +80,6 @@ func TestNumericForControlVariableIsInternal(t *testing.T) {
 	assertGlobalEqual(t, v, "c3", int64(50))
 }
 
-// TestTonumberWithBase covers the tonumber(s, base) path.
 func TestTonumberWithBase(t *testing.T) {
 	v := run(t, `
 		hex = tonumber("ff", 16)
@@ -105,9 +93,6 @@ func TestTonumberWithBase(t *testing.T) {
 	assertGlobalEqual(t, v, "bad", nil)
 }
 
-// TestPcallUpvalueErrorDoesNotCorruptVM reproduces the dangling-open-upvalue
-// crash: a protected call that creates a closure (open upvalue) and then errors
-// must leave the VM usable.
 func TestPcallUpvalueErrorDoesNotCorruptVM(t *testing.T) {
 	v := run(t, `
 		ok = pcall(function()
@@ -125,8 +110,6 @@ func TestPcallUpvalueErrorDoesNotCorruptVM(t *testing.T) {
 	}
 }
 
-// TestCoroutineRuntimeErrorReportsFailure — a runtime error inside a coroutine
-// surfaces as resume returning false + the message and leaves it dead.
 func TestCoroutineRuntimeErrorReportsFailure(t *testing.T) {
 	v := run(t, `
 		co = coroutine.create(function()
@@ -143,10 +126,6 @@ func TestCoroutineRuntimeErrorReportsFailure(t *testing.T) {
 	}
 }
 
-// TestCoroutineRawPanicReportsFailure — a non-Lua Go panic (e.g. a native
-// function panicking with a bare string) must surface as resume failure, not be
-// swallowed into a false "success". This is the case the old "" err sentinel
-// silently dropped.
 func TestCoroutineRawPanicReportsFailure(t *testing.T) {
 	chunks, err := compiler.CompileToInstructions(`
 		co = coroutine.create(function() boom() end)

@@ -8,9 +8,6 @@ import (
 	"github.com/hilthontt/luascript/internal/vm"
 )
 
-// tableInt fetches an integer field from t with a default fallback. Used
-// by os.time to read the year/month/day/... fields out of a calendar
-// table without panicking when a field is missing.
 func tableInt(t *vm.Table, key string, def int64) int64 {
 	v := t.Get(key)
 	if v == nil {
@@ -22,29 +19,6 @@ func tableInt(t *vm.Table, key string, def int64) int64 {
 	return def
 }
 
-// Strftime renders t against a C-strftime-style format. Only the subset
-// of conversions used by Lua scripts is implemented; unrecognised codes
-// pass through unchanged so the user notices ("the %Q didn't expand") in
-// a single place rather than getting a silent empty string.
-//
-// Supported codes (matching POSIX strftime where reasonable):
-//
-//	%Y  4-digit year                  %y  2-digit year
-//	%m  month (01-12)                 %B  full month name
-//	%b  abbrev month name             %d  day of month (01-31)
-//	%e  day of month, space-padded    %j  day of year (001-366)
-//	%H  hour (00-23)                  %I  hour (01-12)
-//	%M  minute (00-59)                %S  second (00-59)
-//	%p  AM/PM                         %A  full weekday name
-//	%a  abbrev weekday name           %w  weekday (0-6, Sun=0)
-//	%u  ISO weekday (1-7, Mon=1)      %Z  timezone name
-//	%z  timezone offset (+/-HHMM)     %c  default date+time
-//	%x  default date                  %X  default time
-//	%%  literal %
-//
-// Exported so the time module can offer the same %-directives; os.date was the
-// only place they were reachable, which meant time.format could be driven only
-// by Go layout strings.
 func Strftime(format string, t time.Time) string {
 	var b strings.Builder
 	for i := 0; i < len(format); i++ {
@@ -106,7 +80,6 @@ func Strftime(format string, t time.Time) string {
 		case 'z':
 			b.WriteString(t.Format("-0700"))
 		case 'c':
-			// "Mon Jan  2 15:04:05 2006" — POSIX default.
 			b.WriteString(t.Format("Mon Jan _2 15:04:05 2006"))
 		case 'x':
 			b.WriteString(t.Format("01/02/06"))
@@ -119,7 +92,6 @@ func Strftime(format string, t time.Time) string {
 		case '%':
 			b.WriteByte('%')
 		default:
-			// Unknown code: preserve verbatim so the script sees the typo.
 			b.WriteByte('%')
 			b.WriteByte(format[i])
 		}

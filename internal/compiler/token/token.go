@@ -2,38 +2,26 @@ package token
 
 import "fmt"
 
-// Type is the discriminator for a Token.
 type Type string
 
-// Token is a lexed lexeme tagged with its type and source location.
 type Token struct {
 	Type    Type
 	Literal string
 	Line    int
 	Column  int
-	// Raw is the token's source text with escape sequences still intact.
-	// Set only for InterpString, whose `{expr}` spans the parser has to
-	// re-scan: Literal has already been unescaped, so a `\"` inside an
-	// interpolated expression (or a `\u{7B}` anywhere) would be
-	// indistinguishable from real interpolation structure.
-	Raw string
+	Raw     string
 }
 
 const (
 	Illegal Type = "ILLEGAL"
 	EOF     Type = "EOF"
 
-	// Literals
-	Ident  Type = "IDENT"
-	Int    Type = "INT"
-	Float  Type = "FLOAT"
-	String Type = "STRING"
-	// InterpString is a backtick-quoted string subject to `{expr}`
-	// interpolation. Kept distinct from String so plain `"..."`/`'...'`
-	// strings containing `{` are not mis-parsed as interpolated.
+	Ident        Type = "IDENT"
+	Int          Type = "INT"
+	Float        Type = "FLOAT"
+	String       Type = "STRING"
 	InterpString Type = "INTERP_STRING"
 
-	// Arithmetic
 	Plus     Type = "+"
 	Minus    Type = "-"
 	Asterisk Type = "*"
@@ -42,15 +30,8 @@ const (
 	Caret    Type = "^"
 	FloorDiv Type = "//"
 
-	// Unary-only operators.
-	// `Hash` is length-of (`#t`). `Not` is logical not. `Tilde` is also a
-	// unary operator (bitwise not) but lives in the bitwise section because
-	// it doubles as binary XOR.
 	Hash Type = "#"
 
-	// Compound assignment.
-	// `BorAssign` and `BandAssign` are *bitwise* OR/AND assign (`|=`, `&=`),
-	// not logical — Lua's logical `or`/`and` have no compound form.
 	PlusAssign   Type = "+="
 	MinusAssign  Type = "-="
 	MulAssign    Type = "*="
@@ -60,14 +41,12 @@ const (
 	LShiftAssign Type = "<<="
 	RShiftAssign Type = ">>="
 
-	// Bitwise
 	Ampersand Type = "&"
 	Pipe      Type = "|"
 	Tilde     Type = "~"
 	LShift    Type = "<<"
 	RShift    Type = ">>"
 
-	// Comparison
 	Eq    Type = "=="
 	NotEq Type = "~="
 	LT    Type = "<"
@@ -75,25 +54,15 @@ const (
 	GT    Type = ">"
 	GTE   Type = ">="
 
-	// Assignment
 	Assign Type = "="
 
-	// Type-syntax operators (Luau-style annotations).
-	// `Question` is the postfix-optional sugar (`T?` ≡ `T | nil`).
-	// `Arrow` separates a function type's params from its return (`(A) -> B`)
-	// and also acts as the arm separator in `match` expressions; the parser
-	// disambiguates by context.
-	// `::` is represented by Label and is reused for type assertions
-	// (`expr :: T`); again the parser disambiguates by context.
 	Question Type = "?"
 	Arrow    Type = "->"
 
-	// Logical (keywords in Lua, but typed for AST use)
 	And Type = "AND"
 	Or  Type = "OR"
 	Not Type = "NOT"
 
-	// Delimiters
 	Comma     Type = ","
 	Semicolon Type = ";"
 	Colon     Type = ":"
@@ -109,7 +78,6 @@ const (
 	LBracket Type = "["
 	RBracket Type = "]"
 
-	// Keywords
 	True     Type = "TRUE"
 	False    Type = "FALSE"
 	Nil      Type = "NIL"
@@ -168,14 +136,7 @@ var keywords = map[string]Type{
 	"throw":    Throw,
 }
 
-// operators maps every operator literal — single- and multi-character — to
-// its token type. The lexer is responsible for doing its own lookahead to
-// determine the full literal (`==` vs `=`, `<<=` vs `<<` vs `<`, `~=` vs `~`,
-// `//` vs `/`, etc.), then this map gives the type for whatever it committed
-// to. Structural punctuation (parens, braces, commas, dots, colons, labels)
-// lives in `separators` instead.
 var operators = map[string]Type{
-	// Arithmetic
 	"+":  Plus,
 	"-":  Minus,
 	"*":  Asterisk,
@@ -185,14 +146,12 @@ var operators = map[string]Type{
 	"//": FloorDiv,
 	"#":  Hash,
 
-	// Bitwise
 	"&":  Ampersand,
 	"|":  Pipe,
 	"~":  Tilde,
 	"<<": LShift,
 	">>": RShift,
 
-	// Comparison
 	"==": Eq,
 	"~=": NotEq,
 	"<":  LT,
@@ -200,7 +159,6 @@ var operators = map[string]Type{
 	">":  GT,
 	">=": GTE,
 
-	// Assignment + compound assignment
 	"=":   Assign,
 	"+=":  PlusAssign,
 	"-=":  MinusAssign,
@@ -211,14 +169,10 @@ var operators = map[string]Type{
 	"<<=": LShiftAssign,
 	">>=": RShiftAssign,
 
-	// Type syntax / match-arm
 	"?":  Question,
 	"->": Arrow,
 }
 
-// separators maps structural punctuation literals to their token type. As
-// with operators, the lexer is responsible for lookahead to disambiguate
-// dotted forms (`.`, `..`, `...`) and `:` vs `::`.
 var separators = map[string]Type{
 	",":   Comma,
 	";":   Semicolon,
@@ -235,8 +189,6 @@ var separators = map[string]Type{
 	"]":   RBracket,
 }
 
-// LookupIdent returns the keyword type for ident, or Ident if it is not a
-// reserved word.
 func LookupIdent(ident string) Type {
 	if t, ok := keywords[ident]; ok {
 		return t
@@ -244,9 +196,6 @@ func LookupIdent(ident string) Type {
 	return Ident
 }
 
-// CreateOperator builds an operator token. Panics if literal is not a known
-// operator — that is a lexer bug, not user input, and silently producing an
-// Illegal token would hide the cause until it surfaced in the parser.
 func CreateOperator(literal string, line, column int) Token {
 	t, ok := operators[literal]
 	if !ok {
@@ -255,8 +204,6 @@ func CreateOperator(literal string, line, column int) Token {
 	return Token{Type: t, Literal: literal, Line: line, Column: column}
 }
 
-// CreateSeparator builds a separator token, with the same panic-on-unknown
-// contract as CreateOperator.
 func CreateSeparator(literal string, line, column int) Token {
 	t, ok := separators[literal]
 	if !ok {

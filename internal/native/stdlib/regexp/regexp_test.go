@@ -30,8 +30,6 @@ func eq(t *testing.T, v *vm.VM, name string, want vm.Value) {
 	}
 }
 
-// find gives the match position, which capture alone could not: knowing only
-// what matched is not enough to slice around it.
 func TestFindReturnsPositions(t *testing.T) {
 	v := runRe(t, `
 		local regexp = require("regexp")
@@ -45,8 +43,6 @@ func TestFindReturnsPositions(t *testing.T) {
 	eq(t, v, "miss", nil)
 }
 
-// init skips a prefix, and the returned positions stay relative to the whole
-// string rather than the searched slice.
 func TestFindHonoursInit(t *testing.T) {
 	v := runRe(t, `
 		local regexp = require("regexp")
@@ -62,8 +58,6 @@ func TestFindHonoursInit(t *testing.T) {
 	eq(t, v, "past", nil)
 }
 
-// A group that did not participate must be nil, not "" — FindStringSubmatch
-// gives "" for both, which callers cannot tell apart.
 func TestCaptureDistinguishesUnmatchedGroup(t *testing.T) {
 	v := runRe(t, `
 		local regexp = require("regexp")
@@ -107,8 +101,6 @@ func TestFindAllCaptures(t *testing.T) {
 	eq(t, v, "v2", "22")
 }
 
-// The string form of replace can only rearrange what matched; replace_func can
-// compute the replacement.
 func TestReplaceFunc(t *testing.T) {
 	v := runRe(t, `
 		local regexp = require("regexp")

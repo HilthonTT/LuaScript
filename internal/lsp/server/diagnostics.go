@@ -8,15 +8,6 @@ import (
 	"github.com/hilthontt/luascript/internal/lsp/protocol"
 )
 
-// computeDiagnostics runs the luascript front-end over src and returns the
-// findings as LSP diagnostics. The pipeline mirrors compiler.go:
-//
-//	lex+parse -> (parse error stops here) -> typecheck -> analyze
-//
-// A parse error is fatal to the later stages (there is no usable AST), so we
-// report just that one and return. When the parse succeeds we layer on type
-// errors (respecting the file's --!strict / --!nocheck mode directive) and the
-// static-analysis lint/complexity/security findings as warnings and hints.
 func computeDiagnostics(src string) []protocol.Diagnostic {
 	diags := []protocol.Diagnostic{}
 
@@ -41,9 +32,6 @@ func computeDiagnostics(src string) []protocol.Diagnostic {
 		return diags
 	}
 
-	// Type checking honours the same mode directive the compiler does. The
-	// directive is stamped on the lexer as it runs, so it is only valid after
-	// ParseProgram has consumed the token stream.
 	if l.ModeDirective != "nocheck" {
 		opts := typecheck.Options{Strict: l.ModeDirective == "strict"}
 		for _, te := range typecheck.Check(program, opts) {
@@ -57,9 +45,6 @@ func computeDiagnostics(src string) []protocol.Diagnostic {
 		}
 	}
 
-	// Static analysis is advisory: surface it as warnings / hints so it never
-	// masks a real error. Analyze re-parses internally; if that somehow fails
-	// after we just parsed cleanly, drop the findings rather than double-report.
 	if rep, aerr := analyze.Analyze(src, analyze.Options{}); aerr == nil {
 		for _, f := range rep.Findings {
 			diags = append(diags, protocol.Diagnostic{
@@ -75,7 +60,6 @@ func computeDiagnostics(src string) []protocol.Diagnostic {
 	return diags
 }
 
-// severityFor maps an analyze pass severity onto an LSP diagnostic severity.
 func severityFor(s analyze.Severity) protocol.DiagnosticSeverity {
 	switch s {
 	case analyze.SeverityError:

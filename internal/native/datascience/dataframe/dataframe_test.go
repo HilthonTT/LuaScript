@@ -7,8 +7,6 @@ import (
 	"github.com/hilthontt/luascript/internal/vm"
 )
 
-// frame builds a DataFrame directly from Go data for testing the pure
-// transforms without going through the Lua marshalling layer.
 func frame(order []string, cols map[string][]vm.Value) *DataFrame {
 	n := 0
 	if len(order) > 0 {
@@ -71,7 +69,6 @@ func TestGroupBy(t *testing.T) {
 	if g.n != 2 {
 		t.Fatalf("expected 2 groups, got %d", g.n)
 	}
-	// First-seen order: eng then sales.
 	if g.cols["dept"][0] != "eng" || g.cols["dept"][1] != "sales" {
 		t.Fatalf("group order wrong: %v", g.cols["dept"])
 	}
@@ -88,11 +85,9 @@ func TestDescribe(t *testing.T) {
 		"name": {"a", "b", "c", "d"},
 	})
 	desc := d.describe()
-	// "name" is non-numeric and must be skipped; only statistic + x remain.
 	if len(desc.order) != 2 || desc.order[1] != "x" {
 		t.Fatalf("describe columns wrong: %v", desc.order)
 	}
-	// statistic[1] is "mean"; mean of 1..4 is 2.5.
 	if desc.cols["x"][1].(float64) != 2.5 {
 		t.Fatalf("describe mean wrong: %v", desc.cols["x"][1])
 	}

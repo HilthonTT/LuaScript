@@ -1,13 +1,5 @@
 package docs
 
-// Object types — values returned by a constructor, documented for their
-// methods. Names are dotted with the module that produces them so
-// `luascript doc std.stack` reads naturally and cannot collide with a
-// module-level entry.
-//
-// Methods are called with a colon (obj:method(...)); the receiver is not
-// shown in the signatures below.
-
 var objectTopics = []Topic{
 	{
 		Name: "io.file", Kind: KindObject, RuntimeModule: "io",

@@ -21,7 +21,6 @@ func TestCentralTendency(t *testing.T) {
 
 func TestSpread(t *testing.T) {
 	xs := []float64{2, 4, 4, 4, 5, 5, 7, 9}
-	// Population stddev of this classic example is 2.0; sample is larger.
 	approx(t, pstddev(xs), 2.0, 1e-9, "pstddev")
 	approx(t, pvariance(xs), 4.0, 1e-9, "pvariance")
 	approx(t, variance(xs), 32.0/7.0, 1e-9, "variance")
@@ -34,16 +33,15 @@ func TestQuantiles(t *testing.T) {
 	approx(t, quantileSorted(s, 0), 1, 1e-9, "q0")
 	approx(t, quantileSorted(s, 1), 10, 1e-9, "q1.0")
 	approx(t, quantileSorted(s, 0.5), 5.5, 1e-9, "median")
-	// numpy linear interpolation: 25th percentile of 1..10 is 3.25.
 	approx(t, quantileSorted(s, 0.25), 3.25, 1e-9, "q0.25")
 	approx(t, iqr(xs), 4.5, 1e-9, "iqr")
 }
 
 func TestRelationships(t *testing.T) {
 	a := []float64{1, 2, 3, 4, 5}
-	b := []float64{2, 4, 6, 8, 10} // perfectly correlated, slope 2
+	b := []float64{2, 4, 6, 8, 10}
 	approx(t, correlation(a, b), 1, 1e-9, "correlation")
-	c := []float64{10, 8, 6, 4, 2} // perfectly anti-correlated
+	c := []float64{10, 8, 6, 4, 2}
 	approx(t, correlation(a, c), -1, 1e-9, "anti-correlation")
 	approx(t, covariance(a, b), 5, 1e-9, "covariance")
 }
@@ -65,10 +63,8 @@ func TestTransforms(t *testing.T) {
 func TestMeansAndShape(t *testing.T) {
 	xs := []float64{1, 2, 4, 8}
 	approx(t, geomean(xs), math.Pow(64, 0.25), 1e-9, "geomean")
-	// Harmonic mean of 1,2,4,8 = 4 / (1 + 0.5 + 0.25 + 0.125)
 	approx(t, harmonicMean(xs), 4/1.875, 1e-9, "harmonic_mean")
 
-	// Data symmetric about its mean has zero skew.
 	sym := []float64{1, 2, 3, 4, 5, 6, 7}
 	approx(t, skewness(sym), 0, 1e-9, "skewness symmetric")
 }

@@ -6,7 +6,6 @@ import (
 	"strings"
 )
 
-// NilLiteral represents the `nil` keyword used as an expression.
 type NilLiteral struct {
 	BaseNode
 }
@@ -15,7 +14,6 @@ func (*NilLiteral) expressionNode()        {}
 func (n *NilLiteral) TokenLiteral() string { return n.Token.Literal }
 func (*NilLiteral) String() string         { return "nil" }
 
-// BooleanLiteral represents `true` or `false`.
 type BooleanLiteral struct {
 	BaseNode
 	Value bool
@@ -30,7 +28,6 @@ func (b *BooleanLiteral) String() string {
 	return "false"
 }
 
-// IntegerLiteral represents a Lua 5.3+ integer subtype value.
 type IntegerLiteral struct {
 	BaseNode
 	Value int64
@@ -40,7 +37,6 @@ func (*IntegerLiteral) expressionNode()         {}
 func (il *IntegerLiteral) TokenLiteral() string { return il.Token.Literal }
 func (il *IntegerLiteral) String() string       { return strconv.FormatInt(il.Value, 10) }
 
-// FloatLiteral represents a Lua float subtype value.
 type FloatLiteral struct {
 	BaseNode
 	Value float64
@@ -50,8 +46,6 @@ func (*FloatLiteral) expressionNode()         {}
 func (fl *FloatLiteral) TokenLiteral() string { return fl.Token.Literal }
 func (fl *FloatLiteral) String() string       { return strconv.FormatFloat(fl.Value, 'g', -1, 64) }
 
-// StringLiteral represents a string literal. IsLong is true when the source
-// used the `[[ ... ]]` long-bracket form.
 type StringLiteral struct {
 	BaseNode
 	Value  string
@@ -67,7 +61,6 @@ func (sl *StringLiteral) String() string {
 	return strconv.Quote(sl.Value)
 }
 
-// VarargExpression represents the `...` expression inside a vararg function.
 type VarargExpression struct {
 	BaseNode
 }
@@ -76,7 +69,6 @@ func (*VarargExpression) expressionNode()        {}
 func (v *VarargExpression) TokenLiteral() string { return v.Token.Literal }
 func (*VarargExpression) String() string         { return "..." }
 
-// Identifier names a local, global, or parameter.
 type Identifier struct {
 	BaseNode
 	Name string
@@ -86,25 +78,15 @@ func (*Identifier) expressionNode()        {}
 func (i *Identifier) TokenLiteral() string { return i.Token.Literal }
 func (i *Identifier) String() string       { return i.Name }
 
-// TypedParam is one entry in a FunctionExpression's parameter list. Type is
-// nil for unannotated parameters; the type checker treats those as `any` in
-// gradual mode and as an implicit-any error in strict mode. Default is the
-// optional `= expr` default value (nil when absent): at runtime the function
-// prologue fills the parameter with Default when the caller passed nil (or
-// nothing) for it. Earlier parameters are in scope inside Default.
 type TypedParam struct {
 	Name    *Identifier
 	Type    TypeNode
 	Default Expression
 }
 
-// FunctionExpression is `function(params) body end`. IsVararg is true when
-// the parameter list ends in `...`. ReturnTypes carries the optional
-// `: T` / `: (T1, T2)` annotation between `)` and the body. VarargType is
-// the optional `...: T` annotation. All type fields are nil-safe.
 type FunctionExpression struct {
 	BaseNode
-	TypeParams  []string // generic parameters `<T, U>`; empty for a non-generic function
+	TypeParams  []string
 	Params      []TypedParam
 	IsVararg    bool
 	VarargType  TypeNode
@@ -160,18 +142,12 @@ func (fe *FunctionExpression) String() string {
 	return out.String()
 }
 
-// TableField is a single entry in a TableConstructor.
-//
-//	Key == nil                              -> array entry  ({ v })
-//	Key is *Identifier && !IsBracketed       -> record entry ({ name = v })
-//	IsBracketed                             -> keyed entry  ({ [expr] = v })
 type TableField struct {
 	Key         Expression
 	Value       Expression
 	IsBracketed bool
 }
 
-// TableConstructor is `{ ... }` — Lua's only aggregate literal.
 type TableConstructor struct {
 	BaseNode
 	Fields []TableField
@@ -209,8 +185,6 @@ func (tc *TableConstructor) String() string {
 	return out.String()
 }
 
-// IndexExpression is `obj[index]` or, when IsDot is true, `obj.name` — in
-// the dot form Index is a *StringLiteral whose Value is the field name.
 type IndexExpression struct {
 	BaseNode
 	Object Expression
@@ -236,8 +210,6 @@ func (ie *IndexExpression) String() string {
 	return out.String()
 }
 
-// CallExpression is `f(args)`. The parser also folds `f"str"` and `f{tbl}`
-// into this shape with a single-element Args slice.
 type CallExpression struct {
 	BaseNode
 	Func Expression
@@ -255,8 +227,6 @@ func (ce *CallExpression) String() string {
 	return out.String()
 }
 
-// MethodCallExpression is `obj:method(args)` — distinct from CallExpression
-// because the colon form passes `obj` as an implicit first argument.
 type MethodCallExpression struct {
 	BaseNode
 	Object Expression
@@ -277,9 +247,6 @@ func (mc *MethodCallExpression) String() string {
 	return out.String()
 }
 
-// BinaryExpression covers every Lua 5.4 binary operator:
-//
-//   - - * / // % ^ ..  ==  ~=  <  >  <=  >=  and  or  &  |  ~  <<  >>
 type BinaryExpression struct {
 	BaseNode
 	Op    string
@@ -301,7 +268,6 @@ func (be *BinaryExpression) String() string {
 	return out.String()
 }
 
-// UnaryExpression covers `-`, `not`, `#`, `~`.
 type UnaryExpression struct {
 	BaseNode
 	Op      string
@@ -322,24 +288,14 @@ func (ue *UnaryExpression) String() string {
 	return out.String()
 }
 
-// IfExprClause is one `if`/`elseif` branch of an IfExpression: a condition
-// and the single value the expression yields when the condition is truthy.
 type IfExprClause struct {
 	Condition Expression
 	Value     Expression
 }
 
-// IfExpression is the Luau-style conditional expression
-//
-//	if c1 then v1 [elseif c2 then v2 ...] else v3
-//
-// Unlike the if *statement* there is no terminating `end`, the branches are
-// single expressions rather than blocks, and the `else` arm is mandatory
-// (the expression must always produce a value). Every branch is adjusted to
-// exactly one value.
 type IfExpression struct {
 	BaseNode
-	Clauses []IfExprClause // at least one; first is `if`, rest are `elseif`
+	Clauses []IfExprClause
 	Else    Expression
 }
 
@@ -362,8 +318,6 @@ func (ie *IfExpression) String() string {
 	return out.String()
 }
 
-// ParenExpression is a parenthesized expression. In Lua this is semantically
-// meaningful: it adjusts a multi-value result down to exactly one value.
 type ParenExpression struct {
 	BaseNode
 	Inner Expression

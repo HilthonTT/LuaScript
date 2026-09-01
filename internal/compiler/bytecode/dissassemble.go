@@ -36,7 +36,6 @@ func writeHeader(out *strings.Builder, is *InstructionSet, indent string) {
 		name = "<anonymous>"
 	}
 
-	// Lua-style "n+" notation: a trailing '+' means vararg.
 	varargMark := ""
 	if is.IsVararg {
 		varargMark = "+"
@@ -79,10 +78,8 @@ func formatParams(params []any) string {
 	for _, p := range params {
 		switch v := p.(type) {
 		case *anchor:
-			// Resolve forward-jump anchors to their target PC.
 			parts = append(parts, fmt.Sprintf("-> %d", v.line))
 		case string:
-			// Quote strings so embedded whitespace/newlines stay legible.
 			parts = append(parts, fmt.Sprintf("%q", v))
 		default:
 			parts = append(parts, fmt.Sprint(v))

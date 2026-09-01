@@ -20,17 +20,12 @@ import (
 	"github.com/hilthontt/luascript/internal/vm"
 )
 
-// lineReader is the subset of *readline.Instance the REPL loop needs; a
-// plain buffered reader satisfies it when readline can't grab the terminal.
 type lineReader interface {
 	Readline() (string, error)
 	SetPrompt(prompt string)
 	Close() error
 }
 
-// plainLineReader is the degraded-mode input path used when readline fails
-// to initialize (no controlling tty, redirected stdin, exotic consoles).
-// No history or completion — just prompt + line.
 type plainLineReader struct {
 	sc     *bufio.Scanner
 	out    io.Writer
@@ -57,20 +52,11 @@ type REPL struct {
 	rl     lineReader
 	vm     *vm.VM
 
-	// postInits run, in order, against every VM the REPL creates (the
-	// initial one from NewREPL, the fresh one in RunFile, and the
-	// rebuilt one behind `:reset`). This is the seam main.go uses to
-	// register native modules — repl can't import native packages
-	// directly because those packages already import vm.
 	postInits []func(*vm.VM)
 
 	out io.Writer
 }
 
-// AddPostInit appends a hook that runs against every VM this REPL
-// owns. The hook is also applied to the current VM immediately so
-// callers don't need to invoke it separately. Multiple calls compose
-// — every hook runs in the order it was added.
 func (r *REPL) AddPostInit(fn func(*vm.VM)) {
 	if fn == nil {
 		return
@@ -81,7 +67,6 @@ func (r *REPL) AddPostInit(fn func(*vm.VM)) {
 	}
 }
 
-// runPostInits applies every registered hook to v, in order.
 func (r *REPL) runPostInits(v *vm.VM) {
 	for _, fn := range r.postInits {
 		fn(v)
@@ -104,22 +89,13 @@ func (r *REPL) RunFile(path string) {
 		fmt.Fprintln(os.Stderr, "luascript:", err)
 		os.Exit(1)
 	}
-	// Compile through the bytecode cache: an unchanged script skips the
-	// whole front-end (lex → parse → typecheck → fold → codegen) on
-	// re-runs. Disable with LUASCRIPT_NOCACHE=1. The returned main chunk
-	// reaches nested function protos through its Protos table at runtime.
 	main, err := bccache.CompileCached(string(src))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "luascript:", err)
 		os.Exit(1)
 	}
-	// Name the chunk after the file so runtime errors and tracebacks point
-	// at it. Done after compilation rather than inside it because a cache
-	// hit returns a chunk keyed on content, which two paths can share.
 	main.SetSource(path)
 	v := vm.New()
-	// Let `require` resolve modules sitting next to the script, not just
-	// ones under the process's cwd.
 	if abs, aerr := filepath.Abs(path); aerr == nil {
 		v.AddScriptDir(filepath.Dir(abs))
 	}
@@ -130,9 +106,6 @@ func (r *REPL) RunFile(path string) {
 	}
 }
 
-// NewREPL builds a REPL bound to v. The `in` argument is accepted for API
-// stability but unused: input is read through the readline instance, which
-// drives its own terminal handle.
 func NewREPL(v *vm.VM, in io.Reader, out io.Writer) *REPL {
 	historyFile := ""
 	if home, err := os.UserHomeDir(); err == nil {
@@ -150,8 +123,6 @@ func NewREPL(v *vm.VM, in io.Reader, out io.Writer) *REPL {
 		DisableAutoSaveHistory: false,
 	})
 	if err != nil {
-		// Degrade to a dumb line reader rather than crashing on the first
-		// Readline call — no history/completion, but the REPL still works.
 		fmt.Fprintf(os.Stderr, "Warning: failed to initialize readline: %v\n", err)
 		if in == nil {
 			in = os.Stdin
@@ -174,7 +145,7 @@ func (r *REPL) runREPL() {
 
 	for {
 		line, err := r.rl.Readline()
-		if err != nil { // EOF or interrupt at top level
+		if err != nil {
 			r.bye()
 			return
 		}
@@ -184,8 +155,6 @@ func (r *REPL) runREPL() {
 			continue
 		}
 
-		// `doc <topic>` is a command rather than an expression: it takes an
-		// argument, so it cannot be matched by the exact-match switch below.
 		if query, ok := docCommand(line); ok {
 			r.printDoc(query)
 			continue
@@ -219,9 +188,6 @@ func (r *REPL) bye() {
 }
 
 func (r *REPL) printError(err error) {
-	// Surface type-check errors on a per-line basis with a distinct
-	// `type-error:` prefix so users can tell them apart from runtime
-	// errors. Runtime/parse errors keep the standard `luascript:` prefix.
 	if te, ok := err.(*typecheck.TypeErrors); ok {
 		for _, e := range te.Errors {
 			fmt.Fprintf(os.Stderr, "%stype-error:%s %s\n",
@@ -236,12 +202,6 @@ func (r *REPL) processInput(input string) {
 	var src strings.Builder
 	src.WriteString(input)
 
-	// For inputs that don't look like a statement, try wrapping with
-	// `return` so bare expressions print their value. If the wrapped form
-	// fails to *compile*, fall through to a normal statement compile (so
-	// things like `x = 5` still work). If it compiles but fails at
-	// runtime, surface that error directly — re-running as a statement
-	// would double-execute side effects of the same chunk.
 	if !looksLikeStatement(input) {
 		if chunks, err := r.engine.compile("return " + input); err == nil {
 			results, runErr := r.engine.runMainWithResults(chunks[0])
@@ -254,11 +214,10 @@ func (r *REPL) processInput(input string) {
 		}
 	}
 
-	// Compile as a full statement / block.
 	chunks, cerr := r.engine.compile(input)
 	if cerr != nil {
 		if r.handleIncompleteInput(cerr, &src) {
-			return // continue reading more lines
+			return
 		}
 		r.printError(cerr)
 		return
@@ -269,16 +228,12 @@ func (r *REPL) processInput(input string) {
 	}
 }
 
-// handleIncompleteInput returns true if we should continue reading more input
 func (r *REPL) handleIncompleteInput(err error, src *strings.Builder) bool {
 	var perr *parserrors.Error
 	if !asParserErr(err, &perr) || !perr.IsEOF() {
 		return false
 	}
 
-	// Incomplete input → enter continuation mode. Set the readline prompt
-	// so the line-edit state stays aligned (drawing contPrompt manually
-	// via Fprint leaves readline unaware of the column).
 	r.rl.SetPrompt(contPrompt)
 	defer r.rl.SetPrompt(promptReady)
 
@@ -293,7 +248,6 @@ func (r *REPL) handleIncompleteInput(err error, src *strings.Builder) bool {
 
 		chunks, cerr := r.engine.compile(src.String())
 		if cerr == nil {
-			// Successfully completed
 			if runErr := r.engine.runMain(chunks[0]); runErr != nil {
 				r.printError(runErr)
 			}
@@ -304,8 +258,6 @@ func (r *REPL) handleIncompleteInput(err error, src *strings.Builder) bool {
 			r.printError(cerr)
 			return true
 		}
-		// Still incomplete — readline already shows contPrompt for the
-		// next call.
 	}
 }
 
@@ -314,7 +266,6 @@ func isIncompleteError(err error) bool {
 	return asParserErr(err, &perr) && perr.IsEOF()
 }
 
-// Simple heuristic: if it starts with common statement keywords, treat as statement
 func looksLikeStatement(line string) bool {
 	t := strings.TrimLeft(line, " \t")
 	for _, kw := range []string{"if", "for", "while", "function", "local", "do", "repeat"} {
@@ -336,10 +287,6 @@ func (r *REPL) printResults(results []vm.Value) {
 	fmt.Fprintf(r.out, "%s=>%s %s\n", colorOK, colorReset, strings.Join(parts, "\t"))
 }
 
-// docCommand recognises the `doc [topic]` REPL command and returns the
-// topic asked for — empty for a bare `doc`, which prints the index. It
-// deliberately does NOT match `doc(...)` or `doc = 1`: those are ordinary
-// luascript, and a user who defines their own `doc` should keep it.
 func docCommand(line string) (query string, ok bool) {
 	if line == cmdDoc {
 		return "", true
@@ -355,9 +302,6 @@ func docCommand(line string) (query string, ok bool) {
 	return rest, true
 }
 
-// printDoc renders a stdlib page inside the REPL — the same pages
-// `luascript doc` prints, from the same registry. A bare `doc` shows the
-// index; `doc math.floor` shows one entry.
 func (r *REPL) printDoc(query string) {
 	opts := docs.Options{Width: 80, Color: true}
 	if query == "" {

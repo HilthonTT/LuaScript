@@ -1,41 +1,7 @@
 package vm
 
-// Argument-validation helpers for stdlib and native-module callbacks.
-//
-// Every Lua callable implemented in Go (builtins, library functions, host
-// modules) receives a `[]Value` and must validate it before unpacking. The
-// raw shape of those checks is mechanical: presence test, type check, and
-// an error message in Lua's "bad argument #N to 'funcname' (TYPE expected,
-// got X)" format. The helpers in this file centralize that shape so each
-// call site reads as a single line and so the FFI-cast hint that
-// `describeBadArg` adds (for raw Go ints / floats / named strings) fires
-// uniformly across every stdlib and native callback.
-//
-// Error-message conventions follow Lua 5.4:
-//   - Missing arg:  "bad argument #N to 'name' (TYPE expected)"
-//   - Wrong type:   "bad argument #N to 'name' (TYPE expected, got <desc>)"
-//
-// `name` is the library-qualified function name — "table.insert", not
-// PUC Lua's bare "insert". The core library used to mix the two forms, so an
-// error's usefulness depended on which function raised it; qualifying every
-// site makes the message point at exactly one function, which matters more
-// here than byte-for-byte parity with PUC's wording. Native modules follow the
-// same rule ("crypto.hmac_sha256"), so the convention is uniform across every
-// Go-implemented callable.
-//
-// <desc> is `describeBadArg(args[n-1])`. Optional-argument helpers
-// (Opt*) silently substitute a default when the arg is absent, but still
-// raise on a wrong-type present value.
-
 import "reflect"
 
-// describeBadArg renders the type of a bad argument for error messages.
-// For runtime-tracked values it falls through to TypeName, matching Lua's
-// `type()` strings. For values that crossed an FFI boundary as a raw Go
-// primitive, it appends an actionable hint — the most common host-module
-// bug is forgetting to cast int / uint / FileMode / rune to int64 (or
-// float32 to float64) before storing them on a *Table, which leaves the
-// runtime with an opaque value it can't coerce.
 func describeBadArg(v Value) string {
 	base := TypeName(v)
 	switch v.(type) {
@@ -55,11 +21,6 @@ func describeBadArg(v Value) string {
 	return base
 }
 
-// Numeric helpers
-
-// NumArg accepts any value coercible to a Lua number (int or float). The
-// (i, f, isInt, ok) tuple lets callers preserve integer-vs-float subtype.
-// `ok` is always true on return — a non-coercible arg panics directly.
 func NumArg(name string, n int, args []Value) (int64, float64, bool, bool) {
 	if n < 1 || n > len(args) {
 		panic(Errorf("bad argument #%d to '%s' (value expected)", n, name))
@@ -71,7 +32,6 @@ func NumArg(name string, n int, args []Value) (int64, float64, bool, bool) {
 	return i, f, isInt, ok
 }
 
-// FloatArg coerces to float64 (integer → float promotion is fine).
 func FloatArg(name string, n int, args []Value) float64 {
 	if n < 1 || n > len(args) {
 		panic(Errorf("bad argument #%d to '%s' (number expected)", n, name))
@@ -83,7 +43,6 @@ func FloatArg(name string, n int, args []Value) float64 {
 	return x
 }
 
-// IntArg coerces to int64. Floats with a fractional part are rejected.
 func IntArg(name string, n int, args []Value) int64 {
 	if n < 1 || n > len(args) {
 		panic(Errorf("bad argument #%d to '%s' (number expected)", n, name))
@@ -95,8 +54,6 @@ func IntArg(name string, n int, args []Value) int64 {
 	return x
 }
 
-// StringArg accepts strings, and (per Lua) coerces numbers via the standard
-// integer/float formatter.
 func StringArg(name string, n int, args []Value) string {
 	if n < 1 || n > len(args) {
 		panic(Errorf("bad argument #%d to '%s' (string expected)", n, name))
@@ -105,7 +62,6 @@ func StringArg(name string, n int, args []Value) string {
 		return s
 	}
 	if i, f, isInt, ok := ToNumber(args[n-1]); ok {
-		// Lua allows numbers where strings are expected via implicit coercion.
 		if isInt {
 			return formatInteger(i)
 		}
@@ -114,9 +70,6 @@ func StringArg(name string, n int, args []Value) string {
 	panic(Errorf("bad argument #%d to '%s' (string expected, got %s)", n, name, describeBadArg(args[n-1])))
 }
 
-// Object helpers
-
-// TableArg insists on a *Table.
 func TableArg(name string, n int, args []Value) *Table {
 	if n < 1 || n > len(args) {
 		panic(Errorf("bad argument #%d to '%s' (table expected)", n, name))
@@ -128,9 +81,6 @@ func TableArg(name string, n int, args []Value) *Table {
 	return t
 }
 
-// ClosureArg insists on a Lua *Closure. (Use FunctionArg if you also want
-// to accept host *GoFunc; this helper is strict, matching Lua's
-// `coroutine.create` / `coroutine.wrap` which require a real closure.)
 func ClosureArg(name string, n int, args []Value) *Closure {
 	if n < 1 || n > len(args) {
 		panic(Errorf("bad argument #%d to '%s' (function expected)", n, name))
@@ -142,7 +92,6 @@ func ClosureArg(name string, n int, args []Value) *Closure {
 	return cl
 }
 
-// CoroutineArg insists on a *Coroutine.
 func CoroutineArg(name string, n int, args []Value) *Coroutine {
 	if n < 1 || n > len(args) {
 		panic(Errorf("bad argument #%d to '%s' (coroutine expected)", n, name))
@@ -154,8 +103,6 @@ func CoroutineArg(name string, n int, args []Value) *Coroutine {
 	return co
 }
 
-// AnyArg simply asserts presence — for "value expected" sites where the
-// callee handles every Value type itself (type(), pcall(), error()).
 func AnyArg(name string, n int, args []Value) Value {
 	if n < 1 || n > len(args) {
 		panic(Errorf("bad argument #%d to '%s' (value expected)", n, name))
@@ -163,8 +110,6 @@ func AnyArg(name string, n int, args []Value) Value {
 	return args[n-1]
 }
 
-// NilOrTableArg accepts nil (returned as Go nil *Table) or a *Table. Used
-// by setmetatable's second argument.
 func NilOrTableArg(name string, n int, args []Value) *Table {
 	if n < 1 || n > len(args) {
 		return nil
@@ -178,9 +123,6 @@ func NilOrTableArg(name string, n int, args []Value) *Table {
 	panic(Errorf("bad argument #%d to '%s' (nil or table expected, got %s)", n, name, describeBadArg(args[n-1])))
 }
 
-// TableOrStringArg accepts either a string or a *Table — used by rawlen.
-// Exactly one of the returned `s`/`t` will be meaningful; the other is the
-// zero value. Callers should branch on `isString`.
 func TableOrStringArg(name string, n int, args []Value) (s string, t *Table, isString bool) {
 	if n < 1 || n > len(args) {
 		panic(Errorf("bad argument #%d to '%s' (table or string expected)", n, name))
@@ -194,10 +136,6 @@ func TableOrStringArg(name string, n int, args []Value) (s string, t *Table, isS
 	panic(Errorf("bad argument #%d to '%s' (table or string expected, got %s)", n, name, describeBadArg(args[n-1])))
 }
 
-// Optional-argument helpers
-
-// OptString returns the string arg at position n or `dflt` if the arg is
-// absent or nil. A present, non-string, non-nil value raises.
 func OptString(name string, n int, args []Value, dflt string) string {
 	if n < 1 || n > len(args) {
 		return dflt
@@ -208,8 +146,6 @@ func OptString(name string, n int, args []Value, dflt string) string {
 	return StringArg(name, n, args)
 }
 
-// OptInt returns the integer arg at position n or `dflt` if the arg is
-// absent or nil. A present, non-numeric, non-nil value raises.
 func OptInt(name string, n int, args []Value, dflt int64) int64 {
 	if n < 1 || n > len(args) {
 		return dflt

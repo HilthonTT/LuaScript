@@ -6,14 +6,6 @@ import (
 	"testing"
 )
 
-// End-to-end tests against a real database. SQLite is the one driver that
-// needs no server, so it is what makes these possible at all — before it was
-// bundled, the only coverage available was the fake driver in db_test.go.
-//
-// Everything here goes through the Lua surface, so it exercises the whole
-// path: resolveDriver, the *sql.DB pool settings, bind-parameter passing, and
-// the column-type mapping.
-
 func TestSQLiteRoundTrip(t *testing.T) {
 	v := runDB(t, `
 		local db = require("db")
@@ -38,8 +30,6 @@ func TestSQLiteRoundTrip(t *testing.T) {
 	if got := v.Globals.Get("first_name"); got != "ada" {
 		t.Errorf("name = %v, want ada", got)
 	}
-	// The point of the type assertions: a number column must arrive as a
-	// number, not as the driver's textual rendering of one.
 	if got := v.Globals.Get("id_type"); got != "number" {
 		t.Errorf("type(id) = %v, want number", got)
 	}
@@ -51,10 +41,6 @@ func TestSQLiteRoundTrip(t *testing.T) {
 	}
 }
 
-// TestSQLiteInMemoryPoolIsPinned is the regression guard for the trap
-// isMemoryDSN exists to avoid: *sql.DB is a pool and each SQLite in-memory
-// connection is a private database, so without SetMaxOpenConns(1) a later
-// query can land on a fresh connection and find no tables at all.
 func TestSQLiteInMemoryPoolIsPinned(t *testing.T) {
 	v := runDB(t, `
 		local db = require("db")
@@ -74,7 +60,6 @@ func TestSQLiteInMemoryPoolIsPinned(t *testing.T) {
 }
 
 func TestSQLiteFileBacked(t *testing.T) {
-	// A path with forward slashes so the Lua string literal is portable.
 	path := filepath.ToSlash(filepath.Join(t.TempDir(), "app.db"))
 	v := runDB(t, `
 		local db = require("db")
@@ -94,9 +79,6 @@ func TestSQLiteFileBacked(t *testing.T) {
 	}
 }
 
-// TestExecReturnsLastInsertID covers the second return value, which is how
-// generated keys are read on SQLite and MySQL. (Postgres reports 0 here and
-// needs RETURNING instead — see the module docs.)
 func TestExecReturnsLastInsertID(t *testing.T) {
 	v := runDB(t, `
 		local db = require("db")
@@ -136,8 +118,6 @@ func TestNullBecomesNil(t *testing.T) {
 	}
 }
 
-// TestBindParametersAreNotInterpolated: values go through the driver as bind
-// parameters, so a quote in a value is data and not syntax.
 func TestBindParametersAreNotInterpolated(t *testing.T) {
 	v := runDB(t, `
 		local db = require("db")
@@ -165,7 +145,6 @@ func TestConnectionReportsItsDriverAndPlaceholder(t *testing.T) {
 		ph     = c:placeholder(1)
 		c:close()
 	`)
-	// "sqlite" or "sqlite3" depending on the build tag; either is correct.
 	got, _ := v.Globals.Get("driver").(string)
 	if !strings.HasPrefix(got, "sqlite") {
 		t.Errorf("conn.driver = %v, want a sqlite driver", v.Globals.Get("driver"))
@@ -204,8 +183,6 @@ func TestPlaceholderModuleFunction(t *testing.T) {
 }
 
 func TestOpenResolvesAliases(t *testing.T) {
-	// "sqlite3" resolves whichever SQLite backend is compiled in, so this
-	// works under both build configurations.
 	runDB(t, `
 		local db = require("db")
 		local c = db.open("sqlite3", ":memory:")
@@ -214,8 +191,6 @@ func TestOpenResolvesAliases(t *testing.T) {
 	`)
 }
 
-// TestQueryErrorIsCatchable: a bad statement raises a Lua error rather than
-// killing the VM, so scripts can pcall around it.
 func TestQueryErrorIsCatchable(t *testing.T) {
 	v := runDB(t, `
 		local db = require("db")

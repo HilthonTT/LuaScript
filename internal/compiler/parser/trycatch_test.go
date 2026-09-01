@@ -1,7 +1,5 @@
 package parser
 
-// Tests for the `try ... catch [e] do ... end` statement and `throw`.
-
 import (
 	"strings"
 	"testing"
@@ -35,7 +33,6 @@ func TestParseTryCatchWithBinding(t *testing.T) {
 	}
 }
 
-// TestParseTryCatchWithoutBinding — the binding is optional, the `do` is not.
 func TestParseTryCatchWithoutBinding(t *testing.T) {
 	tc := parseTry(t, `try f() catch do g() end`)
 	if tc.CatchVar != nil {
@@ -46,9 +43,6 @@ func TestParseTryCatchWithoutBinding(t *testing.T) {
 	}
 }
 
-// TestParseTryCatchEmptyBodies — `catch` terminates the try block, so an empty
-// protected body must not swallow the handler. The single `end` closes the
-// whole statement; `catch ... do` opens no block of its own.
 func TestParseTryCatchEmptyBodies(t *testing.T) {
 	tc := parseTry(t, `try catch do end`)
 	if len(tc.Try.Statements) != 0 {
@@ -85,8 +79,6 @@ end`)
 	}
 }
 
-// TestParseTryBodyAllowsReturn — `return` is legal as the last statement of the
-// protected block, like any other Lua block.
 func TestParseTryBodyAllowsReturn(t *testing.T) {
 	src := `function f() try return 1 catch e do return 2 end end`
 	prog := parse(t, src)
@@ -120,7 +112,6 @@ func TestParseThrow(t *testing.T) {
 	}
 }
 
-// TestParseThrowNonStringValues — any expression may be thrown.
 func TestParseThrowNonStringValues(t *testing.T) {
 	for _, src := range []string{
 		`throw 42`,
@@ -160,8 +151,6 @@ func TestParseTryCatchErrors(t *testing.T) {
 		{"catch without do or binding", `try f() catch print(e) end`, "expected 'do' after 'catch'"},
 		{"missing end", `try f() catch e do g()`, "missing 'end' to close 'try'"},
 		{"try at eof", `try`, "missing 'catch'"},
-		// `catch` is a block terminator, so a stray one ends the chunk rather
-		// than reaching parseStatement — the same way a stray `end` behaves.
 		{"stray catch", `catch e do end`, "unexpected 'catch' after end of chunk"},
 		{"catch with no try", `do catch e do end end`, "missing 'end' to close 'do'"},
 	}
@@ -175,8 +164,6 @@ func TestParseTryCatchErrors(t *testing.T) {
 	}
 }
 
-// TestParseTryCatchReportsOpeningLine — the "missing end" diagnostic should
-// point the reader back at the `try` that opened the block.
 func TestParseTryCatchReportsOpeningLine(t *testing.T) {
 	msg := parseError(t, "local x = 1\n\ntry\n  f()\ncatch e do\n  g()\n")
 	if !strings.Contains(msg, "line 3") {

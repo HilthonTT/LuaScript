@@ -6,12 +6,6 @@ import (
 	"github.com/hilthontt/luascript/internal/lsp/protocol"
 )
 
-// unimplementedServer provides a no-op implementation of every method in the
-// protocol.Server interface. The real Server embeds it and overrides only the
-// handful of methods it actually supports, keeping server.go focused on
-// behaviour rather than boilerplate. Every method here returns zero values,
-// which the client interprets as "feature not provided" for the capabilities
-// we did not advertise in Initialize.
 type unimplementedServer struct{}
 
 func (unimplementedServer) Initialize(context.Context, *protocol.InitializeParams) (*protocol.InitializeResult, error) {

@@ -1,17 +1,7 @@
 package typecheck
 
-// Control-flow analysis: which blocks terminate, and where goto/continue appear.
-
 import "github.com/hilthontt/luascript/internal/compiler/ast"
 
-// through it ends in return/break/continue/throw or a call to error().
-// Used by walkIfStatement to persist a clause's negation past the `end` —
-// `if s == nil then return end` leaves s non-nil for the rest of the block.
-//
-// goto is not a terminator — and worse, a goto *anywhere* in the block can
-// escape to a label after the `end` from a path that never reaches the
-// block's terminating last statement, so any goto disqualifies the whole
-// block rather than just its final position.
 func (c *checker) blockTerminates(b *ast.Block) bool {
 	if b == nil {
 		return false
@@ -22,8 +12,6 @@ func (c *checker) blockTerminates(b *ast.Block) bool {
 	return c.blockTerminatesNoGoto(b)
 }
 
-// blockTerminatesNoGoto is blockTerminates without the (recursive) goto
-// scan, which the entry point has already performed for the whole subtree.
 func (c *checker) blockTerminatesNoGoto(b *ast.Block) bool {
 	if b == nil {
 		return false
@@ -47,8 +35,6 @@ func (c *checker) statementTerminates(s ast.Statement) bool {
 	case *ast.DoStatement:
 		return c.blockTerminatesNoGoto(n.Body)
 	case *ast.IfStatement:
-		// An if terminates only when every arm does — which requires an
-		// else, or the fall-through path escapes.
 		if n.Else == nil || !c.blockTerminatesNoGoto(n.Else) {
 			return false
 		}
@@ -62,9 +48,6 @@ func (c *checker) statementTerminates(s ast.Statement) bool {
 	return false
 }
 
-// isErrorCall matches a bare `error(...)` call statement — but only while
-// `error` still denotes the builtin: a shadowing local that happens to be
-// named error need not terminate.
 func (c *checker) isErrorCall(e ast.Expression) bool {
 	call, ok := e.(*ast.CallExpression)
 	if !ok {
@@ -74,9 +57,6 @@ func (c *checker) isErrorCall(e ast.Expression) bool {
 	return ok && fn.Name == "error" && c.builtinInScope("error")
 }
 
-// blockContainsGoto reports whether any statement in the block subtree is a
-// goto. Function-literal bodies are not entered: a goto cannot cross a
-// function boundary, so their gotos are irrelevant to this block.
 func blockContainsGoto(b *ast.Block) bool {
 	if b == nil {
 		return false
@@ -123,9 +103,6 @@ func statementContainsGoto(s ast.Statement) bool {
 	return false
 }
 
-// blockHasDirectContinue reports whether the block contains a `continue`
-// belonging to the enclosing loop — i.e. not inside a nested loop (whose
-// continue targets that loop) or a function literal.
 func blockHasDirectContinue(b *ast.Block) bool {
 	if b == nil {
 		return false
@@ -138,9 +115,6 @@ func blockHasDirectContinue(b *ast.Block) bool {
 	return false
 }
 
-// stmtHasDirectContinue is blockHasDirectContinue's per-statement half. It
-// exists as its own function because a match arm's body is a single
-// statement rather than a block.
 func stmtHasDirectContinue(s ast.Statement) bool {
 	switch n := s.(type) {
 	case *ast.ContinueStatement:
@@ -167,10 +141,6 @@ func stmtHasDirectContinue(s ast.Statement) bool {
 	return false
 }
 
-// assertCondition returns the condition argument when `e` is a call of the
-// form `assert(cond, ...)`. The statement walker applies cond's positive
-// narrowing to the rest of the block: control only continues past an assert
-// that held.
 func assertCondition(e ast.Expression) (ast.Expression, bool) {
 	call, ok := e.(*ast.CallExpression)
 	if !ok || len(call.Args) < 1 {
@@ -182,12 +152,3 @@ func assertCondition(e ast.Expression) (ast.Expression, bool) {
 	}
 	return call.Args[0], true
 }
-
-// Mutation pre-scan
-//
-// Two soundness holes need whole-program knowledge of assignments:
-//
-//   - a closure created inside a narrowed branch must not keep the narrowed
-//     type if the variable can be reassigned (the closure may run after the
-//     mutation), and
-//   - a refinement must not survive a function call when some closure

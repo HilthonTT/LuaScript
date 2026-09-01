@@ -16,10 +16,6 @@ import (
 )
 
 func main() {
-	// If this binary has an embedded script trailer, run it and exit —
-	// the bundled .exe should behave as the user's program, not as the
-	// luascript CLI. Falls through to the normal CLI when no payload is
-	// present (i.e., this is the plain interpreter binary).
 	payload, ok, err := readEmbeddedPayload()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "luascript:", err)
@@ -32,8 +28,6 @@ func main() {
 }
 
 func run(argv []string) int {
-	// Subcommand routing happens before flag parsing so that `luascript fmt -w`
-	// doesn't collide with the top-level flag set.
 	if len(argv) >= 1 && argv[0] == "fmt" {
 		return runFmt(argv[1:])
 	}
@@ -55,15 +49,11 @@ func run(argv []string) int {
 	if len(argv) >= 1 && argv[0] == "lsp" {
 		return runLSP(argv[1:])
 	}
-	// `man` is an alias so muscle memory works: luascript man string.gsub.
 	if len(argv) >= 1 && (argv[0] == "doc" || argv[0] == "man") {
 		return runDoc(argv[1:])
 	}
 
 	fs := flag.NewFlagSet("luascript", flag.ContinueOnError)
-	// Subcommands are routed above, before flag parsing, so the flag
-	// package never learns about them — list them by hand or `-h` gives no
-	// hint that `luascript doc` exists.
 	fs.Usage = func() {
 		fmt.Fprint(os.Stderr, `usage: luascript [flags] [script.lsc]
 
@@ -103,7 +93,6 @@ Flags:
 		return 2
 	}
 
-	// Standalone modes that don't touch the VM.
 	switch {
 	case *showVersion:
 		fmt.Println(version.GetVersionString())
@@ -132,29 +121,18 @@ Flags:
 		return 2
 	}
 
-	// Apply host-side GC knobs before the VM runs. Same knobs the Lua
-	// collectgarbage builtin uses, surfaced as CLI flags for deployment tuning.
 	gctune.Apply(gctune.Options{Percent: *gcPercent, MemoryLimit: *memLimit})
 
 	v := vm.New()
 	r := repl.NewREPL(v, os.Stdin, os.Stdout)
-	// Register native modules via the post-init hook so script runs (a fresh
-	// non-REPL-mode VM) and `:reset` (rebuilt REPL VM) both get them. The
-	// registrar list lives in cmd/natives.go so the bundled-binary code path
-	// in build.go's runBundled can walk the same slice.
 	for _, reg := range nativeRegistrars {
 		r.AddPostInit(reg)
 	}
 
-	// -i with a script argument is rejected rather than silently ignoring
-	// the file. "Load script then drop to REPL" would need a new REPL
-	// entry point; until then, refuse the combo so users don't think the
-	// script ran.
 	if *interactive && len(args) > 0 {
 		fmt.Fprintln(os.Stderr, "luascript: -i takes no script argument")
 		return 2
 	}
-	// No script, or -i requested: drop into the REPL.
 	if *interactive || len(args) == 0 {
 		r.Start()
 		return 0
@@ -179,18 +157,6 @@ Flags:
 	return 0
 }
 
-// runFmt implements `luascript fmt`. Exit codes: 0 success, 1 I/O or parse
-// error, 2 usage error. Mirrors gofmt's flag surface (-w write in place;
-// -d diff is out of scope for v1).
-//
-// Modes:
-//
-//	luascript fmt file.lsc     -> reformat and print to stdout
-//	luascript fmt -w file.lsc  -> reformat in place
-//	luascript fmt -               -> read stdin, write stdout
-//
-// On parse error the original source is left untouched and the error is
-// reported on stderr.
 func runFmt(argv []string) int {
 	fs := flag.NewFlagSet("fmt", flag.ContinueOnError)
 	write := fs.Bool("w", false, "write the formatted output back to the source file (no-op with stdin)")

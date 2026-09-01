@@ -37,14 +37,6 @@ import (
 	"github.com/hilthontt/luascript/internal/vm"
 )
 
-// nativeRegistrars is the single source of truth for which native
-// modules ship with the interpreter. Both the CLI path (cmd/main.go,
-// via repl.AddPostInit) and the bundled-binary path (cmd/build.go's
-// runBundled) walk this slice — adding a new module here is the only
-// change needed to surface it in both contexts.
-//
-// Order is not load-bearing: each registrar only installs a
-// package.preload entry; the loader runs on first `require`.
 var nativeRegistrars = []func(*vm.VM){
 	db.RegisterDBPreload,
 	osNative.RegisterOSPreload,
@@ -60,9 +52,6 @@ var nativeRegistrars = []func(*vm.VM){
 	std.RegisterStdPreload,
 	queue.RegisterQueuePreload,
 	compression.RegisterCompressionPreload,
-	// test is registered like any other module so `require("test")` resolves
-	// in a plain script run too. `luascript test` installs its own registry
-	// over this one after walking the list — see internal/testrunner.
 	testx.RegisterTestPreload,
 	bit32.RegisterBit32Preload,
 	utf8x.RegisterUTF8Preload,
@@ -79,37 +68,12 @@ var nativeRegistrars = []func(*vm.VM){
 	ndarray.RegisterNDArrayPreload,
 	plot.RegisterPlotPreload,
 	luaml.RegisterMLPreload,
-	// plugin loads Go libraries dynamically (go build -buildmode=plugin +
-	// reflection). Registered on every platform so `require("plugin")` always
-	// resolves; on platforms without Go plugin support the module loads with
-	// `supported = false` and generate/open raise. See internal/plugin.
 	plugin.RegisterPluginPreload,
-	// enumrt installs an internal global (__enum_freeze) the bytecode
-	// generator calls when lowering `enum` declarations. Not a require()
-	// target — placed in nativeRegistrars purely so it lands on both the
-	// CLI VM (via repl.AddPostInit) and the bundled-binary VM (via
-	// registerAllNatives) without a separate plumbing pass.
 	enumrt.RegisterEnumRT,
-	// structrt installs __struct_define, the constructor factory the
-	// bytecode generator calls when lowering a `struct` declaration. Like
-	// enumrt it is an internal emit target, not a require() module.
 	structrt.RegisterStructRT,
-	// Must stay last: it binds the modules registered above to globals, so
-	// every preload entry it looks for has to already exist. Hooks run in
-	// slice order on both the CLI and bundled paths, so appending here is
-	// enough to guarantee that.
 	promoteStandardGlobals,
 }
 
-// stdGlobalModules are the modules Lua 5.4 exposes as globals rather than as
-// require() targets. This runtime implements all three natively — internal/vm
-// cannot import internal/native — so without this step a script had to open
-// with `local io = require("io")` before any of the reference manual's io.open
-// examples would run.
-//
-// Deliberately short: promotion costs an eager load of each module at VM
-// startup, and only these three are part of the standard global namespace.
-// Everything else stays behind require, where it is paid for on first use.
 var stdGlobalModules = []string{"os", "io", "utf8"}
 
 func promoteStandardGlobals(v *vm.VM) {
@@ -118,8 +82,6 @@ func promoteStandardGlobals(v *vm.VM) {
 	}
 }
 
-// registerAllNatives applies each registrar to the given VM directly.
-// Used by the bundled-binary code path where there is no REPL.
 func registerAllNatives(v *vm.VM) {
 	for _, r := range nativeRegistrars {
 		r(v)

@@ -58,7 +58,6 @@ print(f(1))
 	if rep.Metrics.MaxComplexity < 4 {
 		t.Errorf("want MaxComplexity >= 4, got %d", rep.Metrics.MaxComplexity)
 	}
-	// At the default threshold the same file is clean of complexity flags.
 	rep2 := analyzeOK(t, src, Options{})
 	if hasRule(rep2, "high-complexity") {
 		t.Errorf("unexpected high-complexity at default threshold")
@@ -70,7 +69,6 @@ func TestUnusedLocal(t *testing.T) {
 	if !hasRule(rep, "unused-local") {
 		t.Errorf("want unused-local, got %v", rules(rep))
 	}
-	// An underscore-prefixed local is intentionally unused — not flagged.
 	rep2 := analyzeOK(t, "local _scratch = 5\n", Options{})
 	if hasRule(rep2, "unused-local") {
 		t.Errorf("underscore local should not be flagged")
@@ -112,7 +110,6 @@ func TestHardcodedCredential(t *testing.T) {
 	if !hasRule(rep, "hardcoded-credential") {
 		t.Errorf("want hardcoded-credential, got %v", rules(rep))
 	}
-	// Table-field form.
 	rep2 := analyzeOK(t, "local cfg = { api_key = \"sk-12345\" }\nprint(cfg)\n", Options{})
 	if !hasRule(rep2, "hardcoded-credential") {
 		t.Errorf("want hardcoded-credential for table field, got %v", rules(rep2))

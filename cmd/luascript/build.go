@@ -14,31 +14,15 @@ import (
 	"github.com/hilthontt/luascript/internal/vm"
 )
 
-// Trailer layout (read backwards from end of file):
-//
-//	<magic>        8 bytes  ("LUASCRIPT01")
-//	<scriptLen>    8 bytes  uint64 little-endian
-//	<versionLen>   2 bytes  uint16 little-endian
-//	<version>      versionLen bytes (ASCII)
-//	<script>       scriptLen  bytes (UTF-8 source)
-//
-// A file with no trailer is just the plain interpreter binary.
 const (
 	trailerMagic    = "LUASCRIPT01"
 	trailerMagicLen = len(trailerMagic)
-	trailerFixedLen = trailerMagicLen + 8 /* scriptLen */ + 2 /* versionLen */
+	trailerFixedLen = trailerMagicLen + 8 + 2
 
-	// Sanity bounds to reject obviously corrupt trailers without trying
-	// to read huge or negative-after-truncation amounts of data.
-	maxPayloadBytes = 64 * 1024 * 1024 // 64 MiB
+	maxPayloadBytes = 64 * 1024 * 1024
 	maxVersionBytes = 256
 )
 
-// readPayloadFrom reads a trailer from r (assumed to be the bytes of a
-// possibly-bundled binary). Returns (script, true, nil) when a valid
-// trailer is present and the version stamp matches version.Version,
-// (\"\", false, nil) when no trailer is present, or an error for a
-// trailer that is present but malformed or version-mismatched.
 func readPayloadFrom(r io.ReaderAt, size int64) (string, bool, error) {
 	if size < int64(trailerFixedLen) {
 		return "", false, nil
@@ -99,9 +83,6 @@ func readPayloadFrom(r io.ReaderAt, size int64) (string, bool, error) {
 	return string(src), true, nil
 }
 
-// stubOffsetFrom returns the byte offset where the stub binary ends —
-// i.e. the position where the trailer (including version string and
-// script source) begins. Returns size when no trailer is present.
 func stubOffsetFrom(r io.ReaderAt, size int64) (int64, error) {
 	if size < int64(trailerFixedLen) {
 		return size, nil
@@ -133,8 +114,6 @@ func stubOffsetFrom(r io.ReaderAt, size int64) (int64, error) {
 	return size - totalBack, nil
 }
 
-// readEmbeddedPayload opens the running executable and returns its
-// embedded script source, if any.
 func readEmbeddedPayload() (string, bool, error) {
 	exe, err := os.Executable()
 	if err != nil {
@@ -152,11 +131,6 @@ func readEmbeddedPayload() (string, bool, error) {
 	return readPayloadFrom(f, info.Size())
 }
 
-// runBundled executes an embedded script on a fresh VM, bypassing the
-// REPL package entirely. Mirrors the registration done in run() for the
-// normal CLI path, but uses parser.NormalMode (NOT REPLMode) so that
-// chunk-root `local x = v` retains lexical-block semantics — REPLMode
-// would silently promote those locals to globals.
 func runBundled(src string) int {
 	v := vm.New()
 	registerAllNatives(v)
@@ -176,8 +150,6 @@ func runBundled(src string) int {
 	return 0
 }
 
-// runBuild implements `luascript build script.lsc -o out.exe`.
-// Exit codes: 0 success, 1 I/O or parse error, 2 usage error.
 func runBuild(argv []string) int {
 	fs := flag.NewFlagSet("build", flag.ContinueOnError)
 	out := fs.String("o", "", "output binary path (required)")
@@ -201,8 +173,6 @@ func runBuild(argv []string) int {
 		return 1
 	}
 
-	// Fail at build time on syntax errors so the bundled .exe doesn't
-	// die on first run. Compiled output is discarded — payload is source.
 	if _, err := compiler.CompileToInstructions(string(src), parser.NormalMode); err != nil {
 		fmt.Fprintln(os.Stderr, "build: parse:", err)
 		return 1
@@ -219,7 +189,6 @@ func runBuild(argv []string) int {
 		return 1
 	}
 
-	// Strip any existing trailer so re-bundling doesn't nest payloads.
 	stubLen, err := stubOffsetFrom(bytesReaderAt(stubAll), int64(len(stubAll)))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "build: inspect luascript:", err)
@@ -248,8 +217,6 @@ func runBuild(argv []string) int {
 	return 0
 }
 
-// bytesReaderAt adapts a []byte to io.ReaderAt without pulling in
-// bytes.Reader's seek state — keeps the stub-strip path branch-free.
 type bytesReaderAt []byte
 
 func (b bytesReaderAt) ReadAt(p []byte, off int64) (int, error) {

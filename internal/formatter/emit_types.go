@@ -1,7 +1,5 @@
 package formatter
 
-// Doc emission for type annotations.
-
 import "github.com/hilthontt/luascript/internal/compiler/ast"
 
 func (e *emitter) typeNode(t ast.TypeNode, opts Options) Doc {
@@ -9,8 +7,6 @@ func (e *emitter) typeNode(t ast.TypeNode, opts Options) Doc {
 	case *ast.TypePrimitive:
 		return text(v.Name)
 	case *ast.TypeLiteral:
-		// Raw is the source spelling, so a singleton round-trips exactly as
-		// written (`0x10` stays `0x10`).
 		return text(v.Raw)
 	case *ast.TypeName:
 		return text(v.Name)

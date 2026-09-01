@@ -22,7 +22,6 @@ import (
 	"github.com/hilthontt/luascript/internal/vm"
 )
 
-// RegisterCryptoPreload installs the `crypto` module under package.preload.
 func RegisterCryptoPreload(v *vm.VM) {
 	vm.RegisterPreload(v, "crypto", cryptoLoader)
 }
@@ -37,8 +36,6 @@ func newCrypto() *vm.Table {
 	m := vm.NewTable(0, 2)
 	methods := vm.NewTable(0, 12)
 
-	// hashFn wires one digest function: it takes a string and returns its
-	// lowercase hex digest.
 	hashFn := func(name string, sum func([]byte) string) {
 		methods.Set(name, &vm.GoFunc{Name: "crypto:" + name, Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 			s := vm.StringArg("crypto."+name, 1, args)
@@ -66,7 +63,6 @@ func newCrypto() *vm.Table {
 		return hex.EncodeToString(h[:])
 	})
 
-	// crypto.hmac_sha256(key, msg) -> hex string.
 	methods.Set("hmac_sha256", &vm.GoFunc{Name: "crypto:hmac_sha256", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 		key := vm.StringArg("crypto.hmac_sha256", 1, args)
 		msg := vm.StringArg("crypto.hmac_sha256", 2, args)
@@ -75,9 +71,6 @@ func newCrypto() *vm.Table {
 		return []vm.Value{hex.EncodeToString(mac.Sum(nil))}
 	}})
 
-	// crypto.hmac(alg, key, msg) -> hex string. The algorithm-agnostic form:
-	// hmac_sha256 was the only HMAC available, so anything speaking a protocol
-	// that specifies SHA-1 or SHA-512 could not be implemented at all.
 	methods.Set("hmac", &vm.GoFunc{Name: "crypto:hmac", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 		alg := vm.StringArg("crypto.hmac", 1, args)
 		key := vm.StringArg("crypto.hmac", 2, args)
@@ -87,17 +80,6 @@ func newCrypto() *vm.Table {
 		return []vm.Value{hex.EncodeToString(mac.Sum(nil))}
 	}})
 
-	// crypto.password_hash(password [, opts]) -> encoded string.
-	//
-	// Password storage needs a slow, salted, memory-hard KDF; the module
-	// previously offered only raw digests, so the natural reach was
-	// crypto.sha256(password), which is trivially brute-forced. Argon2id is the
-	// current recommended default.
-	//
-	// The result is self-describing (the PHC string format that reference
-	// argon2 emits), carrying the version, cost parameters and salt alongside
-	// the digest, so verification needs nothing but the stored string and cost
-	// parameters can be raised later without invalidating old hashes.
 	methods.Set("password_hash", &vm.GoFunc{Name: "crypto:password_hash", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 		password := vm.StringArg("crypto.password_hash", 1, args)
 		p := defaultArgonParams()
@@ -112,10 +94,6 @@ func newCrypto() *vm.Table {
 			argon2.IDKey([]byte(password), salt, p.time, p.memory, p.threads, p.keyLen))}
 	}})
 
-	// crypto.password_verify(password, encoded) -> boolean. Re-derives with the
-	// parameters recorded in `encoded` and compares in constant time. A
-	// malformed or unsupported encoding is false, not an error, so a corrupt
-	// stored hash fails the login instead of crashing the request.
 	methods.Set("password_verify", &vm.GoFunc{Name: "crypto:password_verify", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 		password := vm.StringArg("crypto.password_verify", 1, args)
 		encoded := vm.StringArg("crypto.password_verify", 2, args)
@@ -127,9 +105,6 @@ func newCrypto() *vm.Table {
 		return []vm.Value{subtle.ConstantTimeCompare(got, want) == 1}
 	}})
 
-	// crypto.pbkdf2(password, salt, iterations, keylen [, alg]) -> raw bytes.
-	// For deriving a key to a length a protocol dictates, and for verifying
-	// against systems that already store PBKDF2 hashes.
 	methods.Set("pbkdf2", &vm.GoFunc{Name: "crypto:pbkdf2", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 		password := vm.StringArg("crypto.pbkdf2", 1, args)
 		salt := vm.StringArg("crypto.pbkdf2", 2, args)
@@ -139,8 +114,6 @@ func newCrypto() *vm.Table {
 		if iter < 1 {
 			panic(vm.Errorf("crypto.pbkdf2: iterations must be >= 1, got %d", iter))
 		}
-		// Same rationale as random_bytes: a script-chosen length must not be
-		// able to force an unrecoverable OOM.
 		if keyLen < 1 || keyLen > maxDerivedKeyLen {
 			panic(vm.Errorf("crypto.pbkdf2: keylen must be between 1 and %d, got %d",
 				maxDerivedKeyLen, keyLen))
@@ -152,11 +125,6 @@ func newCrypto() *vm.Table {
 		return []vm.Value{string(key)}
 	}})
 
-	// crypto.random_int(n) -> a uniform integer in [0, n).
-	//
-	// The obvious script-level spelling — reducing random_bytes modulo n — is
-	// biased unless n divides 2^64, and the bias is toward the low values an
-	// attacker would guess first.
 	methods.Set("random_int", &vm.GoFunc{Name: "crypto:random_int", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 		n := vm.IntArg("crypto.random_int", 1, args)
 		if n < 1 {
@@ -169,9 +137,6 @@ func newCrypto() *vm.Table {
 		return []vm.Value{v.Int64()}
 	}})
 
-	// crypto.hmac_verify(key, msg, expected_hex) -> bool. Constant-time:
-	// comparing an HMAC with == leaks how many leading characters match,
-	// which lets an attacker forge MACs byte by byte.
 	methods.Set("hmac_verify", &vm.GoFunc{Name: "crypto:hmac_verify", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 		key := vm.StringArg("crypto.hmac_verify", 1, args)
 		msg := vm.StringArg("crypto.hmac_verify", 2, args)
@@ -185,8 +150,6 @@ func newCrypto() *vm.Table {
 		return []vm.Value{hmac.Equal(mac.Sum(nil), expected)}
 	}})
 
-	// crypto.constant_time_equal(a, b) -> bool. For comparing any two
-	// secret-derived strings (tokens, digests) without a timing side channel.
 	methods.Set("constant_time_equal", &vm.GoFunc{Name: "crypto:constant_time_equal", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 		a := vm.StringArg("crypto.constant_time_equal", 1, args)
 		b := vm.StringArg("crypto.constant_time_equal", 2, args)
@@ -196,8 +159,6 @@ func newCrypto() *vm.Table {
 		return []vm.Value{subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1}
 	}})
 
-	// codecFn wires an encode/decode pair (e.g. base64, hex). Decode is
-	// allowed to fail; encoders can't, so they get the simpler signature.
 	codecFn := func(family string, encode func([]byte) string, decode func(string) ([]byte, error)) {
 		encName := family + "_encode"
 		decName := family + "_decode"
@@ -216,16 +177,10 @@ func newCrypto() *vm.Table {
 	}
 	codecFn("base64", base64.StdEncoding.EncodeToString, base64.StdEncoding.DecodeString)
 	codecFn("hex", hex.EncodeToString, hex.DecodeString)
-	// URL-safe base64 (RFC 4648 §5): '-' and '_' in place of '+' and '/'.
-	// Required for JWTs, URL parameters and filenames, where the standard
-	// alphabet's '+' and '/' have to be percent-encoded.
 	codecFn("base64url", base64.RawURLEncoding.EncodeToString, decodeBase64URL)
 
-	// crypto.random_bytes(n) -> raw string of n crypto-random bytes.
 	methods.Set("random_bytes", &vm.GoFunc{Name: "crypto:random_bytes", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 		n := vm.IntArg("crypto.random_bytes", 1, args)
-		// Upper bound keeps a script-supplied count from forcing an
-		// unrecoverable OOM (Go OOM is fatal — pcall can't catch it).
 		const maxRandomBytes = 64 * 1024 * 1024
 		if n < 0 || n > maxRandomBytes {
 			panic(vm.Errorf("crypto.random_bytes: count must be between 0 and %d, got %d", int64(maxRandomBytes), n))
@@ -243,12 +198,8 @@ func newCrypto() *vm.Table {
 	return m
 }
 
-// maxDerivedKeyLen bounds pbkdf2 output for the same reason random_bytes is
-// bounded: a Go OOM is fatal and cannot be caught by pcall.
 const maxDerivedKeyLen = 1 << 20
 
-// hashByName maps a Lua-facing algorithm name to its constructor. Used by the
-// algorithm-agnostic hmac and pbkdf2 entry points.
 func hashByName(site, name string) func() hash.Hash {
 	switch strings.ToLower(name) {
 	case "sha256":
@@ -265,10 +216,6 @@ func hashByName(site, name string) func() hash.Hash {
 	panic(vm.Errorf("%s: unsupported hash %q (want sha256, sha384, sha512, sha1 or md5)", site, name))
 }
 
-// decodeBase64URL accepts both the padded and unpadded URL-safe alphabets.
-// Encoders disagree about the padding — JWTs strip it, some libraries keep it —
-// and rejecting one of the two would make round-tripping other systems' output
-// fail for a reason the caller cannot act on.
 func decodeBase64URL(s string) ([]byte, error) {
 	if strings.HasSuffix(s, "=") {
 		return base64.URLEncoding.DecodeString(s)
@@ -276,25 +223,18 @@ func decodeBase64URL(s string) ([]byte, error) {
 	return base64.RawURLEncoding.DecodeString(s)
 }
 
-// argonParams are the argon2id cost parameters recorded in each encoded hash.
 type argonParams struct {
-	time    uint32 // passes over memory
-	memory  uint32 // KiB
+	time    uint32
+	memory  uint32
 	threads uint8
 	keyLen  uint32
 	saltLen uint32
 }
 
-// defaultArgonParams follows the RFC 9106 second recommended option (64 MiB,
-// 3 passes), which is the widely deployed default for interactive logins.
 func defaultArgonParams() argonParams {
 	return argonParams{time: 3, memory: 64 * 1024, threads: 4, keyLen: 32, saltLen: 16}
 }
 
-// argonParamsFrom overlays a caller's opts table onto the defaults, so raising
-// one cost does not mean restating the others. Values are clamped to sane
-// floors: a zero or negative cost would produce a hash weaker than no hashing,
-// silently.
 func argonParamsFrom(t *vm.Table, p argonParams) argonParams {
 	getPositive := func(key string, dflt uint32) uint32 {
 		n, ok := vm.ToInteger(t.Get(key))
@@ -313,9 +253,6 @@ func argonParamsFrom(t *vm.Table, p argonParams) argonParams {
 	return p
 }
 
-// encodeArgon renders the PHC string format reference argon2 uses:
-// $argon2id$v=19$m=…,t=…,p=…$<salt>$<hash>, with unpadded base64 for both
-// binary fields.
 func encodeArgon(p argonParams, salt, key []byte) string {
 	return fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s",
 		argon2.Version, p.memory, p.time, p.threads,
@@ -323,12 +260,8 @@ func encodeArgon(p argonParams, salt, key []byte) string {
 		base64.RawStdEncoding.EncodeToString(key))
 }
 
-// decodeArgon parses what encodeArgon produced. Every failure returns ok=false
-// rather than an error value: the caller is verifying a password, and any
-// unreadable stored hash means "does not match".
 func decodeArgon(s string) (p argonParams, salt, key []byte, ok bool) {
 	parts := strings.Split(s, "$")
-	// Leading "$" yields an empty first field: ["", "argon2id", "v=19", "m=…", salt, key]
 	if len(parts) != 6 || parts[0] != "" || parts[1] != "argon2id" {
 		return p, nil, nil, false
 	}

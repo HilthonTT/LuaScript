@@ -6,8 +6,6 @@ import (
 	"testing"
 )
 
-// math
-
 func TestMathConstants(t *testing.T) {
 	v := run(t, `
 		p = math.pi
@@ -80,13 +78,10 @@ func TestMathRandomDeterministicWithSeed(t *testing.T) {
 		math.randomseed(42)
 		b = math.random()
 	`)
-	// Same seed → same first draw.
 	if !Equal(global(t, v, "a"), global(t, v, "b")) {
 		t.Errorf("a = %v, b = %v, expected equal under same seed", global(t, v, "a"), global(t, v, "b"))
 	}
 }
-
-// string
 
 func TestStringBasicOps(t *testing.T) {
 	v := run(t, `
@@ -144,7 +139,6 @@ func TestStringFormat(t *testing.T) {
 	assertGlobalEqual(t, v, "b", "[   42]")
 }
 
-// String method-syntax: relies on the string metatable wired by the stdlib.
 func TestStringMethodSyntax(t *testing.T) {
 	v := run(t, `
 		a = ("hi"):upper()
@@ -155,8 +149,6 @@ func TestStringMethodSyntax(t *testing.T) {
 	assertGlobalEqual(t, v, "b", "hey")
 	assertGlobalEqual(t, v, "c", int64(5))
 }
-
-// table
 
 func TestTableInsertAppendsAtEnd(t *testing.T) {
 	v := run(t, `
@@ -213,18 +205,10 @@ func TestTableUnpackAndPack(t *testing.T) {
 	assertGlobalEqual(t, v, "c", int64(30))
 }
 
-// io  (skip io.read which would block on stdin in tests)
-
 func TestIOWriteIsCallable(t *testing.T) {
-	// We don't capture stdout in tests; just verify the call doesn't panic.
 	run(t, `io.write("")`)
 }
 
-// Regressions
-
-// math.floor / math.ceil used to coerce their argument to float64 before
-// rounding, so any integer above 2^53 came back as the nearest double instead
-// of itself: math.floor(math.maxinteger) returned 9.2233720368548e+18.
 func TestMathFloorCeilPreserveWideIntegers(t *testing.T) {
 	v := run(t, `
 		fmax = math.floor(math.maxinteger)
@@ -238,7 +222,6 @@ func TestMathFloorCeilPreserveWideIntegers(t *testing.T) {
 	assertGlobalEqual(t, v, "cmin", int64(math.MinInt64))
 }
 
-// Float input must still round and narrow back to an integer where it fits.
 func TestMathFloorCeilOnFloats(t *testing.T) {
 	v := run(t, `
 		a = math.floor(-2.5)
@@ -252,9 +235,6 @@ func TestMathFloorCeilOnFloats(t *testing.T) {
 	}
 }
 
-// table.concat's bounds are caller-chosen, so an unguarded span let
-// table.concat(t, "", 1, math.maxinteger) spin forever. unpack and move
-// already had this guard.
 func TestTableConcatRejectsHugeSpan(t *testing.T) {
 	msg := runErr(t, `table.concat({1, 2, 3}, "", 1, math.maxinteger)`)
 	if !strings.Contains(msg, "too many elements to concat") {
@@ -262,8 +242,6 @@ func TestTableConcatRejectsHugeSpan(t *testing.T) {
 	}
 }
 
-// A span that is merely large but under the cap must still work, and an empty
-// range (hi < lo) must stay a no-op rather than tripping the guard.
 func TestTableConcatNormalRangesStillWork(t *testing.T) {
 	v := run(t, `
 		a = table.concat({1, 2, 3}, "-")
@@ -275,9 +253,6 @@ func TestTableConcatNormalRangesStillWork(t *testing.T) {
 	assertGlobalEqual(t, v, "c", "")
 }
 
-// Lua 5.4's math.randomseed reports the seed it used, so a self-seeding run can
-// print the value and be replayed. This VM returned nothing while the
-// typechecker advertised (number, number).
 func TestMathRandomseedReturnsSeed(t *testing.T) {
 	v := run(t, `
 		a, b = math.randomseed(1234)
@@ -289,8 +264,6 @@ func TestMathRandomseedReturnsSeed(t *testing.T) {
 	assertGlobalEqual(t, v, "d", int64(0))
 }
 
-// _G is the globals table itself, which is what makes dynamic access by
-// computed name possible. Self-referential in Lua, so _G._G == _G.
 func TestGlobalsTableIsReflexive(t *testing.T) {
 	v := run(t, `
 		selfref = _G._G == _G
@@ -310,8 +283,6 @@ func TestVersionGlobal(t *testing.T) {
 	assertGlobalEqual(t, v, "ver", "Lua 5.4")
 }
 
-// math.ult compares two integers as unsigned, so -1 (all bits set) is the
-// largest value rather than the smallest.
 func TestMathUlt(t *testing.T) {
 	v := run(t, `
 		a = math.ult(1, 2)
@@ -322,7 +293,7 @@ func TestMathUlt(t *testing.T) {
 	`)
 	assertGlobalEqual(t, v, "a", true)
 	assertGlobalEqual(t, v, "b", false)
-	assertGlobalEqual(t, v, "c", false) // -1 is 2^64-1 unsigned
+	assertGlobalEqual(t, v, "c", false)
 	assertGlobalEqual(t, v, "d", true)
-	assertGlobalEqual(t, v, "e", true) // mininteger is 2^63 unsigned
+	assertGlobalEqual(t, v, "e", true)
 }

@@ -16,7 +16,6 @@ func TestNiceTicks(t *testing.T) {
 			t.Fatalf("ticks not increasing: %v", ticks)
 		}
 	}
-	// Step should be a 1-2-5 multiple; for [0,10]/5 that is 2.
 	if math.Abs((ticks[1]-ticks[0])-2) > 1e-9 {
 		t.Fatalf("unexpected step %v (ticks %v)", ticks[1]-ticks[0], ticks)
 	}

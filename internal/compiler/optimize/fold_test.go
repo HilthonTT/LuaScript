@@ -8,8 +8,6 @@ import (
 	"github.com/hilthontt/luascript/internal/compiler/parser"
 )
 
-// parseExpr parses `local _v = <src>`, runs Fold, and returns the folded
-// value expression.
 func parseExpr(t *testing.T, src string) ast.Expression {
 	t.Helper()
 	p := parser.New(lexer.New("local _v = " + src))
@@ -34,7 +32,7 @@ func TestFoldInteger(t *testing.T) {
 		"-7 // 2":     -4,
 		"7 % 3":       1,
 		"-7 % 3":      2,
-		"3 < 5 and 9": 9, // logical short-circuit then int
+		"3 < 5 and 9": 9,
 		"-5":          -5,
 		"- -5":        5,
 		`#"hello"`:    5,
@@ -94,7 +92,7 @@ func TestFoldBool(t *testing.T) {
 		"nil == nil":  true,
 		"not true":    false,
 		"not nil":     true,
-		"not 0":       false, // 0 is truthy in Lua
+		"not 0":       false,
 		"not (1 + 1)": false,
 	}
 	for src, want := range cases {
@@ -122,29 +120,24 @@ func TestFoldString(t *testing.T) {
 }
 
 func TestFoldLogicalShortCircuit(t *testing.T) {
-	// false and X -> false (X dropped)
 	if got := parseExpr(t, "false and 5"); !isBool(got, false) {
 		t.Errorf("`false and 5`: got %T", got)
 	}
-	// nil or X -> X
 	if lit, ok := parseExpr(t, "nil or 7").(*ast.IntegerLiteral); !ok || lit.Value != 7 {
 		t.Errorf("`nil or 7`: got %#v", parseExpr(t, "nil or 7"))
 	}
-	// truthy or X -> truthy
 	if lit, ok := parseExpr(t, "1 or 7").(*ast.IntegerLiteral); !ok || lit.Value != 1 {
 		t.Errorf("`1 or 7`: got %#v", parseExpr(t, "1 or 7"))
 	}
 }
 
-// TestNotFolded covers expressions that must be left intact because folding
-// them could change observable behavior.
 func TestNotFolded(t *testing.T) {
 	unfolded := []string{
-		"1 // 0",   // integer division by zero raises at runtime
-		"1 % 0",    // integer modulo by zero raises at runtime
-		"1 < 2.0",  // mixed int/float comparison: skipped for exactness
-		"1 == 2.0", // mixed numeric equality: skipped
-		"1 .. 2",   // numeric concat: deferred (formatting fidelity)
+		"1 // 0",
+		"1 % 0",
+		"1 < 2.0",
+		"1 == 2.0",
+		"1 .. 2",
 	}
 	for _, src := range unfolded {
 		got := parseExpr(t, src)
@@ -154,8 +147,6 @@ func TestNotFolded(t *testing.T) {
 	}
 }
 
-// TestCallNotFolded confirms calls are never folded away even with constant
-// arguments, but their arguments still get folded.
 func TestCallNotFolded(t *testing.T) {
 	got := parseExpr(t, "foo(1 + 2)")
 	call, ok := got.(*ast.CallExpression)
@@ -167,8 +158,6 @@ func TestCallNotFolded(t *testing.T) {
 	}
 }
 
-// TestFoldInsideFunctionBody confirms the walker recurses into nested
-// function bodies.
 func TestFoldInsideFunctionBody(t *testing.T) {
 	got := parseExpr(t, "function() return 2 * 21 end")
 	fn, ok := got.(*ast.FunctionExpression)

@@ -21,7 +21,6 @@ func (p Pot) draw(sc *screen, px, py int) {
 
 	p.d(sc, px, py)
 
-	// tree grows from here upwards
 	sc.x = px + (p.w / 2)
 	sc.y = py - 1
 }

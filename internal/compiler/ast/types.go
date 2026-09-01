@@ -5,22 +5,11 @@ import (
 	"strings"
 )
 
-// TypeNode is the AST shape of a parsed type expression. These nodes appear
-// only as annotations attached to declarations (`local x: T`, parameters,
-// return types, type aliases) and as the right-hand side of a type
-// assertion (`expr :: T`). They never produce bytecode — the type checker
-// is the sole consumer; the bytecode generator ignores them entirely.
-//
-// String() on every TypeNode renders Luau-syntax-faithful source so the
-// AST round-trips through `Program.String()` for debugging and tests.
 type TypeNode interface {
 	node
 	typeNode()
 }
 
-// TypePrimitive names a built-in type: number, string, boolean, nil, any,
-// unknown. The set is fixed; unknown identifiers in type position are
-// parsed as TypeName instead.
 type TypePrimitive struct {
 	BaseNode
 	Name string
@@ -30,7 +19,6 @@ func (*TypePrimitive) typeNode()              {}
 func (t *TypePrimitive) TokenLiteral() string { return t.Token.Literal }
 func (t *TypePrimitive) String() string       { return t.Name }
 
-// TypeLiteralKind tags which primitive a TypeLiteral is a singleton of.
 type TypeLiteralKind int
 
 const (
@@ -39,30 +27,19 @@ const (
 	LiteralBoolean
 )
 
-// TypeLiteral is a singleton (literal) type: `"read"`, `42`, `true`. It
-// denotes exactly one value, so `type Mode = "read" | "write"` accepts those
-// two strings and rejects every other one. Literal types are what give a
-// union a *finite* domain, which is also what makes `match` exhaustiveness
-// checkable.
-//
-// Raw preserves the source spelling so diagnostics and Program.String()
-// round-trip the programmer's notation (`0x10` stays `0x10`, a string keeps
-// the quoting style it was written with).
 type TypeLiteral struct {
 	BaseNode
 	Kind TypeLiteralKind
-	Str  string  // LiteralString
-	Num  float64 // LiteralNumber
-	Bool bool    // LiteralBoolean
-	Raw  string  // source spelling, used by String()
+	Str  string
+	Num  float64
+	Bool bool
+	Raw  string
 }
 
 func (*TypeLiteral) typeNode()              {}
 func (t *TypeLiteral) TokenLiteral() string { return t.Token.Literal }
 func (t *TypeLiteral) String() string       { return t.Raw }
 
-// TypeName references a user-defined type alias by name. Resolution is the
-// type checker's job — the parser only records the name.
 type TypeName struct {
 	BaseNode
 	Name string
@@ -72,9 +49,6 @@ func (*TypeName) typeNode()              {}
 func (t *TypeName) TokenLiteral() string { return t.Token.Literal }
 func (t *TypeName) String() string       { return t.Name }
 
-// TypeApplication is a generic instantiation `Name<A, B>` — a reference to a
-// generic type alias or struct with concrete type arguments. Resolution
-// (substituting Args for the alias's type parameters) is the checker's job.
 type TypeApplication struct {
 	BaseNode
 	Name string
@@ -91,9 +65,6 @@ func (t *TypeApplication) String() string {
 	return t.Name + "<" + strings.Join(parts, ", ") + ">"
 }
 
-// TypeOptional is the postfix-`?` sugar: `T?` ≡ `T | nil`. Kept distinct
-// from TypeUnion so source round-trips and error messages preserve the
-// programmer's notation.
 type TypeOptional struct {
 	BaseNode
 	Inner TypeNode
@@ -103,8 +74,6 @@ func (*TypeOptional) typeNode()              {}
 func (t *TypeOptional) TokenLiteral() string { return t.Token.Literal }
 func (t *TypeOptional) String() string       { return t.Inner.String() + "?" }
 
-// TypeUnion is `A | B | C`. Always two or more members; single-member
-// "unions" are flattened to the bare member at parse time.
 type TypeUnion struct {
 	BaseNode
 	Members []TypeNode
@@ -120,9 +89,6 @@ func (t *TypeUnion) String() string {
 	return strings.Join(parts, " | ")
 }
 
-// TypeFunction is a function type: `(P1, P2) -> R` or `(P) -> (R1, R2)`.
-// IsVararg+VarargType model `...: T` at the parameter list's tail.
-// ParamNames is parallel to Params and may contain "" for unnamed slots.
 type TypeFunction struct {
 	BaseNode
 	ParamNames []string
@@ -171,20 +137,16 @@ func (t *TypeFunction) String() string {
 	return out.String()
 }
 
-// TypeTableField is one named entry in a TypeTable: `name: T`.
 type TypeTableField struct {
 	Key   string
 	Value TypeNode
 }
 
-// TypeIndexer models `{[K]: V}` — a homogeneous map-like indexer.
 type TypeIndexer struct {
 	Key   TypeNode
 	Value TypeNode
 }
 
-// TypeTable is a structural table type: `{ x: number, y: number }` or
-// `{[string]: number}`. Either Fields or Indexer (or both) may be set.
 type TypeTable struct {
 	BaseNode
 	Fields  []TypeTableField
@@ -212,14 +174,10 @@ func (t *TypeTable) String() string {
 	return out.String()
 }
 
-// TypeAliasStatement is `type Name = T`. Aliases are top-level (Luau
-// allows them only at chunk scope; we follow the same restriction in
-// later phases by report-and-skip in the checker — the parser is
-// permissive).
 type TypeAliasStatement struct {
 	BaseNode
 	Name       string
-	TypeParams []string // generic parameters `<T, U>`; empty for a plain alias
+	TypeParams []string
 	Target     TypeNode
 }
 
@@ -233,9 +191,6 @@ func (s *TypeAliasStatement) String() string {
 	return head + " = " + s.Target.String()
 }
 
-// TypeAssertionExpression is `expr :: T` — a programmer-controlled cast.
-// The runtime is a no-op; the bytecode generator emits the inner Expr's
-// code unchanged. The type checker treats the result as the asserted T.
 type TypeAssertionExpression struct {
 	BaseNode
 	Expr Expression

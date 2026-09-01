@@ -7,9 +7,6 @@ import (
 	"testing"
 )
 
-// The generator is the half of this package that runs everywhere, so it is
-// tested everywhere — including on Windows, where plugins cannot be loaded.
-
 func TestGenerateSourceIsValidGo(t *testing.T) {
 	s := &spec{
 		Packages: []pkg{
@@ -30,15 +27,10 @@ func TestGenerateSourceIsValidGo(t *testing.T) {
 		t.Fatalf("generateSource: %v", err)
 	}
 
-	// The strongest assertion available without a compiler: the emitted file
-	// must parse as Go.
 	if _, err := parser.ParseFile(token.NewFileSet(), "main.go", src, parser.AllErrors); err != nil {
 		t.Fatalf("generated source does not parse as Go: %v\n---\n%s", err, src)
 	}
 
-	// Regressions for the two keyword substitutions the WIP generator carried
-	// over from a sed rename, either of which produces a file that cannot
-	// compile.
 	if strings.Contains(src, "require(") {
 		t.Error("generated Go source contains `require(`; it must use `import (`")
 	}
@@ -46,7 +38,6 @@ func TestGenerateSourceIsValidGo(t *testing.T) {
 		t.Error("generated Go source contains `local `; symbols must be declared with `var`")
 	}
 
-	// And for the html/template escaping bug: import paths must keep real quotes.
 	if strings.Contains(src, "&#34;") {
 		t.Error("generated source is HTML-escaped; use text/template, not html/template")
 	}
@@ -92,7 +83,7 @@ func TestSpecValidate(t *testing.T) {
 	tests := []struct {
 		name string
 		spec *spec
-		want string // substring of the expected error; "" means it must pass
+		want string
 	}{
 		{"valid", base(func(*spec) {}), ""},
 		{"no packages", base(func(s *spec) { s.Packages = nil }), "no packages"},
@@ -103,8 +94,6 @@ func TestSpecValidate(t *testing.T) {
 			"unexported",
 		},
 		{
-			// A spec is interpolated into Go source, so a name carrying a
-			// quote or a newline must be rejected rather than smuggled in.
 			"injection via package name",
 			base(func(s *spec) { s.Packages[0].Name = "strings\"\n\nfunc init() { panic(1) }\nvar _ = \"" }),
 			"not a valid Go import path",

@@ -31,19 +31,15 @@ func TestLookupEntry(t *testing.T) {
 	if topic.Name != "math" || entry.Name != "floor" {
 		t.Errorf("got %s.%s, want math.floor", topic.Name, entry.Name)
 	}
-	// Colon form, for methods.
 	if _, _, ok := LookupEntry("std.stack:push"); !ok {
 		t.Error("std.stack:push not found via the colon form")
 	}
-	// An object topic's own name contains a dot; splitting must happen on
-	// the LAST separator, not the first.
 	if _, _, ok := LookupEntry("plot.figure.save"); !ok {
 		t.Error("plot.figure.save not found — qualified split is wrong")
 	}
 }
 
 func TestLookupPrefersTopicOverMember(t *testing.T) {
-	// "sort" is both a module and a member of table. The topic wins.
 	topic, entry, ok := Lookup("sort")
 	if !ok || entry != nil || topic.Name != "sort" {
 		t.Errorf("Lookup(\"sort\") = %v, %v; want the sort topic", topic, entry)
@@ -58,8 +54,6 @@ func TestLookupBareMemberWhenUnambiguous(t *testing.T) {
 	if topic.Name != "string" || entry.Name != "gsub" {
 		t.Errorf("got %s.%s, want string.gsub", topic.Name, entry.Name)
 	}
-	// "insert" is defined by table, std.trie and std.btree, so a bare
-	// lookup is ambiguous and must not guess.
 	if _, _, ok := Lookup("insert"); ok {
 		t.Error(`Lookup("insert") resolved despite being ambiguous`)
 	}
@@ -132,8 +126,6 @@ func TestRenderIndexListsEveryKind(t *testing.T) {
 	assertWidth(t, out, 100)
 }
 
-// A Requireable library belongs under both index headings: it is an
-// auto-global AND a require target.
 func TestRequireableAppearsUnderModules(t *testing.T) {
 	var found bool
 	for _, top := range Topics(KindModule) {
@@ -166,9 +158,6 @@ func TestColorOnlyWhenRequested(t *testing.T) {
 	}
 }
 
-// Every topic must carry the fields the renderer relies on, and every
-// SeeAlso must point at a topic that exists — a dangling cross-reference is
-// a dead end for the reader.
 func TestTopicsAreWellFormed(t *testing.T) {
 	seen := map[string]bool{}
 	for _, top := range All() {
@@ -205,12 +194,10 @@ func TestTopicsAreWellFormed(t *testing.T) {
 	}
 }
 
-// Entry signatures should start with the qualified name, so a reader who
-// copies one out of a search result gets something they can actually call.
 func TestSignaturesAreQualified(t *testing.T) {
 	for _, top := range All() {
 		if top.Kind == KindObject || top.Name == "_G" || top.Name == "syntax" {
-			continue // receiver-style and bare-word signatures
+			continue
 		}
 		for _, e := range top.Entries {
 			if !strings.HasPrefix(e.Signature, top.Name+"."+e.Name) {
@@ -221,9 +208,6 @@ func TestSignaturesAreQualified(t *testing.T) {
 	}
 }
 
-// assertWidth checks that nothing overflows the requested column count.
-// Verbatim blocks (examples, synopses) are exempt: they are copied through
-// unwrapped on purpose.
 func assertWidth(t *testing.T, out string, width int) {
 	t.Helper()
 	for _, line := range strings.Split(out, "\n") {

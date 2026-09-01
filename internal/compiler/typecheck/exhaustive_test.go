@@ -2,10 +2,6 @@ package typecheck
 
 import "testing"
 
-// `match` exhaustiveness. Note the `;` after an arm body ending in a string
-// literal: in Lua `f"x"` chains as a call, so a following string pattern
-// needs the separator.
-
 const taggedShape = `enum Shape Circle(number), Rect(number, number), Unit, end
 `
 
@@ -40,7 +36,6 @@ func TestMatchWildcardIsAlwaysExhaustive(t *testing.T) {
 	end`)
 }
 
-// `x: any` matches anything, so it closes the match just like `_`.
 func TestMatchTypedAnyArmIsExhaustive(t *testing.T) {
 	expectOK(t, taggedShape+`local function area(s: Shape): number
 		match s do
@@ -51,7 +46,6 @@ func TestMatchTypedAnyArmIsExhaustive(t *testing.T) {
 	end`)
 }
 
-// A guard can fail, so a guarded arm never counts as covering its case.
 func TestMatchGuardedArmDoesNotCover(t *testing.T) {
 	expectErrContains(t, taggedShape+`local function area(s: Shape): number
 		match s do
@@ -85,7 +79,6 @@ func TestMatchLiteralUnionMissingCase(t *testing.T) {
 	end`, `does not handle 1 case: "append"`)
 }
 
-// Comma-joined alternatives cover every value they list.
 func TestMatchAlternativesCoverAll(t *testing.T) {
 	expectOK(t, `type Mode = "read" | "write" | "append"
 	local function verb(m: Mode): string
@@ -97,7 +90,6 @@ func TestMatchAlternativesCoverAll(t *testing.T) {
 	end`)
 }
 
-// A classic enum's members are named in the diagnostic, not numbered.
 func TestMatchClassicEnumNamesMissingMembers(t *testing.T) {
 	expectErrContains(t, `enum Color RED, GREEN, BLUE end
 	local function hex(c: Color): string
@@ -108,7 +100,6 @@ func TestMatchClassicEnumNamesMissingMembers(t *testing.T) {
 	end`, "does not handle 2 cases: Color.GREEN, Color.BLUE")
 }
 
-// The subject flows into `number`, so the typed arm covers the whole enum.
 func TestMatchTypedArmCoveringSubjectIsExhaustive(t *testing.T) {
 	expectOK(t, `enum Color RED, GREEN, BLUE end
 	local function hex(c: Color): string
@@ -135,8 +126,6 @@ func TestMatchBooleanExhaustiveness(t *testing.T) {
 	end`, "does not handle 1 case: false")
 }
 
-// Untyped code has no finite domain to check, so nothing is reported —
-// this is what keeps the diagnostic opt-in via types.
 func TestMatchUntypedSubjectIsNotChecked(t *testing.T) {
 	expectOK(t, `local function classify(n)
 		match n do
@@ -153,8 +142,6 @@ func TestMatchUntypedSubjectIsNotChecked(t *testing.T) {
 	end`)
 }
 
-// An inline literal scrutinee is a singleton type, but not a domain anyone
-// declared — demanding an arm for it would be noise.
 func TestMatchLiteralScrutineeIsNotChecked(t *testing.T) {
 	expectOK(t, `local r = ""
 	match 42 do

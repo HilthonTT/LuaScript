@@ -1,13 +1,5 @@
 package docs
 
-// Native modules reached through require(). Names and members mirror
-// cmd/luascript/natives.go::nativeRegistrars and the tables each loader
-// installs — cmd/luascript's TestDocsMatchRuntime checks that every Name
-// below still exists at runtime.
-//
-// math and io are documented on their auto-global pages (data_library.go),
-// which cover both surfaces.
-
 var moduleTopics = []Topic{
 	{
 		Name: "os", Kind: KindModule, RuntimeModule: "os",

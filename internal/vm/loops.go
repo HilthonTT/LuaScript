@@ -1,23 +1,12 @@
 package vm
 
-// Numeric and generic for-loop opcode implementations.
-
 import "math"
 
-// forPrep validates the start/limit/step and stores the starting value in the
-// index slot. If the loop body should run at least once it falls through into
-// the body (the next instruction); otherwise it jumps past ForLoop to the exit
-// target. Storing the real start — rather than start-step "undone" by the first
-// ForLoop add — keeps the integer path free of the overflow that made loops
-// near math.maxinteger run forever.
 func (v *VM) forPrep(f *CallFrame, baseSlot, exitTarget int) {
 	startV := *v.localAt(f, baseSlot)
 	limitV := *v.localAt(f, baseSlot+1)
 	stepV := *v.localAt(f, baseSlot+2)
 
-	// Lua 5.4 §3.3.5: the loop runs with integers iff the initial value and
-	// the step are both integers — the limit may be a float without forcing a
-	// float loop (it is floored/ceiled to an integer bound instead).
 	if isFloat(startV) || isFloat(stepV) {
 		s, ok1 := ToFloat(startV)
 		l, ok2 := ToFloat(limitV)
@@ -28,7 +17,6 @@ func (v *VM) forPrep(f *CallFrame, baseSlot, exitTarget int) {
 		if st == 0 {
 			panic(LuaError("'for' step is zero"))
 		}
-		// Positive (s<=l) test, so a NaN limit yields zero iterations.
 		if !((st > 0 && s <= l) || (st < 0 && s >= l)) {
 			f.IP = exitTarget
 			return
@@ -50,9 +38,6 @@ func (v *VM) forPrep(f *CallFrame, baseSlot, exitTarget int) {
 	if st == 0 {
 		panic(LuaError("'for' step is zero"))
 	}
-	// The limit may be a float; convert it to the integer bound the loop will
-	// actually compare against (floor for an ascending loop, ceil for a
-	// descending one), keeping the loop variable an integer.
 	l, run := forLimitInt(s, limitV, st)
 	if !run {
 		f.IP = exitTarget
@@ -65,11 +50,6 @@ func (v *VM) forPrep(f *CallFrame, baseSlot, exitTarget int) {
 	*v.localAt(f, baseSlot+3) = sv
 }
 
-// forLimitInt resolves an integer `for` loop's limit (which may be a float) to
-// the integer bound the loop compares against, mirroring Lua 5.4's forlimit.
-// It returns the bound and whether the loop should run at all. A float limit is
-// floored for an ascending loop and ceiled for a descending one; out-of-range
-// or NaN limits clamp to MaxInt64/MinInt64 or skip the loop entirely.
 func forLimitInt(init int64, limitV Value, step int64) (int64, bool) {
 	if i, ok := limitV.(int64); ok {
 		return i, (step > 0 && init <= i) || (step < 0 && init >= i)
@@ -84,19 +64,19 @@ func forLimitInt(init int64, limitV Value, step int64) (int64, bool) {
 	} else {
 		ff = math.Floor(f)
 	}
-	const twoPow63 = 9223372036854775808.0 // 2^63; the float just past MaxInt64
+	const twoPow63 = 9223372036854775808.0
 	var p int64
 	switch {
 	case ff >= -twoPow63 && ff < twoPow63:
 		p = int64(ff)
 	case f > 0:
 		if step < 0 {
-			return 0, false // limit far above any reachable value
+			return 0, false
 		}
 		p = math.MaxInt64
 	default:
 		if step > 0 {
-			return 0, false // limit far below any reachable value
+			return 0, false
 		}
 		p = math.MinInt64
 	}
@@ -111,11 +91,6 @@ func isNumber(v Value) bool {
 	return false
 }
 
-// forLoop adds step to the index; if the new value is still within range
-// (interpreted by the sign of step) it stores the index and jumps to the loop
-// body, otherwise falls through to exit. The integer path detects signed
-// overflow of the increment — a wrap means the loop has stepped past the
-// representable range and must terminate, never spuriously re-enter.
 func (v *VM) forLoop(f *CallFrame, baseSlot, target int) {
 	idx := *v.localAt(f, baseSlot)
 	limit := *v.localAt(f, baseSlot+1)
@@ -138,7 +113,6 @@ func (v *VM) forLoop(f *CallFrame, baseSlot, target int) {
 	s, _ := ToInteger(step)
 	ni := i + s
 	if s > 0 {
-		// ni >= i ⟺ the add didn't overflow past math.maxinteger.
 		if ni >= i && ni <= l {
 			nv := internInt(ni)
 			*v.localAt(f, baseSlot) = nv
@@ -146,7 +120,6 @@ func (v *VM) forLoop(f *CallFrame, baseSlot, target int) {
 			f.IP = target
 		}
 	} else {
-		// ni <= i ⟺ the add didn't underflow past math.mininteger.
 		if ni <= i && ni >= l {
 			nv := internInt(ni)
 			*v.localAt(f, baseSlot) = nv
@@ -158,8 +131,6 @@ func (v *VM) forLoop(f *CallFrame, baseSlot, target int) {
 
 func isFloat(v Value) bool { _, ok := v.(float64); return ok }
 
-// tForCall calls iter(state, control), placing nresults values into the
-// visible-variable slots starting at baseSlot+3.
 func (v *VM) tForCall(f *CallFrame, baseSlot, nresults int) {
 	iter := *v.localAt(f, baseSlot)
 	state := *v.localAt(f, baseSlot+1)
@@ -168,10 +139,8 @@ func (v *VM) tForCall(f *CallFrame, baseSlot, nresults int) {
 	var results []Value
 	switch g := iter.(type) {
 	case *Closure:
-		// Invoke as if `iter(state, control)` with nresults expected.
 		base := len(v.Stack)
 		v.callClosure(g, []Value{state, control}, nresults)
-		// Results are now at the previous top.
 		results = append(results, v.Stack[base:]...)
 		v.Stack = v.Stack[:base]
 	case *GoFunc:
@@ -196,8 +165,6 @@ func (v *VM) tForCall(f *CallFrame, baseSlot, nresults int) {
 	}
 }
 
-// tForLoop checks the first visible variable: if non-nil, advance the
-// control slot to that value and jump to the body; otherwise fall through.
 func (v *VM) tForLoop(f *CallFrame, baseSlot, target int) {
 	first := *v.localAt(f, baseSlot+3)
 	if first == nil {

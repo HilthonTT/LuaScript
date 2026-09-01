@@ -12,30 +12,15 @@ type Lexer struct {
 	readPosition int
 	ch           rune
 	line         int
-	// column is the 1-based column of l.ch within the current line.
-	// Maintained by readChar; reset to 1 each time we advance past '\n'.
-	column int
-	// tokenCol snapshots l.column at the start of the in-progress token
-	// (set by nextToken after skipWhitespace) so token-construction
-	// helpers can stamp the column where the lexeme *began*, not where
-	// the lexer happens to be sitting when it builds the Token struct.
-	tokenCol int
+	column       int
+	tokenCol     int
 
-	// ModeDirective captures a Luau-style type-mode pragma found in a
-	// leading comment of the file: "strict", "nonstrict", or "nocheck".
-	// Empty string means none was set. First directive wins. Recognised
-	// only in comments that appear before any non-comment token has been
-	// produced (matches Luau's "file head" rule).
 	ModeDirective string
-	hasYielded    bool // set true once any non-EOF token has been returned
+	hasYielded    bool
 }
 
 func New(input string) *Lexer {
 	runes := []rune(input)
-	// Skip a leading UTF-8 BOM (U+FEFF) — editors (Windows Notepad in
-	// particular) prepend one, and Lua 5.4's loader skips it too. Doing it
-	// here covers every consumer: RunFile, load(), the REPL, -dis, fmt,
-	// and analyze.
 	if len(runes) > 0 && runes[0] == 0xFEFF {
 		runes = runes[1:]
 	}
@@ -131,9 +116,9 @@ func (l *Lexer) nextToken() token.Token {
 			return l.makeToken(token.LTE, "<=", line)
 		}
 		if l.peekChar() == '<' {
-			l.readChar() // consume the second '<'
+			l.readChar()
 			if l.peekChar() == '=' {
-				l.readChar() // consume '='
+				l.readChar()
 				return l.makeToken(token.LShiftAssign, "<<=", line)
 			}
 			return l.makeToken(token.LShift, "<<", line)
@@ -145,9 +130,9 @@ func (l *Lexer) nextToken() token.Token {
 			return l.makeToken(token.GTE, ">=", line)
 		}
 		if l.peekChar() == '>' {
-			l.readChar() // consume the second '>'
+			l.readChar()
 			if l.peekChar() == '=' {
-				l.readChar() // consume '='
+				l.readChar()
 				return l.makeToken(token.RShiftAssign, ">>=", line)
 			}
 			return l.makeToken(token.RShift, ">>", line)
@@ -169,7 +154,6 @@ func (l *Lexer) nextToken() token.Token {
 			return l.makeToken(token.Concat, "..", line)
 		}
 		if isDigit(l.peekChar()) {
-			// .5 case - starts as float immediately
 			return l.readDotFloat(line)
 		}
 		return l.singleToken(token.Dot, ".")
@@ -232,12 +216,9 @@ func (l *Lexer) nextToken() token.Token {
 	}
 }
 
-// readNumberToken handles integers, floats, and hex. Called when l.ch is a
-// digit; an integer becomes a float if a '.' is encountered mid-read.
 func (l *Lexer) readNumberToken(line int) token.Token {
-	// Hex: 0x... (integer, or a float with a '.' fraction and/or 'p' exponent).
 	if l.ch == '0' && (l.peekChar() == 'x' || l.peekChar() == 'X') {
-		start := l.position // include the leading "0x"
+		start := l.position
 		l.readChar()
 		l.readChar()
 		for isHexDigit(l.ch) {
@@ -273,9 +254,8 @@ func (l *Lexer) readNumberToken(line int) token.Token {
 		l.readChar()
 	}
 
-	// Integer becomes float on '.'
 	if l.ch == '.' && isDigit(l.peekChar()) {
-		l.readChar() // consume '.'
+		l.readChar()
 		for isDigit(l.ch) {
 			l.readChar()
 		}
@@ -283,8 +263,6 @@ func (l *Lexer) readNumberToken(line int) token.Token {
 		return token.Token{Type: token.Float, Literal: string(l.input[start:l.position]), Line: line, Column: l.tokenCol}
 	}
 
-	// An exponent with no radix point still denotes a float (Lua 5.4 §3.1):
-	// `1e10`, `2E3` are floats, not an integer followed by an identifier.
 	if l.ch == 'e' || l.ch == 'E' {
 		l.readExponent()
 		return token.Token{Type: token.Float, Literal: string(l.input[start:l.position]), Line: line, Column: l.tokenCol}
@@ -293,10 +271,9 @@ func (l *Lexer) readNumberToken(line int) token.Token {
 	return token.Token{Type: token.Int, Literal: string(l.input[start:l.position]), Line: line, Column: l.tokenCol}
 }
 
-// readDotFloat handles floats starting with '.' (e.g. .5). Called when l.ch == '.'.
 func (l *Lexer) readDotFloat(line int) token.Token {
 	start := l.position
-	l.readChar() // consume '.'
+	l.readChar()
 	for isDigit(l.ch) {
 		l.readChar()
 	}
@@ -304,7 +281,6 @@ func (l *Lexer) readDotFloat(line int) token.Token {
 	return token.Token{Type: token.Float, Literal: string(l.input[start:l.position]), Line: line, Column: l.tokenCol}
 }
 
-// readExponent reads an optional e/E exponent from the current position.
 func (l *Lexer) readExponent() {
 	if l.ch == 'e' || l.ch == 'E' {
 		l.readChar()
@@ -317,18 +293,9 @@ func (l *Lexer) readExponent() {
 	}
 }
 
-// absorbComment skips a Lua comment. Called when l.ch is on the first '-'
-// and peekChar() == '-'. Handles both short and --[[ long comment styles.
-//
-// A Luau-style mode directive (`--!strict`, `--!nonstrict`, `--!nocheck`)
-// appearing in a comment that comes BEFORE any real token has been emitted
-// is captured into l.ModeDirective. First directive wins.
-// absorbComment skips a comment. ok is false when a long comment hit EOF
-// before its closing bracket; the caller should surface errTok instead of
-// silently treating the swallowed remainder of the file as comment text.
 func (l *Lexer) absorbComment(line int) (errTok token.Token, ok bool) {
-	l.readChar() // consume second '-'
-	l.readChar() // move past --
+	l.readChar()
+	l.readChar()
 
 	if lvl := l.longOpenLevel(); lvl >= 0 {
 		l.consumeLongOpen(lvl)
@@ -338,11 +305,8 @@ func (l *Lexer) absorbComment(line int) (errTok token.Token, ok bool) {
 		return token.Token{}, true
 	}
 
-	// Mode-directive recognition: only valid in leading comments before any
-	// non-comment token has been produced. We scan to the end of the line
-	// in any case, so directive parsing is purely a side effect.
 	if !l.hasYielded && l.ch == '!' && l.ModeDirective == "" {
-		l.readChar() // consume '!'
+		l.readChar()
 		start := l.position
 		for l.ch != '\n' && l.ch != 0 {
 			l.readChar()
@@ -355,21 +319,17 @@ func (l *Lexer) absorbComment(line int) (errTok token.Token, ok bool) {
 		return token.Token{}, true
 	}
 
-	// Short comment: skip to end of line
 	for l.ch != '\n' && l.ch != 0 {
 		l.readChar()
 	}
 	return token.Token{}, true
 }
 
-// longOpenLevel reports the level of a long-bracket opener at the current '['
-// (`[` followed by N '=' then '['), where N is the level, or -1 if the cursor
-// is not on a long-bracket opener. It does not consume input.
 func (l *Lexer) longOpenLevel() int {
 	if l.ch != '[' {
 		return -1
 	}
-	i := l.readPosition // index just past l.ch
+	i := l.readPosition
 	level := 0
 	for i < len(l.input) && l.input[i] == '=' {
 		level++
@@ -381,19 +341,14 @@ func (l *Lexer) longOpenLevel() int {
 	return -1
 }
 
-// consumeLongOpen advances past a long-bracket opener of the given level
-// (`[` + '='*level + `[`).
 func (l *Lexer) consumeLongOpen(level int) {
-	l.readChar() // opening '['
+	l.readChar()
 	for k := 0; k < level; k++ {
 		l.readChar()
 	}
-	l.readChar() // second '['
+	l.readChar()
 }
 
-// matchLongClose, with the cursor on a ']', reports whether it begins a long
-// close bracket of the given level (`]` + '='*level + `]`). On a match it
-// consumes the whole close bracket; otherwise it leaves the cursor untouched.
 func (l *Lexer) matchLongClose(level int) bool {
 	i := l.readPosition
 	cnt := 0
@@ -404,17 +359,14 @@ func (l *Lexer) matchLongClose(level int) bool {
 	if cnt != level || i >= len(l.input) || l.input[i] != ']' {
 		return false
 	}
-	l.readChar() // first ']'
+	l.readChar()
 	for k := 0; k < level; k++ {
 		l.readChar()
 	}
-	l.readChar() // closing ']'
+	l.readChar()
 	return true
 }
 
-// readLongString reads a long-bracket string of the given level. Called after
-// the opener has been consumed; stops at the matching `]=*level]` so inner
-// brackets of a different level are kept as content.
 func (l *Lexer) readLongString(level int) (lit string, terminated bool) {
 	var b strings.Builder
 
@@ -442,15 +394,8 @@ func (l *Lexer) readIdentifier() []rune {
 	return l.input[position:l.position]
 }
 
-// readString reads a quoted string. terminated is false when EOF arrived
-// before the closing quote — silently accepting that would swallow the rest
-// of the file into the literal and compile a truncated program.
-//
-// raw is the body exactly as written, escapes not yet decoded. Backtick
-// strings need it: the parser re-scans them for `{expr}` spans, and on the
-// decoded form a `\"` or a `\u{7B}` is indistinguishable from the real thing.
 func (l *Lexer) readString(ch rune) (lit, raw string, terminated bool) {
-	l.readChar() // skip opening quote
+	l.readChar()
 	bodyStart := l.position
 
 	var b strings.Builder
@@ -459,27 +404,23 @@ func (l *Lexer) readString(ch rune) (lit, raw string, terminated bool) {
 			return b.String(), string(l.input[bodyStart:l.position]), false
 		}
 		if l.ch == '\\' {
-			l.readChar() // consume the backslash
+			l.readChar()
 			l.readEscape(&b)
 			continue
 		}
 		if l.ch == '\n' {
-			l.line++ // keep diagnostics' line numbers honest across multi-line literals
+			l.line++
 		}
 		b.WriteRune(l.ch)
 		l.readChar()
 	}
 	raw = string(l.input[bodyStart:l.position])
 
-	l.readChar() // move past closing quote
+	l.readChar()
 
 	return b.String(), raw, true
 }
 
-// Unescape decodes the escape sequences in a string-literal body (the text
-// between the quotes) exactly as readString does. It is the inverse view of
-// Token.Raw: the parser splits an interpolated string on the raw text, then
-// decodes each literal segment through here.
 func Unescape(body string) string {
 	l := New(body)
 	var b strings.Builder
@@ -495,11 +436,6 @@ func Unescape(body string) string {
 	return b.String()
 }
 
-// readEscape consumes one escape sequence (the cursor is on the char after the
-// backslash) and appends the decoded bytes to b, advancing past the sequence.
-// Covers Lua 5.4 §3.1: \a \b \f \n \r \t \v, \\ \" \' \`, \ddd (decimal),
-// \xHH (hex), \u{XXX} (UTF-8), \z (skip following whitespace), and a
-// backslash-newline line continuation.
 func (l *Lexer) readEscape(b *strings.Builder) {
 	switch l.ch {
 	case 'n':
@@ -536,15 +472,14 @@ func (l *Lexer) readEscape(b *strings.Builder) {
 		b.WriteByte('`')
 		l.readChar()
 	case '\n', '\r':
-		// Line continuation: \<newline> yields a single '\n'.
 		first := l.ch
 		l.readChar()
 		if (first == '\r' && l.ch == '\n') || (first == '\n' && l.ch == '\r') {
-			l.readChar() // swallow the paired CR/LF
+			l.readChar()
 		}
 		b.WriteByte('\n')
 	case 'x':
-		l.readChar() // consume 'x'
+		l.readChar()
 		v := 0
 		for i := 0; i < 2 && isHexDigit(l.ch); i++ {
 			v = v*16 + hexVal(l.ch)
@@ -552,12 +487,12 @@ func (l *Lexer) readEscape(b *strings.Builder) {
 		}
 		b.WriteByte(byte(v))
 	case 'z':
-		l.readChar() // consume 'z'
+		l.readChar()
 		for l.ch == ' ' || l.ch == '\t' || l.ch == '\n' || l.ch == '\r' {
 			l.readChar()
 		}
 	case 'u':
-		l.readChar() // consume 'u'
+		l.readChar()
 		if l.ch == '{' {
 			l.readChar()
 			var r rune
@@ -572,7 +507,6 @@ func (l *Lexer) readEscape(b *strings.Builder) {
 		}
 	default:
 		if isDigit(l.ch) {
-			// \ddd: up to three decimal digits.
 			v := 0
 			for i := 0; i < 3 && isDigit(l.ch); i++ {
 				v = v*10 + int(l.ch-'0')
@@ -580,7 +514,6 @@ func (l *Lexer) readEscape(b *strings.Builder) {
 			}
 			b.WriteByte(byte(v))
 		} else {
-			// Unknown escape: keep it verbatim rather than dropping data.
 			b.WriteByte('\\')
 			b.WriteRune(l.ch)
 			l.readChar()
@@ -610,14 +543,12 @@ func (l *Lexer) makeToken(t token.Type, lit string, line int) token.Token {
 }
 
 func (l *Lexer) readChar() {
-	// Advance column tracking. A newline rolls us onto a new line at col 1.
 	if l.ch == '\n' {
 		l.column = 0
 	}
 	l.column++
 
 	if l.readPosition >= len(l.input) {
-		// ascii code's null
 		l.ch = 0
 	} else {
 		l.ch = l.input[l.readPosition]

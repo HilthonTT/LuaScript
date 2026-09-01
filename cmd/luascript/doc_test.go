@@ -7,12 +7,6 @@ import (
 	"testing"
 )
 
-// TestDocsMatchRuntime is the drift guard: it loads every native module and
-// auto-global namespace in a real VM and compares them against the curated
-// registry in internal/docs. A member added to a module without a doc entry
-// fails here, as does a doc entry for a member that no longer exists.
-//
-// This is the same comparison `luascript doc -audit` prints.
 func TestDocsMatchRuntime(t *testing.T) {
 	undocumented, missing := auditDocs()
 	for _, name := range undocumented {
@@ -95,9 +89,6 @@ func TestRunDocEmptySearchFails(t *testing.T) {
 	}
 }
 
-// captureDoc runs the subcommand with os.Stdout redirected to a pipe, and
-// returns what it wrote plus its exit code. NO_COLOR keeps the assertions
-// free of escape sequences regardless of the developer's environment.
 func captureDoc(t *testing.T, argv []string) (string, int) {
 	t.Helper()
 	t.Setenv("NO_COLOR", "1")

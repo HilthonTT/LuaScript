@@ -1,16 +1,11 @@
 package formatter
 
-// Doc emission for statements.
-
 import (
 	"strings"
 
 	"github.com/hilthontt/luascript/internal/compiler/ast"
 )
 
-// statement dispatches on AST type. Every case returns a Doc that fits on
-// one line in flat mode (no embedded hardLine at the top level) so that
-// surrounding contexts can group it.
 func (e *emitter) statement(stmt ast.Statement, opts Options) Doc {
 	switch s := stmt.(type) {
 	case *ast.LocalStatement:
@@ -36,11 +31,6 @@ func (e *emitter) statement(stmt ast.Statement, opts Options) Doc {
 	case *ast.MatchStatement:
 		return e.matchStmt(s, opts)
 	case *ast.ReturnStatement:
-		// Normally a return lives in Block.Return and is emitted by block(),
-		// but a match arm body is a single statement and may be a bare
-		// `return`. Without this case it would fall through to stmt.String(),
-		// whose fully-parenthesized rendering (`"a" .. b` -> `("a" .. b)`)
-		// grows another paren layer on every format pass.
 		return e.returnStmt(s, opts)
 	case *ast.TryCatchStatement:
 		return e.tryCatchStmt(s, opts)
@@ -64,9 +54,6 @@ func (e *emitter) statement(stmt ast.Statement, opts Options) Doc {
 	case *ast.EnumStatement:
 		return e.enumStmt(s, opts)
 	}
-	// Unknown statement: fall back to its own String() rendering. The Doc
-	// renderer will print it verbatim. This is a safety net; every AST node
-	// known at v1 has a case above.
 	return text(stmt.String())
 }
 
@@ -117,13 +104,7 @@ func (e *emitter) funcDecl(s *ast.FunctionDeclaration, opts Options) Doc {
 	)
 }
 
-// funcSig is "(params): returns" — the part of a function from `(` to the
-// end of the return-type annotation. The leading `function` / `function
-// name` is the caller's responsibility (because anonymous and declaration
-// forms differ).
 func (e *emitter) funcSig(fe *ast.FunctionExpression, opts Options) Doc {
-	// `<T, U>` sits between the name and `(` in every function form, including
-	// the anonymous one (parseFunctionBody reads it before the parameter list).
 	tp := typeParamList(fe.TypeParams)
 	var ps []Doc
 	for _, p := range fe.Params {
@@ -166,7 +147,6 @@ func (e *emitter) funcSig(fe *ast.FunctionExpression, opts Options) Doc {
 	return concat(params, text(": "), ret)
 }
 
-// funcBody is "<body> end" with the body inset by one indent level.
 func (e *emitter) funcBody(fe *ast.FunctionExpression, opts Options) Doc {
 	return concat(e.block(fe.Body, opts), hardLine(), text("end"))
 }
@@ -180,8 +160,6 @@ func (e *emitter) assignStmt(s *ast.AssignStatement, opts Options) Doc {
 	return e.assignTail(head, s.Values, opts)
 }
 
-// assignTail emits ` = <values>` where values may break onto multiple
-// lines. The head doc is the LHS plus any name/attribute decorations.
 func (e *emitter) assignTail(head Doc, values []ast.Expression, opts Options) Doc {
 	vs := make([]Doc, len(values))
 	for i, v := range values {
@@ -294,10 +272,6 @@ func (e *emitter) typeAlias(s *ast.TypeAliasStatement, opts Options) Doc {
 	return concat(text("type "), text(s.Name), typeParamList(s.TypeParams), text(" = "), e.typeNode(s.Target, opts))
 }
 
-// typeParamList renders a generic parameter list `<T, U>`, or nothing when the
-// declaration has none. Every declaration form that accepts type parameters
-// must route through this — omitting them turns a generic declaration into a
-// non-generic one whose body references undefined type names.
 func typeParamList(params []string) Doc {
 	if len(params) == 0 {
 		return nilDoc()
@@ -305,35 +279,16 @@ func typeParamList(params []string) Doc {
 	return text("<" + strings.Join(params, ", ") + ">")
 }
 
-// enumStmt renders
-//
-//	enum Name
-//	    V1,
-//	    V2,
-//	    ...
-//	end
-//
-// Variants are always laid out one-per-line with a trailing comma. The
-// hand-written single-line form `enum Color RED, GREEN, BLUE end` is
-// supported by the parser but we always normalize to the block form on
-// output — it scales better as enums grow and keeps diffs minimal when
-// variants are added or removed.
 func (e *emitter) enumStmt(s *ast.EnumStatement, opts Options) Doc {
 	if s.Name == nil {
 		return text(s.String())
 	}
 	if len(s.Variants) == 0 {
-		// Parser usually rejects this, but if we receive a partial AST
-		// (e.g. mid-edit through an IDE integration) we still emit
-		// something syntactically reasonable.
 		return concat(text("enum "), text(s.Name.Name), hardLine(), text("end"))
 	}
 	var lines []Doc
 	for _, v := range s.Variants {
 		d := text(v.Name)
-		// A tagged variant carries positional payload types — `Circle(number)`.
-		// Dropping them silently demotes the enum to the integer-constant form
-		// and breaks every constructor call.
 		if len(v.Payload) > 0 {
 			ps := make([]Doc, len(v.Payload))
 			for i, p := range v.Payload {
@@ -347,16 +302,6 @@ func (e *emitter) enumStmt(s *ast.EnumStatement, opts Options) Doc {
 	return concat(text("enum "), text(s.Name.Name), body, hardLine(), text("end"))
 }
 
-// matchStmt renders
-//
-//	match subject do
-//	    <pattern> [if <guard>] -> <stmt>
-//	    ...
-//	end
-//
-// One arm per line, like enumStmt's variants. Arms are not a Block, so (also
-// like enumStmt) comments written between them are not anchored here and get
-// re-emitted by the enclosing block rather than staying put.
 func (e *emitter) matchStmt(s *ast.MatchStatement, opts Options) Doc {
 	head := concat(text("match "), e.expr(s.Subject, opts), text(" do"))
 	if len(s.Arms) == 0 {
@@ -370,10 +315,6 @@ func (e *emitter) matchStmt(s *ast.MatchStatement, opts Options) Doc {
 			parts = append(parts, text(" if "), e.expr(arm.Guard, opts))
 		}
 		parts = append(parts, text(" -> "), e.statement(arm.Body, opts))
-		// Arms are separated by a newline only, so an arm body ending in a call
-		// would swallow the next arm's pattern when that pattern starts with a
-		// token that continues a prefix expression (`f("x")` newline `"bye"`
-		// parses as `f("x")("bye")`). A terminating `;` closes the body.
 		if i+1 < len(s.Arms) && patternCanChain(&s.Arms[i+1].Pattern) {
 			parts = append(parts, text(";"))
 		}
@@ -383,11 +324,6 @@ func (e *emitter) matchStmt(s *ast.MatchStatement, opts Options) Doc {
 	return concat(head, body, hardLine(), text("end"))
 }
 
-// patternCanChain reports whether p renders starting with a token that Lua
-// would attach to a preceding prefix expression: a string literal or a table
-// constructor (call sugar), or a parenthesized expression. Only value patterns
-// can; `_`, `x: T`, and `Tag(...)` / `Tag{...}` all start with a name, which
-// cannot continue an expression.
 func patternCanChain(p *ast.MatchPattern) bool {
 	if p.Kind != ast.MatchValue || len(p.Values) == 0 {
 		return false

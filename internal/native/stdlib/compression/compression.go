@@ -22,8 +22,6 @@ func newCompression() *vm.Table {
 	m := vm.NewTable(0, 2)
 	methods := vm.NewTable(0, 4)
 
-	// compression.symbol_count(message) -> array of {symbol, freq} pairs,
-	// sorted by ascending frequency (matches SymbolCountOrd's ordering).
 	methods.Set("symbol_count", &vm.GoFunc{Name: "compression:symbol_count", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 		msg := vm.StringArg("compression.symbol_count", 1, args)
 		listfreq := SymbolCountOrd(msg)
@@ -38,8 +36,6 @@ func newCompression() *vm.Table {
 		return []vm.Value{out}
 	}})
 
-	// compression.codes(message) -> array of {symbol, code} pairs.
-	// Useful for inspecting the Huffman codebook without producing a bit stream.
 	methods.Set("codes", &vm.GoFunc{Name: "compression:codes", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 		msg := vm.StringArg("compression.codes", 1, args)
 		codes, err := buildCodes(msg)
@@ -49,8 +45,6 @@ func newCompression() *vm.Table {
 		return []vm.Value{codesToTable(codes)}
 	}})
 
-	// compression.encode(message) -> { bits = "0101...", codes = {{sym, code}, ...} }
-	// The returned table is opaque from.lsc's side — pass it straight to decode.
 	methods.Set("encode", &vm.GoFunc{Name: "compression:encode", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 		msg := vm.StringArg("compression.encode", 1, args)
 		codes, err := buildCodes(msg)
@@ -65,8 +59,6 @@ func newCompression() *vm.Table {
 		return []vm.Value{out}
 	}})
 
-	// compression.decode(encoded) -> message. Inverse of encode; accepts
-	// the table encode returned (or any table with the same shape).
 	methods.Set("decode", &vm.GoFunc{Name: "compression:decode", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 		enc := vm.TableArg("compression.decode", 1, args)
 
@@ -90,11 +82,6 @@ func newCompression() *vm.Table {
 		return []vm.Value{decoded}
 	}})
 
-	// Standard byte-stream codecs (gzip / zlib / deflate). These cover
-	// the realistic "I have a payload and need it smaller for transport
-	// or storage" use case the Huffman API above can't serve. Each takes
-	// a string and returns a string of compressed/uncompressed bytes.
-	// Level is optional and uses compress/flate's default when omitted.
 	addStdCodecs(methods)
 
 	mt := vm.NewTable(0, 1)
@@ -103,9 +90,6 @@ func newCompression() *vm.Table {
 	return m
 }
 
-// buildCodes runs the count -> tree -> codebook pipeline. The single-symbol
-// case is handled here because HuffEncoding would otherwise assign the lone
-// leaf an empty bit code, which encodes to nothing and can't round-trip.
 func buildCodes(msg string) (map[rune][]bool, error) {
 	listfreq := SymbolCountOrd(msg)
 	if len(listfreq) == 0 {
@@ -117,8 +101,6 @@ func buildCodes(msg string) (map[rune][]bool, error) {
 	}
 	codes := make(map[rune][]bool, len(listfreq))
 	if tree.symbol != -1 {
-		// Only one distinct symbol — give it a one-bit code so repeated
-		// occurrences still produce a recoverable bit string.
 		codes[tree.symbol] = []bool{false}
 		return codes, nil
 	}
@@ -126,10 +108,6 @@ func buildCodes(msg string) (map[rune][]bool, error) {
 	return codes, nil
 }
 
-// decodeBits greedily walks bits left-to-right, emitting a symbol every
-// time the running prefix matches a code. Huffman codes are prefix-free,
-// so the greedy match is always correct; unmatched trailing bits mean
-// the input is truncated or doesn't belong to this codebook.
 func decodeBits(bits string, reverse map[string]rune) (string, error) {
 	var out []byte
 	var cur strings.Builder
@@ -140,8 +118,6 @@ func decodeBits(bits string, reverse map[string]rune) (string, error) {
 		}
 		cur.WriteByte(c)
 		if r, ok := reverse[cur.String()]; ok {
-			// Symbols are single bytes; appending the rune via string(out)
-			// would UTF-8 encode bytes >= 128 and corrupt binary data.
 			out = append(out, byte(r))
 			cur.Reset()
 		}
@@ -152,7 +128,6 @@ func decodeBits(bits string, reverse map[string]rune) (string, error) {
 	return string(out), nil
 }
 
-// bitsToString renders a []bool as a string of '0' and '1' bytes.
 func bitsToString(bits []bool) string {
 	buf := make([]byte, len(bits))
 	for i, b := range bits {
@@ -165,10 +140,6 @@ func bitsToString(bits []bool) string {
 	return string(buf)
 }
 
-// codesToTable serialises the codebook as an array of {symbol, code}
-// pairs, sorted by symbol for reproducible output. Each pair is a
-// 1-indexed sub-table so the codebook iterates cleanly with
-// `for _, p in ipairs(codes)` on the.lsc side.
 func codesToTable(codes map[rune][]bool) *vm.Table {
 	runes := make([]rune, 0, len(codes))
 	for r := range codes {
@@ -181,7 +152,6 @@ func codesToTable(codes map[rune][]bool) *vm.Table {
 	t := vm.NewTable(len(runes), 0)
 	for i, r := range runes {
 		pair := vm.NewTable(2, 0)
-		// Symbols are single bytes — emit the raw byte, not its UTF-8 form.
 		pair.Set(int64(1), string([]byte{byte(r)}))
 		pair.Set(int64(2), bitsToString(codes[r]))
 		t.Set(int64(i+1), pair)
@@ -189,10 +159,6 @@ func codesToTable(codes map[rune][]bool) *vm.Table {
 	return t
 }
 
-// tableToReverseMap reads a codes table (array of {symbol, code} pairs)
-// into a code -> symbol map ready for greedy decoding. Each symbol must
-// be exactly one rune; multi-rune entries would mean the caller hand-built
-// the table with something we'd never have produced.
 func tableToReverseMap(t *vm.Table) (map[string]rune, error) {
 	n := t.Len()
 	rev := make(map[string]rune, n)

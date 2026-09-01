@@ -2,15 +2,6 @@ package typecheck
 
 import "github.com/hilthontt/luascript/internal/compiler/ast"
 
-// This file holds the generics machinery: scoping type parameters as
-// gradual type variables, instantiating generic aliases/structs on
-// application (`Box<number>`), and best-effort call-site inference for
-// generic functions (`identity(5)` → number).
-
-// pushTypeParams registers each name as a fresh gradual type variable in the
-// alias table, shadowing any existing alias, and returns a restore function
-// that puts the previous bindings back. Used around a generic function's
-// signature resolution and body walk so `T` resolves to a KindTypeParam.
 func (c *checker) pushTypeParams(names []string) func() {
 	if len(names) == 0 {
 		return func() {}
@@ -36,14 +27,6 @@ func (c *checker) pushTypeParams(names []string) func() {
 	}
 }
 
-// resolveTypeApplication resolves a `Name<Args>` type. It instantiates the
-// named generic template by binding its parameters to the (resolved)
-// arguments and resolving the template body under those bindings. Unknown
-// names, or arity mismatches, degrade to `any` with a diagnostic rather than
-// crashing — keeping the checker gradual.
-// maxInstantiationDepth bounds nested generic expansion. Legitimate nesting
-// (`Box<Box<Box<number>>>`) stays tiny; anything deeper is a recursive
-// template that would otherwise expand until the Go stack overflows.
 const maxInstantiationDepth = 64
 
 func (c *checker) resolveTypeApplication(app *ast.TypeApplication) *Type {
@@ -59,8 +42,6 @@ func (c *checker) resolveTypeApplication(app *ast.TypeApplication) *Type {
 
 	g, ok := c.env.generics[app.Name]
 	if !ok {
-		// Not a known generic. If it names a plain (non-generic) alias the
-		// user likely over-applied it; otherwise it's unknown.
 		if _, isAlias := c.env.aliases[app.Name]; isAlias {
 			c.errf(app.Line(), "not-generic",
 				"type %q is not generic but was given type arguments", app.Name)
@@ -76,7 +57,6 @@ func (c *checker) resolveTypeApplication(app *ast.TypeApplication) *Type {
 		return anyT
 	}
 
-	// Resolve each argument, then bind params → args and resolve the body.
 	args := make([]*Type, len(app.Args))
 	for i, a := range app.Args {
 		args[i] = c.resolveAST(a)
@@ -85,7 +65,6 @@ func (c *checker) resolveTypeApplication(app *ast.TypeApplication) *Type {
 	defer restore()
 
 	t := c.resolveAST(g.target)
-	// Tag the instantiation with a readable name (`Box<number>`).
 	if t != nil && t.AliasName == "" {
 		withName := *t
 		withName.AliasName = app.String()
@@ -94,9 +73,6 @@ func (c *checker) resolveTypeApplication(app *ast.TypeApplication) *Type {
 	return t
 }
 
-// bindParamTypes temporarily binds concrete types to parameter names in the
-// alias table (used while resolving a generic template body). Returns a
-// restore function.
 func (c *checker) bindParamTypes(params []string, args []*Type) func() {
 	type prev struct {
 		t   *Type
@@ -106,10 +82,6 @@ func (c *checker) bindParamTypes(params []string, args []*Type) func() {
 	for i, n := range params {
 		t, had := c.env.aliases[n]
 		saved[n] = prev{t: t, had: had}
-		// Give the bound argument a display name so a later resolveAST of the
-		// parameter reference (`T`) doesn't re-tag it with the parameter name
-		// — the concrete argument's own spelling (`number`, `Point`) is what
-		// should appear in diagnostics.
 		bound := *args[i]
 		if bound.AliasName == "" {
 			bound.AliasName = args[i].String()
@@ -127,21 +99,15 @@ func (c *checker) bindParamTypes(params []string, args []*Type) func() {
 	}
 }
 
-// instantiateCall performs best-effort inference for a call to a generic
-// function. It unifies each declared parameter type against the corresponding
-// argument type to bind the function's type variables, then substitutes those
-// bindings into the declared return types. Unbound variables fall back to
-// `any` (gradual). Returns the substituted return types.
 func (c *checker) instantiateCall(fn *FunctionShape, args []*Type) []*Type {
 	subst := map[string]*Type{}
 	for _, name := range fn.TypeParams {
-		subst[name] = nil // unbound
+		subst[name] = nil
 	}
 	n := min(len(args), len(fn.Params))
 	for i := range n {
 		unify(fn.Params[i], args[i], subst)
 	}
-	// Any variable still unbound becomes `any`.
 	for name, t := range subst {
 		if t == nil {
 			subst[name] = anyT
@@ -154,12 +120,6 @@ func (c *checker) instantiateCall(fn *FunctionShape, args []*Type) []*Type {
 	return out
 }
 
-// unify matches a declared type (which may mention type variables) against a
-// concrete argument type, recording variable → concrete bindings in subst.
-// It is deliberately shallow and best-effort: it binds a variable the first
-// time it sees one and otherwise recurses into matching structure. Conflicts
-// are ignored (first binding wins) — inference here informs precision, it
-// does not gate correctness (assignability already ran gradually).
 func unify(declared, actual *Type, subst map[string]*Type) {
 	if declared == nil || actual == nil {
 		return
@@ -167,11 +127,6 @@ func unify(declared, actual *Type, subst map[string]*Type) {
 	if declared.Kind == KindTypeParam {
 		if _, tracked := subst[declared.AliasName]; tracked {
 			if subst[declared.AliasName] == nil {
-				// Widen: `identity("hi")` should infer `T = string`, not the
-				// singleton `"hi"`. An unconstrained type parameter describes
-				// a slot the caller will keep using, so the useful inference
-				// is the primitive. Callers wanting the singleton say so with
-				// `identity("hi" :: "hi")`.
 				subst[declared.AliasName] = widen(actual)
 			}
 		}
@@ -210,8 +165,6 @@ func unify(declared, actual *Type, subst map[string]*Type) {
 	}
 }
 
-// substitute replaces every type variable in t with its binding from subst,
-// returning a new Type. Types with no variables are returned as-is.
 func substitute(t *Type, subst map[string]*Type) *Type {
 	if t == nil {
 		return t

@@ -1,13 +1,3 @@
-// Package constcheck enforces Lua 5.4's local attributes at compile time:
-// a local declared `<const>` or `<close>` may never be assigned after its
-// declaration. The pass runs unconditionally in the compile pipeline (unlike
-// the type checker it is not gated by `--!nocheck`), matching PUC Lua where
-// assigning to a const local is a syntax-level error.
-//
-// Only the *assignment* rule is enforced here. The `<close>` attribute's
-// runtime behaviour (calling `__close` at scope exit) is a documented
-// language-level non-goal for now; `<close>` locals get the same
-// no-reassignment protection as `<const>` and are otherwise inert.
 package constcheck
 
 import (
@@ -17,9 +7,6 @@ import (
 	"github.com/hilthontt/luascript/internal/compiler/ast"
 )
 
-// Check walks prog and returns an error describing every assignment to a
-// `<const>`/`<close>` local, or nil when the program is clean. Inner
-// functions count: assigning to a captured const upvalue is also an error.
 func Check(prog *ast.Program) error {
 	if prog == nil || prog.Block == nil {
 		return nil
@@ -34,7 +21,6 @@ func Check(prog *ast.Program) error {
 	return &Errors{Messages: c.errors}
 }
 
-// Errors aggregates every attribute violation found in one Check pass.
 type Errors struct {
 	Messages []string
 }
@@ -43,13 +29,8 @@ func (e *Errors) Error() string {
 	return strings.Join(e.Messages, "\n")
 }
 
-// checker tracks lexical scopes. Every local is recorded (attributed or
-// not) so an inner plain `local x` correctly shadows an outer `local x
-// <const>`. The scope stack deliberately spans function boundaries: a name
-// resolved in an enclosing function is an upvalue, and const upvalues are
-// just as unassignable as const locals.
 type checker struct {
-	scopes []map[string]string // name → attrib ("", "const", or "close")
+	scopes []map[string]string
 	errors []string
 }
 
@@ -65,9 +46,6 @@ func (c *checker) define(name, attrib string) {
 	c.scopes[len(c.scopes)-1][name] = attrib
 }
 
-// attribOf resolves name through the scope stack, innermost first. The
-// boolean is false when the name is not a known local (i.e. a global, which
-// is always assignable).
 func (c *checker) attribOf(name string) (string, bool) {
 	for i := len(c.scopes) - 1; i >= 0; i-- {
 		if a, ok := c.scopes[i][name]; ok {
@@ -101,7 +79,6 @@ func (c *checker) block(b *ast.Block) {
 func (c *checker) stmt(s ast.Statement) {
 	switch n := s.(type) {
 	case *ast.LocalStatement:
-		// Initializers are evaluated before the new names enter scope.
 		c.exprs(n.Values)
 		for _, ln := range n.Names {
 			c.define(ln.Name, ln.Attrib)
@@ -110,8 +87,6 @@ func (c *checker) stmt(s ast.Statement) {
 		c.define(n.Name, "")
 		c.function(n.Func)
 	case *ast.FunctionDeclaration:
-		// Plain `function name() end` assigns to `name`; the dotted/method
-		// forms only write a table field, which attributes don't guard.
 		if len(n.DottedFields) == 0 && n.MethodName == "" {
 			c.checkTarget(n.Name.Name, n.Line())
 		}
@@ -123,9 +98,6 @@ func (c *checker) stmt(s ast.Statement) {
 			case *ast.Identifier:
 				c.checkTarget(tgt.Name, n.Line())
 			case *ast.IndexExpression:
-				// Writing a field of a const table is legal (the binding is
-				// const, not the value) — but the sub-expressions may contain
-				// function literals worth walking.
 				c.expr(tgt.Object)
 				c.expr(tgt.Index)
 			}
@@ -140,7 +112,6 @@ func (c *checker) stmt(s ast.Statement) {
 		c.expr(n.Condition)
 		c.block(n.Body)
 	case *ast.RepeatStatement:
-		// The `until` condition sees the body's locals.
 		c.pushScope()
 		if n.Body != nil {
 			for _, st := range n.Body.Statements {
@@ -181,8 +152,6 @@ func (c *checker) stmt(s ast.Statement) {
 		for i := range n.Arms {
 			arm := &n.Arms[i]
 			c.exprs(arm.Pattern.Values)
-			// Pattern binders are ordinary assignable locals scoped to the
-			// arm, so each arm needs a scope of its own around guard + body.
 			c.pushScope()
 			for _, name := range arm.Pattern.Binders() {
 				c.define(name, "")
@@ -193,8 +162,6 @@ func (c *checker) stmt(s ast.Statement) {
 		}
 	case *ast.TryCatchStatement:
 		c.block(n.Try)
-		// The catch binding is an ordinary assignable local scoped to the
-		// handler, so it needs a scope of its own around the handler's block.
 		c.pushScope()
 		if n.CatchVar != nil {
 			c.define(n.CatchVar.Name, "")
@@ -212,11 +179,8 @@ func (c *checker) stmt(s ast.Statement) {
 			c.define(n.Name.Name, "")
 		}
 	}
-	// Break/Continue/Goto/Label/TypeAlias: no bindings, no assignments.
 }
 
-// function walks a function literal: parameters are fresh (assignable)
-// locals in a new scope; defaults are evaluated in that scope too.
 func (c *checker) function(fe *ast.FunctionExpression) {
 	if fe == nil {
 		return
@@ -236,8 +200,6 @@ func (c *checker) exprs(es []ast.Expression) {
 	}
 }
 
-// expr descends into sub-expressions looking for nested function literals
-// (whose bodies may assign to captured const locals).
 func (c *checker) expr(e ast.Expression) {
 	switch n := e.(type) {
 	case *ast.BinaryExpression:
@@ -272,5 +234,4 @@ func (c *checker) expr(e ast.Expression) {
 	case *ast.FunctionExpression:
 		c.function(n)
 	}
-	// Literals, Identifier, Vararg: leaves. Reading a const is always fine.
 }

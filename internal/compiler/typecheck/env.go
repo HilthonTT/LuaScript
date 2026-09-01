@@ -2,51 +2,24 @@ package typecheck
 
 import "github.com/hilthontt/luascript/internal/compiler/ast"
 
-// genericAlias is the template for a generic type alias or generic struct:
-// its type parameters plus the unresolved target AST. Instantiation binds the
-// parameters to concrete arguments and resolves the target (see
-// resolveTypeApplication).
 type genericAlias struct {
 	params []string
 	target ast.TypeNode
 }
 
-// env is the scoped type environment used while walking the AST. It mirrors
-// the bytecode generator's localTable shape: a stack of frames where each
-// frame holds a name → Type map. Lookups walk innermost-to-outermost.
-//
-// Type aliases live separately on the program-level `aliases` map because
-// Luau (and v1) only allows them at chunk scope. They're populated in a
-// pre-pass so forward references resolve.
 type env struct {
 	frames []frame
 
-	// aliases is the program-wide alias table. The pre-pass owns
-	// population; the walker only reads. Recursive aliases aren't in v1
-	// (recursive references resolve to KindNever).
 	aliases map[string]*Type
 
-	// generics holds templates for parameterized aliases and structs
-	// (`type Box<T> = ...`, `struct Box<T> { ... }`). A `Box<number>`
-	// TypeApplication instantiates the template on demand.
 	generics map[string]*genericAlias
 }
 
 type frame struct {
 	bindings map[string]*Type
 
-	// refined marks names whose binding in this frame is a narrowing shadow
-	// installed by applyRefinement, not a declaration. Assignment checking
-	// looks through these to the declared type (lookupDeclared), and an
-	// assignment widens them in place (widenRefined) so a stale narrowing
-	// can't outlive the value it described. Lazily allocated.
 	refined map[string]bool
 
-	// declared preserves a declaration that a refinement shadow overwrote in
-	// this same frame. Block-level narrowing (assert, early-exit persistence)
-	// lands in the frame that also holds the declaration, and without this
-	// the declared type would be destroyed — later legal assignments would be
-	// checked against the narrowed shadow. Lazily allocated.
 	declared map[string]*Type
 }
 
@@ -69,10 +42,6 @@ func (e *env) pop() {
 	e.frames = e.frames[:len(e.frames)-1]
 }
 
-// define binds a name in the innermost frame, shadowing any outer binding.
-// Re-defining within the same frame replaces the slot — matching Lua's
-// `local x ... local x` shadowing semantics. A real declaration also clears
-// any refinement mark left on the slot: `local s = ...` starts fresh.
 func (e *env) define(name string, t *Type) {
 	if len(e.frames) == 0 {
 		return
@@ -83,11 +52,6 @@ func (e *env) define(name string, t *Type) {
 	delete(f.declared, name)
 }
 
-// defineRefined binds a narrowing shadow in the innermost frame. It types
-// exactly like define for lookup, but is invisible to lookupDeclared and
-// mutable by widenRefined. When the shadow overwrites a declaration made in
-// this same frame, the declared type is preserved on the side so assignment
-// checking can still see it.
 func (e *env) defineRefined(name string, t *Type) {
 	if len(e.frames) == 0 {
 		return
@@ -106,11 +70,6 @@ func (e *env) defineRefined(name string, t *Type) {
 	f.refined[name] = true
 }
 
-// lookupDeclared returns the innermost binding that is a declaration,
-// seeing through refinement shadows (including a shadow that overwrote the
-// declaration in its own frame). Assignments are checked against this —
-// `s = nil` inside `if s ~= nil then` is legal because the *declared* type
-// is `string?`, whatever the branch narrowed `s` to.
 func (e *env) lookupDeclared(name string) (*Type, bool) {
 	for i := len(e.frames) - 1; i >= 0; i-- {
 		f := e.frames[i]
@@ -127,14 +86,6 @@ func (e *env) lookupDeclared(name string) (*Type, bool) {
 	return nil, false
 }
 
-// widenRefined folds an assigned type into every refinement shadow of the
-// variable being assigned — the *innermost* declaration of `name` — so a
-// narrowing can't keep claiming the pre-assignment type after `s = nil`.
-// The walk stops at that declaration: shadows in outer frames belong to a
-// different, shadowed variable of the same name and must not be poisoned.
-// Widening with a union (rather than replacing) keeps outer shadows sound
-// when the assignment sits in a deeper branch that may not execute on every
-// path that reaches them.
 func (e *env) widenRefined(name string, t *Type) {
 	for i := len(e.frames) - 1; i >= 0; i-- {
 		f := &e.frames[i]
@@ -142,19 +93,15 @@ func (e *env) widenRefined(name string, t *Type) {
 			continue
 		}
 		if !f.refined[name] {
-			// Reached the assigned variable's declaration.
 			return
 		}
 		f.bindings[name] = NewUnion(f.bindings[name], t)
 		if _, hasDecl := f.declared[name]; hasDecl {
-			// The shadow sits in the declaring frame itself — done.
 			return
 		}
 	}
 }
 
-// visiblyRefinedNames returns every name whose current visible binding is a
-// refinement shadow (innermost frame containing the name decides).
 func (e *env) visiblyRefinedNames() []string {
 	var out []string
 	seen := map[string]bool{}
@@ -173,8 +120,6 @@ func (e *env) visiblyRefinedNames() []string {
 	return out
 }
 
-// visiblyRefined reports whether the binding `name` currently resolves to
-// is a refinement shadow rather than a declaration.
 func (e *env) visiblyRefined(name string) bool {
 	for i := len(e.frames) - 1; i >= 0; i-- {
 		f := e.frames[i]
@@ -185,10 +130,6 @@ func (e *env) visiblyRefined(name string) bool {
 	return false
 }
 
-// dropRefinedInTop discards every refinement shadow installed in the
-// innermost frame, restoring any declaration a shadow overwrote. Used by the
-// repeat walker: a `continue` jumps straight to the `until` condition, so
-// narrowings established by the body's fall-through path can't vouch there.
 func (e *env) dropRefinedInTop() {
 	if len(e.frames) == 0 {
 		return
@@ -205,8 +146,6 @@ func (e *env) dropRefinedInTop() {
 	}
 }
 
-// lookup walks innermost-to-outermost. Returns the bound type plus true on
-// hit; nil/false on miss (callers fall back to globals → any).
 func (e *env) lookup(name string) (*Type, bool) {
 	for i := len(e.frames) - 1; i >= 0; i-- {
 		if t, ok := e.frames[i].bindings[name]; ok {
@@ -216,10 +155,6 @@ func (e *env) lookup(name string) (*Type, bool) {
 	return nil, false
 }
 
-// shadowsGlobal reports whether `name` is bound anywhere other than the
-// outermost frame — i.e. whether a local, parameter, or narrowing shadow hides
-// the stdlib global of that name. Used to confirm that a call to `require` is
-// really the loader before giving it loader-specific typing.
 func (e *env) shadowsGlobal(name string) bool {
 	for i := len(e.frames) - 1; i >= 1; i-- {
 		if _, ok := e.frames[i].bindings[name]; ok {
@@ -229,9 +164,6 @@ func (e *env) shadowsGlobal(name string) bool {
 	return false
 }
 
-// alias resolves a user-named type. Unknown names return KindNever (which
-// flows to everything but never satisfies a non-never slot, surfacing as
-// an error at the use site rather than crashing the walker).
 func (e *env) alias(name string) *Type {
 	if t, ok := e.aliases[name]; ok {
 		return t

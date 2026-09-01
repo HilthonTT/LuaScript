@@ -10,7 +10,6 @@ import (
 	"github.com/hilthontt/luascript/internal/testrunner"
 )
 
-// write drops a file into dir, creating parents, and returns its path.
 func write(t *testing.T, dir, name, body string) string {
 	t.Helper()
 	path := filepath.Join(dir, name)
@@ -23,9 +22,6 @@ func write(t *testing.T, dir, name, body string) string {
 	return path
 }
 
-// runIn executes a run rooted at dir and returns the summary and the report.
-// The bytecode cache is redirected per-test so a run cannot pick up a chunk
-// another test compiled from identical source under a different name.
 func runIn(t *testing.T, dir string, tune func(*testrunner.Options)) (testrunner.Summary, string) {
 	t.Helper()
 	t.Setenv("LUASCRIPT_CACHE_DIR", t.TempDir())
@@ -77,7 +73,6 @@ func TestRunReportsPassesAndFailures(t *testing.T) {
 	if !strings.Contains(out, "FAIL") || !strings.Contains(out, "bad") {
 		t.Errorf("report did not name the failure:\n%s", out)
 	}
-	// A quiet run reports failures only; passing tests stay out of the way.
 	if strings.Contains(out, "group/one") {
 		t.Errorf("quiet run listed a passing test:\n%s", out)
 	}
@@ -116,8 +111,6 @@ func TestFilterNarrowsTheRun(t *testing.T) {
 	}
 }
 
-// TestFilterHidesFilesThatMatchedNothing: when the user has asked about a
-// subset, every other file is noise.
 func TestFilterHidesFilesThatMatchedNothing(t *testing.T) {
 	dir := t.TempDir()
 	write(t, dir, "pass_test.lsc", passingSuite)
@@ -141,7 +134,6 @@ func TestFilterHidesFilesThatMatchedNothing(t *testing.T) {
 
 func TestListDoesNotRunBodies(t *testing.T) {
 	dir := t.TempDir()
-	// A body that would fail loudly if it ever executed.
 	write(t, dir, "list_test.lsc", `
 		local t = require("test")
 		t.test("never runs", function() error("body executed") end)
@@ -172,8 +164,6 @@ func TestFailFastStopsTheRun(t *testing.T) {
 	}
 }
 
-// TestCompileErrorIsAFileError: a file that will not compile is reported as a
-// file error rather than crashing the run, and the remaining files still run.
 func TestCompileErrorIsAFileError(t *testing.T) {
 	dir := t.TempDir()
 	write(t, dir, "broken_test.lsc", `local t = require("test") t.test(`)
@@ -195,8 +185,6 @@ func TestCompileErrorIsAFileError(t *testing.T) {
 	}
 }
 
-// TestChunkErrorKeepsEarlierResults: an error in top-level code after some
-// tests have run must not discard them.
 func TestChunkErrorKeepsEarlierResults(t *testing.T) {
 	dir := t.TempDir()
 	write(t, dir, "half_test.lsc", `
@@ -218,8 +206,6 @@ func TestChunkErrorKeepsEarlierResults(t *testing.T) {
 	}
 }
 
-// TestFilesAreIsolated: each file gets its own VM, so a global set by one is
-// invisible to the next.
 func TestFilesAreIsolated(t *testing.T) {
 	dir := t.TempDir()
 	write(t, dir, "a_test.lsc", `
@@ -242,9 +228,9 @@ func TestDiscoverWalksDirectoriesAndSkipsModules(t *testing.T) {
 	dir := t.TempDir()
 	write(t, dir, "top_test.lsc", "")
 	write(t, dir, filepath.Join("nested", "deep_test.lsc"), "")
-	write(t, dir, "helper.lsc", "")                                        // no suffix
-	write(t, dir, filepath.Join("lua_modules", "dep", "dep_test.lsc"), "") // dependency
-	write(t, dir, filepath.Join(".hidden", "hidden_test.lsc"), "")         // tool metadata
+	write(t, dir, "helper.lsc", "")
+	write(t, dir, filepath.Join("lua_modules", "dep", "dep_test.lsc"), "")
+	write(t, dir, filepath.Join(".hidden", "hidden_test.lsc"), "")
 
 	found, err := testrunner.Discover([]string{dir})
 	if err != nil {
@@ -261,8 +247,6 @@ func TestDiscoverWalksDirectoriesAndSkipsModules(t *testing.T) {
 	}
 }
 
-// TestDiscoverTakesNamedFilesVerbatim: naming a file explicitly runs it even
-// when it does not follow the suffix convention.
 func TestDiscoverTakesNamedFilesVerbatim(t *testing.T) {
 	dir := t.TempDir()
 	path := write(t, dir, "scratch.lsc", "")
@@ -295,8 +279,6 @@ func TestRunWithNoTestFilesIsAnError(t *testing.T) {
 	}
 }
 
-// TestColorAutoIsOffForNonTerminals guards the common case: piping the report
-// into a file or a CI log must not embed escape sequences.
 func TestColorAutoIsOffForNonTerminals(t *testing.T) {
 	if testrunner.ColorAuto(&bytes.Buffer{}) {
 		t.Error("ColorAuto(buffer) = true, want false")

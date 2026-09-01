@@ -1,23 +1,3 @@
-// Package csv is a require()-able host module for reading and writing CSV,
-// the lingua franca of tabular data. It wraps Go's encoding/csv so quoting,
-// embedded newlines, and custom delimiters all behave correctly.
-//
-// API:
-//
-//	csv.parse(text [, opts])      -> rows
-//	csv.stringify(data [, opts])  -> text
-//	csv.read(path [, opts])       -> rows
-//	csv.write(path, data [, opts])
-//
-// opts is an optional table:
-//
-//	header    = false  -- when true, the first row names the columns and each
-//	                      data row is returned as a { column = value } map
-//	delimiter = ","    -- single-character field separator
-//	numbers   = false  -- when true, numeric-looking cells parse to numbers
-//
-// Without header, rows are returned as an array of string arrays. The
-// row/grid <-> string conversions live in pure helpers tested in csv_test.go.
 package csv
 
 import (
@@ -29,7 +9,6 @@ import (
 	"github.com/hilthontt/luascript/internal/vm"
 )
 
-// RegisterCSVPreload installs the loader under package.preload.
 func RegisterCSVPreload(v *vm.VM) {
 	vm.RegisterPreload(v, "csv", csvLoader)
 }
@@ -95,12 +74,10 @@ func csvLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
 	return []vm.Value{m}
 }
 
-// Pure string <-> grid conversion
-
 func parse(text string, delim rune) ([][]string, error) {
 	r := encodingcsv.NewReader(strings.NewReader(text))
 	r.Comma = delim
-	r.FieldsPerRecord = -1 // tolerate ragged rows; the caller decides what to do
+	r.FieldsPerRecord = -1
 	return r.ReadAll()
 }
 
@@ -115,13 +92,11 @@ func stringify(grid [][]string, delim rune) (string, error) {
 	return sb.String(), w.Error()
 }
 
-// Lua marshalling
-
 type options struct {
 	header     bool
 	numbers    bool
 	delim      rune
-	columnsRaw []string // ordered column names for header-mode stringify/write
+	columnsRaw []string
 }
 
 func readOpts(args []vm.Value, n int) options {
@@ -156,8 +131,6 @@ func readOpts(args []vm.Value, n int) options {
 	return o
 }
 
-// gridToTable converts the parsed grid into a Lua value: an array of
-// {col=value} maps when header is set, otherwise an array of string arrays.
 func gridToTable(grid [][]string, o options) *vm.Table {
 	if !o.header {
 		out := vm.NewTable(len(grid), 0)
@@ -177,7 +150,7 @@ func gridToTable(grid [][]string, o options) *vm.Table {
 			if j < len(row) {
 				rec.Set(name, cell(row[j], o.numbers))
 			} else {
-				rec.Set(name, "") // short row: pad missing trailing fields
+				rec.Set(name, "")
 			}
 		}
 		out.Set(int64(i+1), rec)
@@ -193,8 +166,6 @@ func rowToArray(row []string, numbers bool) *vm.Table {
 	return t
 }
 
-// cell returns the field as a number when numbers is set and it parses
-// cleanly, otherwise as the raw string. Integers stay integers.
 func cell(s string, numbers bool) vm.Value {
 	if !numbers {
 		return s
@@ -208,10 +179,6 @@ func cell(s string, numbers bool) vm.Value {
 	return s
 }
 
-// tableToGrid converts a Lua value back into a string grid. With header set,
-// data is an array of {col=value} maps and the column order is taken from
-// opts.columns (required, so the output order is deterministic). Otherwise
-// data is an array of arrays.
 func tableToGrid(site string, data *vm.Table, o options) [][]string {
 	n := int(data.Len())
 	if o.header {
@@ -248,8 +215,6 @@ func tableToGrid(site string, data *vm.Table, o options) [][]string {
 	return grid
 }
 
-// columnsOpt is needed only for header-mode stringify/write: it is passed via
-// a separate field because maps have no inherent order.
 func columnsOpt(site string, o options) []string {
 	if o.columnsRaw == nil {
 		panic(vm.Errorf("%s: opts.columns is required when header is set (an ordered array of column names)", site))

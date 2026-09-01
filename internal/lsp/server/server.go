@@ -1,11 +1,3 @@
-// Package server implements the luascript language server: the concrete
-// protocol.Server that drives the compiler front-end (lex -> parse ->
-// typecheck -> analyze) to serve diagnostics, hover, completion, formatting
-// and a document outline to any LSP-speaking editor over stdio.
-//
-// The name "proxy" is historical — an earlier design proxied to an external
-// tool. Today the server answers every request itself; there is nothing to
-// proxy to.
 package server
 
 import (
@@ -19,10 +11,6 @@ import (
 	"github.com/hilthontt/luascript/internal/version"
 )
 
-// Server is the luascript LSP server. It keeps the set of open documents and
-// re-derives everything else (diagnostics, symbols, hover) on demand from the
-// current text — there is no persistent AST cache, because a full recompile of
-// a single file is cheap.
 type Server struct {
 	unimplementedServer
 
@@ -33,7 +21,6 @@ type Server struct {
 
 var _ protocol.Server = (*Server)(nil)
 
-// NewServer builds a server with an empty document store.
 func NewServer(logger *slog.Logger) *Server {
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -41,10 +28,7 @@ func NewServer(logger *slog.Logger) *Server {
 	return &Server{logger: logger, docs: newDocumentStore()}
 }
 
-// Initialize advertises the capabilities the server actually implements.
 func (s *Server) Initialize(ctx context.Context, _ *protocol.InitializeParams) (*protocol.InitializeResult, error) {
-	// Stash the client so notification handlers can publish diagnostics even
-	// though only requests receive a reply channel.
 	if c := protocol.ClientFromContext(ctx); c != nil {
 		s.client = c
 	}
@@ -69,7 +53,6 @@ func (s *Server) Initialize(ctx context.Context, _ *protocol.InitializeParams) (
 	}, nil
 }
 
-// Initialized is a no-op today; the client is already captured in Initialize.
 func (s *Server) Initialized(context.Context, *protocol.InitializedParams) error {
 	s.logger.Debug("initialized")
 	return nil
@@ -86,7 +69,6 @@ func (s *Server) DidChange(ctx context.Context, params *protocol.DidChangeTextDo
 	if len(params.ContentChanges) == 0 {
 		return nil
 	}
-	// Full-sync mode: the last change event carries the entire new document.
 	text := params.ContentChanges[len(params.ContentChanges)-1].Text
 	uri := string(params.TextDocument.URI)
 	s.docs.update(uri, text, params.TextDocument.Version)
@@ -97,7 +79,6 @@ func (s *Server) DidChange(ctx context.Context, params *protocol.DidChangeTextDo
 func (s *Server) DidSave(ctx context.Context, params *protocol.DidSaveTextDocumentParams) error {
 	uri := string(params.TextDocument.URI)
 	if params.Text != "" {
-		// The client included the saved text; trust it as the source of truth.
 		_, version, _ := s.docs.get(uri)
 		s.docs.update(uri, params.Text, version)
 	}
@@ -111,9 +92,6 @@ func (s *Server) DidClose(_ context.Context, params *protocol.DidCloseTextDocume
 	return nil
 }
 
-// publishDiagnostics recompiles the document at uri and pushes the results to
-// the client. Safe to call with an unknown uri (it simply does nothing) or a
-// nil client (before Initialize).
 func (s *Server) publishDiagnostics(ctx context.Context, uri string, version int32) {
 	if s.client == nil {
 		return
@@ -133,9 +111,6 @@ func (s *Server) publishDiagnostics(ctx context.Context, uri string, version int
 	}
 }
 
-// --- Language features ------------------------------------------------------
-
-// Hover returns documentation for the builtin identifier under the cursor.
 func (s *Server) Hover(_ context.Context, params *protocol.HoverParams) (*protocol.Hover, error) {
 	text, _, ok := s.docs.get(string(params.TextDocument.URI))
 	if !ok {
@@ -146,9 +121,6 @@ func (s *Server) Hover(_ context.Context, params *protocol.HoverParams) (*protoc
 	if word == "" {
 		return nil, nil
 	}
-	// Prefer a qualified lookup (`math.floor`) when the word is the member of a
-	// known namespace; fall back to the bare name (globals, keywords, the
-	// namespace itself).
 	doc, ok := hoverDocs[word]
 	if ns := namespaceBefore(text, start); ns != "" {
 		if qdoc, qok := hoverDocs[ns+"."+word]; qok {
@@ -168,14 +140,9 @@ func (s *Server) Hover(_ context.Context, params *protocol.HoverParams) (*protoc
 	}, nil
 }
 
-// Completion returns member completions after `namespace.` (e.g. `math.` ->
-// floor, ceil, ...), otherwise the static keyword / global / module set. In the
-// bare case it ignores finer context — the client filters by prefix.
 func (s *Server) Completion(_ context.Context, params *protocol.CompletionParams) (*protocol.CompletionList, error) {
 	if text, _, ok := s.docs.get(string(params.TextDocument.URI)); ok {
 		offset := positionToOffset(text, params.Position)
-		// The member word may already be partially typed (`math.fl|`); rewind
-		// over it to find the separator and qualifier.
 		wordStart := offset
 		for wordStart > 0 && isIdentByte(text[wordStart-1]) {
 			wordStart--
@@ -192,8 +159,6 @@ func (s *Server) Completion(_ context.Context, params *protocol.CompletionParams
 	}, nil
 }
 
-// Formatting reformats the whole document via the shared formatter and returns
-// a single full-range replacement edit.
 func (s *Server) Formatting(_ context.Context, params *protocol.DocumentFormattingParams) ([]protocol.TextEdit, error) {
 	text, _, ok := s.docs.get(string(params.TextDocument.URI))
 	if !ok {
@@ -208,8 +173,6 @@ func (s *Server) Formatting(_ context.Context, params *protocol.DocumentFormatti
 	}
 	out, err := formatter.Format(text, opts)
 	if err != nil {
-		// A parse error means we can't format; leave the buffer untouched
-		// rather than surfacing an LSP error the user can't act on.
 		s.logger.Debug("format failed", slog.Any("error", err))
 		return nil, nil
 	}
@@ -222,7 +185,6 @@ func (s *Server) Formatting(_ context.Context, params *protocol.DocumentFormatti
 	}}, nil
 }
 
-// DocumentSymbol returns the top-level declarations for the outline view.
 func (s *Server) DocumentSymbol(_ context.Context, params *protocol.DocumentSymbolParams) ([]protocol.SymbolInformationOrDocumentSymbol, error) {
 	uri := string(params.TextDocument.URI)
 	text, _, ok := s.docs.get(uri)
@@ -232,15 +194,11 @@ func (s *Server) DocumentSymbol(_ context.Context, params *protocol.DocumentSymb
 	return documentSymbols(uri, text), nil
 }
 
-// Shutdown / Exit round out the lifecycle. Exit terminates the process; the
-// serve loop's connection is closed by the client immediately afterwards.
 func (s *Server) Shutdown(context.Context) error {
 	s.logger.Debug("shutdown")
 	return nil
 }
 
-// fullRange returns a range covering the entire document, used to replace the
-// whole buffer on format.
 func fullRange(src string) protocol.Range {
 	line := uint32(0)
 	col := uint32(0)
@@ -258,9 +216,6 @@ func fullRange(src string) protocol.Range {
 	}
 }
 
-// stdrwc adapts os.Stdin / os.Stdout into a single io.ReadWriteCloser so the
-// jsonrpc2 stream can read requests and write responses over the standard LSP
-// stdio transport.
 type stdrwc struct {
 	in  io.ReadCloser
 	out io.WriteCloser
@@ -276,8 +231,6 @@ func (s stdrwc) Close() error {
 	return err
 }
 
-// Run serves the language server over the supplied stdio streams until the
-// connection closes (client disconnect or exit notification). It blocks.
 func Run(ctx context.Context, logger *slog.Logger, in io.ReadCloser, out io.WriteCloser) error {
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(io.Discard, nil))

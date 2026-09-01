@@ -6,17 +6,6 @@ import (
 	"github.com/hilthontt/luascript/internal/compiler/lexer"
 )
 
-// FuzzParser asserts two invariants on arbitrary input:
-//
-//  1. The parser never lets a panic escape — it has a top-level recover()
-//     in ParseProgram that converts any runtime panic into a SyntaxError.
-//     Fuzzing exercises that net.
-//  2. ParseProgram always returns either a non-nil *Program or a non-nil
-//     *errors.Error (never both nil) — callers rely on this for control
-//     flow.
-//
-// Seed corpus is a cross-section of parser_test.go cases plus a few
-// known edge inputs.
 func FuzzParser(f *testing.F) {
 	seeds := []string{
 		"",
@@ -39,15 +28,12 @@ func FuzzParser(f *testing.F) {
 		"print \"hello\"",
 		"f { 1, 2 }",
 		"do local x = 1 end",
-		// known parse-error cases
 		"1 = 2",
 		")",
 		"if true then x = 1",
 		"local",
-		// unusual but legal
 		"a = a < b == c",
 		"a = 2 ^ 3 ^ 2",
-		// type-annotated (Luau-style)
 		"local x: number = 1",
 		"function f(x: string): number return 0 end",
 	}
@@ -61,8 +47,6 @@ func FuzzParser(f *testing.F) {
 		if prog == nil && err == nil {
 			t.Fatalf("both prog and err nil for %q", input)
 		}
-		// Defensive: if the parser succeeded, the program structure must
-		// be usable — the typecheck/codegen passes deref Block.
 		if err == nil && prog != nil && prog.Block == nil {
 			t.Fatalf("prog returned with nil Block for %q", input)
 		}

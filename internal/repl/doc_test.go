@@ -16,8 +16,6 @@ func TestDocCommand(t *testing.T) {
 		{"doc math", "math", true},
 		{"doc math.floor", "math.floor", true},
 		{"doc   std.stack  ", "std.stack", true},
-		// Ordinary luascript that happens to start with "doc" must fall
-		// through to the evaluator, not be swallowed as a command.
 		{"doc = 1", "", false},
 		{`doc("x")`, "", false},
 		{"doctor", "", false},

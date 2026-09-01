@@ -9,7 +9,6 @@ type Example struct {
 
 type Examples []Example
 
-// Shuffle shuffles slice in-place
 func (e Examples) Shuffle() {
 	for i := range e {
 		j := rand.IntN(i + 1)
@@ -17,8 +16,6 @@ func (e Examples) Shuffle() {
 	}
 }
 
-// Split assigns each element to two new slices
-// according to probability p
 func (e Examples) Split(p float64) (first, second Examples) {
 	for i := 0; i < len(e); i++ {
 		if p > rand.Float64() {
@@ -30,7 +27,6 @@ func (e Examples) Split(p float64) (first, second Examples) {
 	return
 }
 
-// SplitSize splits slice into parts of size size
 func (e Examples) SplitSize(size int) []Examples {
 	res := make([]Examples, 0)
 	for i := 0; i < len(e); i += size {
@@ -39,7 +35,6 @@ func (e Examples) SplitSize(size int) []Examples {
 	return res
 }
 
-// SplitN splits slice into n parts
 func (e Examples) SplitN(n int) []Examples {
 	res := make([]Examples, n)
 	for i, el := range e {

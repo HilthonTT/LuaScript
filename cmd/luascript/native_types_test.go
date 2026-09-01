@@ -15,8 +15,6 @@ func callableWord(isFn bool) string {
 	return "a plain value"
 }
 
-// loadModuleValues is loadModuleMembers but keeping the values, so the guard
-// can check what each field actually is and not merely that it exists.
 func loadModuleValues(name string) (map[string]vm.Value, bool) {
 	v := vm.New()
 	registerAllNatives(v)
@@ -56,7 +54,6 @@ func loadModuleValues(name string) (map[string]vm.Value, bool) {
 		}
 	}
 	collect(mod)
-	// Most modules keep their functions on a methods table behind __index.
 	if mt := mod.Metatable(); mt != nil {
 		if idx, ok := mt.Get("__index").(*vm.Table); ok {
 			collect(idx)
@@ -65,18 +62,6 @@ func loadModuleValues(name string) (map[string]vm.Value, bool) {
 	return out, true
 }
 
-// TestNativeTypesMatchRuntime is the drift guard for internal/compiler/
-// typecheck/native_types.go, the hand-written type declarations that make
-// `require("json")` and friends type-checked rather than `any`.
-//
-// Those declarations cannot be derived from the modules themselves — the
-// compiler sits upstream of the VM and cannot import internal/native — so
-// without a guard they would rot silently, and a stale signature is worse than
-// no signature: it rejects correct scripts at compile time.
-//
-// This package is the one place that can load a real VM with every native
-// registered, so the comparison lives here, alongside the equivalent guard for
-// the docs registry.
 func TestNativeTypesMatchRuntime(t *testing.T) {
 	names := typecheck.NativeModuleNames()
 	sort.Strings(names)
@@ -89,10 +74,6 @@ func TestNativeTypesMatchRuntime(t *testing.T) {
 		}
 		live, ok := loadModuleMembers(name)
 		if !ok {
-			// os / io / utf8 are promoted to globals at startup, but they are
-			// still preload entries, so every typed module must load here. A
-			// module that cannot is either misnamed in native_types.go or no
-			// longer shipped.
 			t.Errorf("%s: typed in native_types.go but no such module loads at runtime", name)
 			continue
 		}
@@ -104,10 +85,6 @@ func TestNativeTypesMatchRuntime(t *testing.T) {
 					"a script using it would be rejected at compile time", name, field)
 				continue
 			}
-			// Name parity alone is not enough: declaring a function as a plain
-			// value (or the reverse) type-checks here but rejects every real
-			// use of it. plugin.unsupported_reason was declared as a string
-			// when it is in fact a function, and only this check catches that.
 			if wantFn, ok := typecheck.NativeFieldIsFunction(name, field); ok {
 				_, isFn := values[field].(*vm.GoFunc)
 				if _, isClosure := values[field].(*vm.Closure); isClosure {
@@ -129,8 +106,6 @@ func TestNativeTypesMatchRuntime(t *testing.T) {
 	}
 }
 
-// The guard is only meaningful if it is actually looking at modules; a typo in
-// the name list would otherwise make it vacuously pass.
 func TestNativeTypesCoverExpectedModules(t *testing.T) {
 	names := typecheck.NativeModuleNames()
 	if len(names) < 10 {

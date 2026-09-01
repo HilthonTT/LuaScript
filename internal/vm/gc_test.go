@@ -11,7 +11,6 @@ func TestCollectgarbageCollectReturnsZero(t *testing.T) {
 }
 
 func TestCollectgarbageDefaultsToCollect(t *testing.T) {
-	// No option arg defaults to "collect", returning 0.
 	v := run(t, `r = collectgarbage()`)
 	assertGlobalEqual(t, v, "r", int64(0))
 }
@@ -31,8 +30,6 @@ func TestCollectgarbageIsRunning(t *testing.T) {
 }
 
 func TestCollectgarbageSetpauseReturnsPrevious(t *testing.T) {
-	// setpause returns the previous GOGC; restart afterwards so the round-trip
-	// doesn't leak an altered GC percent into sibling tests.
 	v := run(t, `
 		first = collectgarbage("setpause", 200)
 		second = collectgarbage("setpause", 100)

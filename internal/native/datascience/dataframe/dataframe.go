@@ -1,18 +1,3 @@
-// Package dataframe is a require()-able host module providing a column-
-// oriented, pandas-style tabular structure — the central abstraction for
-// most data-science work in LuaScript. A DataFrame holds named columns of
-// equal length; the methods below cover the everyday verbs: selecting and
-// dropping columns, filtering and sorting rows, deriving new columns,
-// grouping with aggregation, summary statistics, and CSV interchange.
-//
-// Construction:
-//
-//	df = dataframe.new({ age = {30, 25}, name = {"a", "b"} })  -- column map
-//	df = dataframe.from_rows({ {age=30, name="a"}, ... })       -- row records
-//	df = dataframe.from_csv("people.csv")                       -- header + auto numbers
-//
-// Every transforming method returns a NEW DataFrame; the receiver is never
-// mutated, so chains like df:filter(p):select({"x"}):sort("x") are safe.
 package dataframe
 
 import (
@@ -28,7 +13,6 @@ import (
 	"github.com/hilthontt/luascript/internal/vm"
 )
 
-// RegisterDataFramePreload installs the loader under package.preload.
 func RegisterDataFramePreload(v *vm.VM) {
 	vm.RegisterPreload(v, "dataframe", dfLoader)
 }
@@ -61,18 +45,12 @@ func dfLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
 	return []vm.Value{m}
 }
 
-// DataFrame is a set of equal-length named columns held in column order.
-// Cell values are raw Lua values (int64 / float64 / string / bool / nil).
 type DataFrame struct {
-	order []string // column names, in display order
+	order []string
 	cols  map[string][]vm.Value
-	n     int // row count (length of every column)
+	n     int
 }
 
-// Construction
-
-// fromColumns builds a frame from a Lua map of { name = array }. All columns
-// must share a length.
 func fromColumns(t *vm.Table) *DataFrame {
 	d := &DataFrame{cols: map[string][]vm.Value{}, n: -1}
 	for k, v := t.Next(nil); k != nil; k, v = t.Next(k) {
@@ -99,9 +77,6 @@ func fromColumns(t *vm.Table) *DataFrame {
 	return d
 }
 
-// fromRows builds a frame from a Lua array of { name = value } records. The
-// column order and set are taken from the first row; later rows are read by
-// that key set, with missing keys becoming nil.
 func fromRows(t *vm.Table) *DataFrame {
 	nrows := int(t.Len())
 	d := &DataFrame{cols: map[string][]vm.Value{}, n: nrows}
@@ -115,7 +90,7 @@ func fromRows(t *vm.Table) *DataFrame {
 	for k, _ := first.Next(nil); k != nil; k, _ = first.Next(k) {
 		name, ok := k.(string)
 		if !ok {
-			continue // skip non-string keys; this is a record, not an array
+			continue
 		}
 		d.order = append(d.order, name)
 		d.cols[name] = make([]vm.Value, nrows)
@@ -132,8 +107,6 @@ func fromRows(t *vm.Table) *DataFrame {
 	return d
 }
 
-// fromCSV reads a header-rowed CSV file into a frame. With numbers set,
-// numeric-looking cells become int64/float64.
 func fromCSV(path string, numbers bool) *DataFrame {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -188,8 +161,6 @@ func tableToColumn(t *vm.Table) []vm.Value {
 	return col
 }
 
-// Pure transforms (return new frames; never mutate the receiver)
-
 func (d *DataFrame) has(name string) bool { _, ok := d.cols[name]; return ok }
 
 func (d *DataFrame) mustHave(site, name string) {
@@ -198,8 +169,6 @@ func (d *DataFrame) mustHave(site, name string) {
 	}
 }
 
-// pick builds a frame with the named columns (which must exist) over the
-// given row indices, in the given column order.
 func (d *DataFrame) pick(names []string, rows []int) *DataFrame {
 	out := &DataFrame{cols: map[string][]vm.Value{}, order: names, n: len(rows)}
 	for _, name := range names {
@@ -266,7 +235,6 @@ func (d *DataFrame) tailRows(n int) *DataFrame {
 	return d.pick(d.order, rows)
 }
 
-// rowRecord returns row i (0-based) as a fresh { name = value } Lua table.
 func (d *DataFrame) rowRecord(i int) *vm.Table {
 	rec := vm.NewTable(0, len(d.order))
 	for _, name := range d.order {
@@ -275,8 +243,6 @@ func (d *DataFrame) rowRecord(i int) *vm.Table {
 	return rec
 }
 
-// floatColumn returns the column as []float64. ok is false when any cell is
-// non-numeric, so callers can decide whether to skip the column.
 func (d *DataFrame) floatColumn(name string) ([]float64, bool) {
 	src := d.cols[name]
 	out := make([]float64, len(src))
@@ -290,10 +256,6 @@ func (d *DataFrame) floatColumn(name string) ([]float64, bool) {
 	return out, true
 }
 
-// Lua method binding
-
-// wrap exposes a *DataFrame as a Lua object whose methods are colon-called
-// (self is args[0]; the actual arguments start at index 1).
 func wrap(d *DataFrame) *vm.Table {
 	methods := vm.NewTable(0, 24)
 	set := func(name string, fn func(*vm.VM, []vm.Value) []vm.Value) {
@@ -436,8 +398,6 @@ func (d *DataFrame) rename(m *vm.Table) *DataFrame {
 	return out
 }
 
-// withColumn returns a copy with name set to col, replacing it if it already
-// exists or appending it otherwise.
 func (d *DataFrame) withColumn(name string, col []vm.Value) *DataFrame {
 	out := &DataFrame{cols: map[string][]vm.Value{}, n: d.n}
 	out.order = append(out.order, d.order...)
@@ -464,11 +424,7 @@ func (d *DataFrame) sortBy(name string, desc bool) *DataFrame {
 	return d.pick(d.order, rows)
 }
 
-// groupBy splits rows by the distinct values of groupCol (first-seen order)
-// and reduces each group per the aggs map { sourceCol = aggName }. Output
-// columns are the group column followed by one "<col>_<agg>" column per entry.
 func (d *DataFrame) groupBy(groupCol string, aggs *vm.Table) *DataFrame {
-	// Collect (outName, sourceCol, agg) in the agg table's insertion order.
 	type spec struct{ out, src, agg string }
 	var specs []spec
 	for k, v := aggs.Next(nil); k != nil; k, v = aggs.Next(k) {
@@ -511,9 +467,6 @@ func (d *DataFrame) groupBy(groupCol string, aggs *vm.Table) *DataFrame {
 	return out
 }
 
-// describe builds a summary frame: one "statistic" column naming each measure
-// and one column per numeric source column holding the values. Non-numeric
-// columns are skipped.
 func (d *DataFrame) describe() *DataFrame {
 	statNames := []string{"count", "mean", "std", "min", "25%", "50%", "75%", "max"}
 	out := &DataFrame{cols: map[string][]vm.Value{}, n: len(statNames)}
@@ -558,7 +511,6 @@ func (d *DataFrame) toCSV() string {
 	return sb.String()
 }
 
-// render produces an aligned, padded text table capped at maxRows data rows.
 func (d *DataFrame) render(maxRows int) string {
 	if len(d.order) == 0 {
 		return "DataFrame(empty)"
@@ -567,7 +519,6 @@ func (d *DataFrame) render(maxRows int) string {
 	if shown > maxRows {
 		shown = maxRows
 	}
-	// Build the string grid (header + shown rows) and per-column widths.
 	widths := make([]int, len(d.order))
 	cells := make([][]string, shown+1)
 	cells[0] = append([]string{}, d.order...)
@@ -612,7 +563,6 @@ func (d *DataFrame) render(maxRows int) string {
 	return strings.TrimRight(sb.String(), "\n")
 }
 
-// reduce applies a named aggregation to the rows of col selected by idx.
 func reduce(col []vm.Value, idx []int, agg string) vm.Value {
 	switch agg {
 	case "count":
@@ -689,8 +639,6 @@ func quantile(s []float64, q float64) float64 {
 	return s[lo]*(1-frac) + s[hi]*frac
 }
 
-// compareValues orders two cell values: numbers numerically, strings
-// lexically, with numbers sorting before strings and nil sorting last.
 func compareValues(a, b vm.Value) int {
 	af, aNum := numeric(a)
 	bf, bNum := numeric(b)
@@ -704,7 +652,7 @@ func compareValues(a, b vm.Value) int {
 		default:
 			return 0
 		}
-	case aNum: // number before non-number
+	case aNum:
 		return -1
 	case bNum:
 		return 1
@@ -719,8 +667,6 @@ func compareValues(a, b vm.Value) int {
 	}
 }
 
-// Lua marshalling helpers
-
 func arg(args []vm.Value, i int) vm.Value {
 	if i < 1 || i > len(args) {
 		return nil
@@ -729,8 +675,6 @@ func arg(args []vm.Value, i int) vm.Value {
 }
 
 func optInt(args []vm.Value, methodArg int, dflt int) int {
-	// methodArg is 1-based among the *method* args (so position 2 overall,
-	// after self at index 1). Callers pass 1 for "the first real argument".
 	v := arg(args, methodArg+1)
 	if i, ok := vm.ToInteger(v); ok {
 		return int(i)
@@ -748,8 +692,6 @@ func funcArg(site string, n int, args []vm.Value) vm.Value {
 	}
 }
 
-// namesArg reads the column-name list a method like select/drop expects as its
-// first real argument (an array of strings).
 func namesArg(site string, args []vm.Value) []string {
 	t := vm.TableArg(site, 2, args)
 	n := int(t.Len())

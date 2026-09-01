@@ -68,11 +68,9 @@ func TestInverseAndSolve(t *testing.T) {
 	if !ok {
 		t.Fatal("expected invertible matrix")
 	}
-	// A * A⁻¹ should be the identity.
 	prod, _ := matmul(a, inv)
 	eqMat(t, prod, identity(2), 1e-9, "A*inv")
 
-	// Solve A x = b where the answer is known.
 	x, ok := solve([][]float64{{2, 1}, {1, 3}}, []float64{5, 10})
 	if !ok {
 		t.Fatal("expected solvable system")

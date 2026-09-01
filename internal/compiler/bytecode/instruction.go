@@ -1,8 +1,3 @@
-// Package bytecode emits a stack-based instruction stream for luascript
-// (Lua 5.4 syntax). The VM model is conventional stack-based: every
-// expression leaves a single value on top of the stack unless it is a
-// "multi-value" producer (call, method call, vararg) appearing in a
-// last-position context that requests variable results.
 package bytecode
 
 import (
@@ -10,42 +5,36 @@ import (
 	"strings"
 )
 
-// Instruction-set names used as the `Type` of an InstructionSet.
 const (
-	Program     = "ProgramStart" // top-level chunk
-	FunctionDef = "Function"     // any function body, including the main chunk's
+	Program     = "ProgramStart"
+	FunctionDef = "Function"
 )
 
-// Opcodes for the Lua-flavored stack VM.
 const (
-	// --- constants & literals ---
-	LoadNil    uint8 = iota // params: count               ; pushes `count` nils
-	LoadTrue                // pushes true
-	LoadFalse               // pushes false
-	LoadInt                 // params: int64               ; pushes integer
-	LoadFloat               // params: float64             ; pushes float
-	LoadString              // params: string              ; pushes string
-	LoadVararg              // params: count (-1 = all)    ; expands current frame's `...`
-	Closure                 // params: protoIndex          ; pushes closure built from FunctionProto[i]
+	LoadNil uint8 = iota
+	LoadTrue
+	LoadFalse
+	LoadInt
+	LoadFloat
+	LoadString
+	LoadVararg
+	Closure
 
-	// --- variables ---
-	GetLocal   // params: slot
-	SetLocal   // params: slot
-	GetUpvalue // params: index
-	SetUpvalue // params: index
-	GetGlobal  // params: name
-	SetGlobal  // params: name
+	GetLocal
+	SetLocal
+	GetUpvalue
+	SetUpvalue
+	GetGlobal
+	SetGlobal
 
-	// --- tables ---
-	NewTable // params: arrayHint, hashHint  ; pushes new empty table
-	GetTable // pops key, table              ; pushes table[key]
-	SetTable // pops value, key, table       ; table[key]=value
-	GetField // params: key (string)         ; pops table; pushes table[key]
-	SetField // params: key (string)         ; pops value, table; table[key]=value
-	Self     // params: key (string)         ; for `obj:m`. pops obj; pushes obj[key], obj
-	SetList  // params: count, offset        ; bulk-fill array part of a table built below the values
+	NewTable
+	GetTable
+	SetTable
+	GetField
+	SetField
+	Self
+	SetList
 
-	// --- arithmetic ---
 	Add
 	Sub
 	Mul
@@ -53,21 +42,18 @@ const (
 	FloorDiv
 	Mod
 	Pow
-	Neg // unary -
+	Neg
 
-	// --- bitwise (Lua 5.3+) ---
 	BitAnd
 	BitOr
 	BitXor
 	Shl
 	Shr
-	BitNot // unary ~
+	BitNot
 
-	// --- string / length ---
-	Concat // params: count                ; concatenates top `count` values
-	Len    // unary #
+	Concat
+	Len
 
-	// --- comparison ---
 	Eq
 	NotEq
 	Lt
@@ -75,87 +61,43 @@ const (
 	Gt
 	Ge
 
-	// --- logical ---
-	Not // unary not
+	Not
 
-	// --- control flow ---
-	Jump            // params: targetLine
-	JumpIfFalse     // params: targetLine ; pops; jump if falsy
-	JumpIfTrue      // params: targetLine ; pops; jump if truthy
-	JumpIfFalseKeep // params: targetLine ; peeks; if falsy keep & jump, else pop & continue (for `and`)
-	JumpIfTrueKeep  // params: targetLine ; peeks; if truthy keep & jump, else pop & continue (for `or`)
+	Jump
+	JumpIfFalse
+	JumpIfTrue
+	JumpIfFalseKeep
+	JumpIfTrueKeep
 
-	// --- calls / returns ---
-	Call   // params: nargs, nresults (-1 = all)
-	Return // params: count (-1 = all from base to top)
+	Call
+	Return
 
-	// --- numeric for ---
-	// baseSlot..baseSlot+2 are hidden control slots (index, limit, step);
-	// baseSlot+3 is the visible loop variable, which both opcodes refresh from
-	// the hidden index at the top of each iteration. Keeping the counter hidden
-	// is what makes assigning to the loop variable inside the body harmless.
-	ForPrep // params: baseSlot, targetLine ; uses 3 stack values: start, limit, step
-	ForLoop // params: baseSlot, targetLine
+	ForPrep
+	ForLoop
 
-	// --- generic for ---
-	TForCall // params: baseSlot, nresults
-	TForLoop // params: baseSlot, targetLine
+	TForCall
+	TForLoop
 
-	// --- stack utility ---
-	Pop // params: count
-	Dup // duplicates top of stack
+	Pop
+	Dup
 
-	// --- frame ---
-	Leave // ends instruction set (REPL friendly fallback / chunk terminator)
+	Leave
 
-	// MarkArgs records the current stack height onto the VM's call-mark
-	// stack. Emitted by compileCall/compileMethodCall ONLY when the call
-	// has a multi-value last argument (call, methodcall, or vararg in
-	// last position). The matching Call opcode encoded with nargs=-1
-	// pops the mark to recover the args base — needed because the spread
-	// length isn't known until runtime.
 	MarkArgs
 
-	// Defer pops a closure off the stack and registers it on the current
-	// frame's deferred list. The VM runs a frame's deferred closures in
-	// last-in-first-out order when the frame unwinds (normal return,
-	// fall-off-end, or an error caught by pcall). No params.
 	Defer
 
-	// CloseUpvalues closes every open upvalue whose slot is at or above the
-	// local slot in param A (relative to the current frame base). Emitted at
-	// the end of a loop iteration whose body captured a local in a closure, so
-	// each iteration's variables are captured independently (Lua 5.4 gives
-	// every iteration a fresh loop variable). No stack effect.
 	CloseUpvalues
 
-	// Try installs an error handler on the current frame: param A is the
-	// instruction index of the matching catch clause. If any error is raised
-	// while the handler is installed, the VM unwinds back to this frame,
-	// truncates the stack to the height Try observed, pushes the error value,
-	// and resumes at A. Handlers nest — the innermost one wins. No stack
-	// effect.
 	Try
 
-	// EndTry pops the innermost `count` (param A) handlers off the current
-	// frame without running them. Emitted on every path that leaves a
-	// protected region other than by raising: the fall-through end of a `try`
-	// body, and any `break`/`continue` that jumps out of one. No stack effect.
-	//
-	// A `return` out of a `try` needs no EndTry — handlers live on the frame,
-	// so unwinding the frame discards them.
 	EndTry
 
-	// Throw pops a value and raises it as a Lua error, identical to what the
-	// `error` builtin does (which propagates its argument verbatim, with no
-	// position prefix). It is an opcode rather than a lowering to a call so
-	// that `throw` cannot be re-pointed by shadowing the name `error`.
 	Throw
 
 	InstructionCount
 )
 
-// InstructionNameTable maps each opcode to a readable mnemonic.
 var InstructionNameTable = []string{
 	LoadNil:         "loadnil",
 	LoadTrue:        "loadtrue",
@@ -223,40 +165,24 @@ var InstructionNameTable = []string{
 	Throw:           "throw",
 }
 
-// Instruction is one emitted opcode plus its parameters and source line.
-//
-// Hot-path fields A / B / StrA / BoxedAny are pre-decoded from Params at
-// emission time so the VM dispatch doesn't pay a per-instruction type
-// assertion + slice bounds check. The exact mapping of an opcode's
-// arguments onto these fields lives in encodeParams below. Params is
-// retained for the disassembler, Inspect, and the bytecode test suite —
-// the VM hot loop reads only the typed fields.
-//
-// Inline-cache state (cacheGen / cacheVal) is owned by the VM, written
-// on a GetGlobal miss and read on subsequent hits. Per-Instruction
-// monomorphic caching: each call site memoises its own global.
 type Instruction struct {
 	Opcode   uint8
-	A        int32 // primary int param (slot, count, jump target, name index, ...)
-	B        int32 // secondary int param (Call nresults, NewTable hashHint, SetList offset, jump target for For*)
-	BoxedAny any   // LoadInt/LoadFloat/LoadString payload — preserves the shared-box optimization (see vm dispatch comment)
+	A        int32
+	B        int32
+	BoxedAny any
 	StrA     string
 
-	cacheGen uint32 // VM GetGlobal inline cache: matches Table.gen on hit
-	cacheVal Value  // cached value at last lookup
+	cacheGen uint32
+	cacheVal Value
 
 	Params     []any
-	line       int     // index inside its instruction set
-	anchor     *anchor // if this instruction's first param is a forward-jump anchor
+	line       int
+	anchor     *anchor
 	sourceLine int
 }
 
-// Value is re-declared here as `any` to avoid an import cycle with vm/.
-// The cacheVal field stores a vm.Value (which is `any`) — equivalent at
-// the language level, and the cache is only ever read/written by the VM.
 type Value = any
 
-// Inspect renders the instruction in a human-readable form.
 func (i *Instruction) Inspect() string {
 	parts := make([]string, 0, len(i.Params))
 	for _, p := range i.Params {
@@ -265,26 +191,19 @@ func (i *Instruction) Inspect() string {
 	return fmt.Sprintf("%s: %s. source line: %d", i.ActionName(), strings.Join(parts, ", "), i.sourceLine)
 }
 
-// ActionName returns the mnemonic for this instruction.
 func (i *Instruction) ActionName() string {
 	return InstructionNameTable[i.Opcode]
 }
 
-// CacheGen returns the generation observed at the last successful
-// inline-cache lookup against this instruction (zero before first use).
 func (i *Instruction) CacheGen() uint32 { return i.cacheGen }
 
-// CacheVal returns the value memoised at the last cache miss.
 func (i *Instruction) CacheVal() Value { return i.cacheVal }
 
-// SetCache records (gen, val) on this instruction for the next hit.
 func (i *Instruction) SetCache(gen uint32, val Value) {
 	i.cacheGen = gen
 	i.cacheVal = val
 }
 
-// AnchorLine returns the resolved target line of this instruction's anchor.
-// Panics if the instruction has no anchor.
 func (i *Instruction) AnchorLine() int {
 	if i.anchor == nil {
 		panic("AnchorLine called on instruction without an anchor")
@@ -292,12 +211,10 @@ func (i *Instruction) AnchorLine() int {
 	return i.anchor.line
 }
 
-// Line returns the instruction's index inside its instruction set.
 func (i *Instruction) Line() int {
 	return i.line
 }
 
-// SourceLine returns the source-code line where the instruction originated.
 func (i *Instruction) SourceLine() int {
 	return i.sourceLine
 }
@@ -306,82 +223,44 @@ type anchor struct {
 	line int
 }
 
-// InstructionSet is the body of one function (or the top-level chunk).
 type InstructionSet struct {
 	name         string
 	isType       string
 	Instructions []*Instruction
 	count        int
 
-	// Function-proto data — only populated for functions (and the main chunk).
 	NumParams int
 	IsVararg  bool
 	NumLocals int
 	Upvalues  []UpvalueDesc
-	Constants []any             // reserved for future constant-pool use
-	Protos    []*InstructionSet // nested function instruction sets
+	Constants []any
+	Protos    []*InstructionSet
 
-	// localsResolved is set true by the VM once it has reconciled NumLocals
-	// against an instruction-stream scan (see vm.callClosure). It exists so
-	// that the one-time scan — needed because the main chunk's NumLocals is
-	// left at 0 by the generator — does not repeat on every call.
 	localsResolved bool
 
-	// hasTry records whether this body contains a Try opcode. It is written
-	// by the same one-time scan that resolves NumLocals (rather than by the
-	// generator) so that a proto loaded from the bytecode cache — which
-	// carries no flag bits of its own — gets it for free. The VM reads it to
-	// decide whether a call needs the recover-installing exec path; only
-	// bodies that actually use `try` pay for it.
 	hasTry bool
 
-	// source is the chunk name shown in error positions and tracebacks —
-	// normally the path of the file this body was compiled from. It is
-	// stamped by whoever loads the chunk (see SetSource) rather than by the
-	// generator, because the generator is handed source text with no idea
-	// where it came from, and because the bytecode cache is keyed on
-	// content: one cached chunk may legitimately be loaded from two paths.
-	// Deliberately not serialized for the same reason.
 	source string
 }
 
-// LocalsResolved reports whether the VM has already reconciled NumLocals.
 func (is *InstructionSet) LocalsResolved() bool { return is.localsResolved }
 
-// MarkLocalsResolved records that NumLocals is now authoritative.
 func (is *InstructionSet) MarkLocalsResolved() { is.localsResolved = true }
 
-// HasTry reports whether this body installs any error handler, i.e. whether
-// it contains a `try`. Only meaningful once the proto's one-time scan has
-// run — see SetHasTry and vm.callClosure.
 func (is *InstructionSet) HasTry() bool { return is.hasTry }
 
-// SetHasTry records the scan's finding. Called alongside MarkLocalsResolved.
 func (is *InstructionSet) SetHasTry(b bool) { is.hasTry = b }
 
-// UpvalueDesc describes how a function captures one upvalue.
-//
-//	InStack == true  -> Index is a local slot in the immediately enclosing function
-//	InStack == false -> Index is an upvalue index in the immediately enclosing function
 type UpvalueDesc struct {
 	Name    string
 	InStack bool
 	Index   int
 }
 
-// Name returns the instruction set's name.
 func (is *InstructionSet) Name() string { return is.name }
 
-// DefaultChunkName is the source shown for chunks nobody stamped — the REPL,
-// `load()`ed strings, and embedded payloads in a bundled executable.
 const DefaultChunkName = "script"
 
-// Source returns the chunk name to show in error positions and tracebacks,
-// falling back to DefaultChunkName for a proto that was never stamped.
-//
-// A leading '=' or '@' is dropped: those are Lua's chunkname sigils for
-// "show this verbatim" and "this is a file name", and scripts calling
-// load(src, "=name") expect neither to appear in the message.
 func (is *InstructionSet) Source() string {
 	if is.source == "" {
 		return DefaultChunkName
@@ -392,9 +271,6 @@ func (is *InstructionSet) Source() string {
 	return is.source
 }
 
-// SetSource stamps the chunk name onto this body and every function nested
-// inside it, so a traceback entry for any frame can name its file. Callers
-// apply it once, right after loading a chunk.
 func (is *InstructionSet) SetSource(name string) {
 	if is == nil || is.source == name {
 		return
@@ -405,7 +281,6 @@ func (is *InstructionSet) SetSource(name string) {
 	}
 }
 
-// Type returns the instruction set's category (Program / FunctionDef).
 func (is *InstructionSet) Type() string { return is.isType }
 
 func (is *InstructionSet) define(action uint8, sourceLine int, params ...any) *Instruction {
@@ -422,43 +297,13 @@ func (is *InstructionSet) define(action uint8, sourceLine int, params ...any) *I
 	return i
 }
 
-// encodeParams populates the typed fast-path fields (A, B, StrA, BoxedAny)
-// from the variadic Params slice based on the opcode's parameter layout.
-// Anchor params are left as zero in A/B at this stage — the generator's
-// post-emit resolution pass writes the resolved target line back to A/B
-// once forward-jump anchors are known (see generator.go).
-//
-// The encoding contract per opcode group is:
-//
-//	A only (int param):
-//	    LoadNil, LoadVararg, Pop, Concat, Return, EndTry,
-//	    Closure, GetLocal, SetLocal, GetUpvalue, SetUpvalue,
-//	    Jump, JumpIfFalse, JumpIfTrue, JumpIfFalseKeep, JumpIfTrueKeep, Try
-//	A + B (two int params):
-//	    NewTable (arrHint, hashHint), SetList (count, offset),
-//	    Call (nargs, nresults), TForCall (baseSlot, nresults),
-//	    ForPrep / ForLoop / TForLoop (baseSlot, targetLine)
-//	StrA only:
-//	    GetGlobal, SetGlobal, GetField, SetField, Self
-//	BoxedAny only (the literal value, kept as a shared `any` box):
-//	    LoadInt, LoadFloat, LoadString
-//	No params:
-//	    LoadTrue, LoadFalse, Leave, Dup, GetTable, SetTable, Throw,
-//	    Len, Not, Neg, BitNot, Add/Sub/Mul/Div/FloorDiv/Mod/Pow,
-//	    BitAnd/BitOr/BitXor/Shl/Shr, Eq/NotEq/Lt/Le/Gt/Ge
-//
-// asInt32 / asAnchorOrInt32 handle the int/int64 heterogeneity that the
-// callers actually pass (LoadInt uses int64, slot/count params use int,
-// jump targets are *anchor pre-resolution or int post-resolution).
 func encodeParams(i *Instruction, op uint8, params []any) {
 	switch op {
-	// BoxedAny: keep the original box so VM push is a single field read
 	case LoadInt, LoadFloat, LoadString:
 		if len(params) >= 1 {
 			i.BoxedAny = params[0]
 		}
 
-	// StrA: string-keyed name/key/method
 	case GetGlobal, SetGlobal, GetField, SetField, Self:
 		if len(params) >= 1 {
 			if s, ok := params[0].(string); ok {
@@ -466,7 +311,6 @@ func encodeParams(i *Instruction, op uint8, params []any) {
 			}
 		}
 
-	// A only: single int param (or *anchor for jumps, resolved later)
 	case LoadNil, LoadVararg, Pop, Concat, Return,
 		Closure, GetLocal, SetLocal, GetUpvalue, SetUpvalue, CloseUpvalues, EndTry:
 		if len(params) >= 1 {
@@ -477,7 +321,6 @@ func encodeParams(i *Instruction, op uint8, params []any) {
 			i.A = asAnchorOrInt32(params[0])
 		}
 
-	// A + B: two int params; B may be an anchor for For-family
 	case NewTable, SetList, Call, TForCall:
 		if len(params) >= 1 {
 			i.A = asInt32(params[0])
@@ -493,17 +336,10 @@ func encodeParams(i *Instruction, op uint8, params []any) {
 			i.B = asAnchorOrInt32(params[1])
 		}
 
-	// No params: nothing to encode
 	default:
-		// LoadTrue, LoadFalse, Leave, Dup, GetTable, SetTable,
-		// arithmetic / bitwise / comparison / unary ops
 	}
 }
 
-// asInt32 narrows the int/int64 the callers actually pass to int32 for
-// storage in A/B. Out-of-range values from int64 wrap silently — the
-// instruction set is small (max ~50 opcodes, slot counts fit in int32
-// trivially) so 32 bits is plenty.
 func asInt32(v any) int32 {
 	switch n := v.(type) {
 	case int:
@@ -516,9 +352,6 @@ func asInt32(v any) int32 {
 	return 0
 }
 
-// asAnchorOrInt32 returns 0 if v is a forward-jump *anchor (the resolved
-// value will be written later by the generator's pending-list walk);
-// otherwise it narrows the integer param.
 func asAnchorOrInt32(v any) int32 {
 	if _, ok := v.(*anchor); ok {
 		return 0

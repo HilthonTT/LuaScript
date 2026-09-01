@@ -8,15 +8,6 @@ import (
 	"github.com/hilthontt/luascript/internal/pkgmanager"
 )
 
-// runPkg implements `luascript pkg <subcommand>`: the git/URL-based package
-// manager. Packages are cloned into ./lua_modules, which `require` already
-// searches via package.path.
-//
-//	luascript pkg add <host/path[@ref]> [name]   fetch + record a dependency
-//	luascript pkg install                        fetch everything in the manifest
-//	luascript pkg remove <name>                  uninstall + forget a dependency
-//
-// Exit codes: 0 = success, 1 = operation failed, 2 = usage error.
 func runPkg(argv []string) int {
 	if len(argv) == 0 {
 		return pkgUsage()

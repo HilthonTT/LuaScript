@@ -1,9 +1,5 @@
 package parser
 
-// Tests for the language-surface additions: the contextual `continue`
-// statement, Luau-style if expressions, default parameter values, and
-// `<const>` / `<close>` attribute validation.
-
 import (
 	"strings"
 	"testing"
@@ -62,7 +58,6 @@ func TestParseContinueOutsideLoopFails(t *testing.T) {
 	if !strings.Contains(msg, "'continue' outside a loop") {
 		t.Errorf("unexpected error message: %s", msg)
 	}
-	// break-style scoping: continue must not escape a function boundary.
 	msg = parseError(t, "for i = 1, 3 do local f = function() continue end end")
 	if !strings.Contains(msg, "'continue' outside a loop") {
 		t.Errorf("unexpected error message: %s", msg)
@@ -70,8 +65,6 @@ func TestParseContinueOutsideLoopFails(t *testing.T) {
 }
 
 func TestContinueRemainsUsableAsIdentifier(t *testing.T) {
-	// Each of these uses `continue` as an ordinary name; none may parse as
-	// the continue statement.
 	srcs := []string{
 		"local continue = 1",
 		"continue = 1",
@@ -112,7 +105,6 @@ func TestParseIfExpression(t *testing.T) {
 }
 
 func TestParseIfExpressionNesting(t *testing.T) {
-	// If expressions in call args stop at `,` and nest.
 	parse(t, "f(if a then 1 else 2, if b then 3 else if c then 4 else 5)")
 	parse(t, "return if a then 1 else 2")
 	parse(t, "local t = { if a then 1 else 2 }")

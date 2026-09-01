@@ -22,7 +22,7 @@ func TestParseSpec(t *testing.T) {
 		{"", "", "", "", true},
 		{"https://github.com/alice/router", "", "", "", true},
 		{"git@github.com:alice/router", "", "", "", true},
-		{"router", "", "", "", true}, // no path segment
+		{"router", "", "", "", true},
 	}
 	for _, tc := range tests {
 		got, err := ParseSpec(tc.in)
@@ -69,11 +69,9 @@ func TestValidName(t *testing.T) {
 	}
 }
 
-// fakeFetcher records fetch calls and writes a marker file into destDir so the
-// orchestration can be tested without git or a network.
 type fakeFetcher struct {
 	calls   []Spec
-	commits map[string]string // spec.String() -> commit to report
+	commits map[string]string
 }
 
 func (f *fakeFetcher) Fetch(spec Spec, destDir string) (string, error) {
@@ -81,7 +79,6 @@ func (f *fakeFetcher) Fetch(spec Spec, destDir string) (string, error) {
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return "", err
 	}
-	// Drop an init.lsc so the package looks real.
 	if err := os.WriteFile(filepath.Join(destDir, "init.lsc"), []byte("return {}\n"), 0o644); err != nil {
 		return "", err
 	}
@@ -107,12 +104,10 @@ func TestAddWritesManifestLockAndModule(t *testing.T) {
 		t.Fatalf("Add: %v", err)
 	}
 
-	// Module installed under lua_modules/router.
 	if _, err := os.Stat(filepath.Join(env.Root, ModulesDir, "router", "init.lsc")); err != nil {
 		t.Errorf("expected installed module file: %v", err)
 	}
 
-	// Manifest records the spec.
 	m, found, err := LoadManifest(env.manifestPath())
 	if err != nil || !found {
 		t.Fatalf("LoadManifest: found=%v err=%v", found, err)
@@ -121,7 +116,6 @@ func TestAddWritesManifestLockAndModule(t *testing.T) {
 		t.Errorf("manifest dep = %q", got)
 	}
 
-	// Lock pins the resolved commit.
 	l, err := LoadLock(env.lockPath())
 	if err != nil {
 		t.Fatalf("LoadLock: %v", err)
@@ -150,7 +144,6 @@ func TestInstallSkipsExistingAndFetchesLockedCommit(t *testing.T) {
 	f := &fakeFetcher{}
 	env := newEnv(t, f)
 
-	// Seed a manifest with two deps and a lock pinning one of them.
 	m := &Manifest{
 		Name:    "proj",
 		Version: "0.1.0",
@@ -168,7 +161,6 @@ func TestInstallSkipsExistingAndFetchesLockedCommit(t *testing.T) {
 	if err := l.Save(env.lockPath()); err != nil {
 		t.Fatal(err)
 	}
-	// Pretend lib is already installed so install should skip it.
 	if err := os.MkdirAll(filepath.Join(env.Root, ModulesDir, "lib"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +169,6 @@ func TestInstallSkipsExistingAndFetchesLockedCommit(t *testing.T) {
 		t.Fatalf("Install: %v", err)
 	}
 
-	// Only router should have been fetched, and by its locked commit.
 	if len(f.calls) != 1 {
 		t.Fatalf("expected 1 fetch, got %d: %+v", len(f.calls), f.calls)
 	}

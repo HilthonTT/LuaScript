@@ -6,7 +6,6 @@ import (
 	"github.com/hilthontt/luascript/internal/compiler/ast"
 )
 
-// num is a numeric literal value tagged with its Lua subtype (integer/float).
 type num struct {
 	i       int64
 	f       float64
@@ -30,16 +29,12 @@ func asNum(e ast.Expression) (num, bool) {
 	return num{}, false
 }
 
-// tryFoldBinary returns a literal node when be has constant operands and the
-// operation is safe to evaluate at compile time, or nil to keep be as-is.
 func tryFoldBinary(be *ast.BinaryExpression) ast.Expression {
 	switch be.Op {
 	case "and", "or":
 		return foldLogical(be)
 
 	case "..":
-		// v1: string-literal operands only. A numeric operand would need
-		// Lua's exact integer / %.14g float formatting — deferred.
 		l, lok := be.Left.(*ast.StringLiteral)
 		r, rok := be.Right.(*ast.StringLiteral)
 		if lok && rok {
@@ -64,7 +59,6 @@ func tryFoldBinary(be *ast.BinaryExpression) ast.Expression {
 	ln, lok := asNum(be.Left)
 	rn, rok := asNum(be.Right)
 	if !lok || !rok {
-		// String relational comparison is the only remaining foldable case.
 		switch be.Op {
 		case "<", ">", "<=", ">=":
 			l, lsok := be.Left.(*ast.StringLiteral)
@@ -80,12 +74,8 @@ func tryFoldBinary(be *ast.BinaryExpression) ast.Expression {
 	case "+", "-", "*", "//", "%":
 		return foldArith(be, ln, rn)
 	case "/", "^":
-		// Lua 5.4: `/` and `^` always yield a float (division by zero gives
-		// inf/NaN, which are valid float values — no runtime error).
 		return foldFloatArith(be, ln, rn)
 	case "<", ">", "<=", ">=":
-		// Skip mixed int/float: Lua compares those mathematically exactly,
-		// which a float() conversion would not reproduce for large integers.
 		if ln.isFloat != rn.isFloat {
 			return nil
 		}
@@ -110,13 +100,10 @@ func tryFoldUnary(ue *ast.UnaryExpression) ast.Expression {
 			return mkBool(ue.BaseNode, !isTruthy(ue.Operand))
 		}
 	case "~":
-		// Bitwise NOT — integer literals only (v1).
 		if n, ok := ue.Operand.(*ast.IntegerLiteral); ok {
 			return mkInt(ue.BaseNode, ^n.Value)
 		}
 	case "#":
-		// Length of a string literal is its byte count. Tables are skipped:
-		// `#` on a table can trigger a __len metamethod.
 		if s, ok := ue.Operand.(*ast.StringLiteral); ok {
 			return mkInt(ue.BaseNode, int64(len(s.Value)))
 		}
@@ -124,9 +111,6 @@ func tryFoldUnary(ue *ast.UnaryExpression) ast.Expression {
 	return nil
 }
 
-// foldLogical evaluates `and`/`or` when the left operand is a known literal.
-// This is safe because Lua short-circuits: the dropped side is never
-// evaluated, so removing it cannot discard a side effect.
 func foldLogical(be *ast.BinaryExpression) ast.Expression {
 	if !isLiteral(be.Left) {
 		return nil
@@ -138,20 +122,12 @@ func foldLogical(be *ast.BinaryExpression) ast.Expression {
 		}
 		return be.Left
 	}
-	// or
 	if leftTruthy {
 		return be.Left
 	}
 	return clampToSingle(be.BaseNode, be.Right)
 }
 
-// clampToSingle preserves single-value semantics when folding replaces a
-// larger expression with one of its sub-expressions. `a and f()`, or an if
-// expression arm, yields exactly one value — but returning a multi-valued
-// node (call/vararg) verbatim would let all its values leak out in a
-// multi-value position (return, call arg, table field). Wrapping it in a
-// ParenExpression re-imposes the one-value adjustment; an already
-// single-valued node is returned unchanged so later folding is not blocked.
 func clampToSingle(b ast.BaseNode, e ast.Expression) ast.Expression {
 	switch e.(type) {
 	case *ast.CallExpression, *ast.MethodCallExpression, *ast.VarargExpression:
@@ -160,12 +136,6 @@ func clampToSingle(b ast.BaseNode, e ast.Expression) ast.Expression {
 	return e
 }
 
-// foldIfExpr folds an if expression's arms and prunes statically-known
-// branches: a falsy-literal condition drops its clause, a truthy-literal
-// condition truncates everything after it (its value becomes the `else`).
-// When no clauses survive, the whole expression folds to its else-value.
-// Dropping a condition is safe for the same reason foldLogical is: Lua
-// evaluates conditions in order and never evaluates a dropped branch.
 func foldIfExpr(n *ast.IfExpression) ast.Expression {
 	kept := n.Clauses[:0]
 	for _, cl := range n.Clauses {
@@ -173,8 +143,6 @@ func foldIfExpr(n *ast.IfExpression) ast.Expression {
 		cl.Value = foldExpr(cl.Value)
 		if isLiteral(cl.Condition) {
 			if isTruthy(cl.Condition) {
-				// This arm always wins over everything after it: it becomes
-				// the else-value and the remaining clauses are dead.
 				n.Clauses = kept
 				n.Else = cl.Value
 				if len(n.Clauses) == 0 {
@@ -182,7 +150,7 @@ func foldIfExpr(n *ast.IfExpression) ast.Expression {
 				}
 				return n
 			}
-			continue // falsy literal: this arm can never be taken
+			continue
 		}
 		kept = append(kept, cl)
 	}
@@ -194,7 +162,6 @@ func foldIfExpr(n *ast.IfExpression) ast.Expression {
 	return n
 }
 
-// foldArith handles + - * // % where at least one operand may be an integer.
 func foldArith(be *ast.BinaryExpression, l, r num) ast.Expression {
 	if l.isFloat || r.isFloat {
 		lf, rf := l.float(), r.float()
@@ -208,8 +175,6 @@ func foldArith(be *ast.BinaryExpression, l, r num) ast.Expression {
 		case "//":
 			return mkFloat(be.BaseNode, math.Floor(lf/rf))
 		case "%":
-			// Lua float modulo is fmod with a sign correction (see vm/float.go).
-			// math.Mod(x, ±Inf) == x, so `x % math.huge` folds to x, not NaN.
 			m := math.Mod(lf, rf)
 			if m != 0 && (m < 0) != (rf < 0) {
 				m += rf
@@ -219,7 +184,6 @@ func foldArith(be *ast.BinaryExpression, l, r num) ast.Expression {
 		return nil
 	}
 
-	// Both integers. int64 arithmetic wraps, matching Lua's 64-bit integers.
 	switch be.Op {
 	case "+":
 		return mkInt(be.BaseNode, l.i+r.i)
@@ -229,19 +193,18 @@ func foldArith(be *ast.BinaryExpression, l, r num) ast.Expression {
 		return mkInt(be.BaseNode, l.i*r.i)
 	case "//":
 		if r.i == 0 {
-			return nil // integer division by zero raises at runtime
+			return nil
 		}
 		return mkInt(be.BaseNode, floorDiv(l.i, r.i))
 	case "%":
 		if r.i == 0 {
-			return nil // integer modulo by zero raises at runtime
+			return nil
 		}
 		return mkInt(be.BaseNode, floorMod(l.i, r.i))
 	}
 	return nil
 }
 
-// foldFloatArith handles `/` and `^`, which are always float in Lua 5.4.
 func foldFloatArith(be *ast.BinaryExpression, l, r num) ast.Expression {
 	lf, rf := l.float(), r.float()
 	switch be.Op {
@@ -253,10 +216,9 @@ func foldFloatArith(be *ast.BinaryExpression, l, r num) ast.Expression {
 	return nil
 }
 
-// foldBitwise handles & | ~ << >> on integer literals.
 func foldBitwise(be *ast.BinaryExpression, l, r num) ast.Expression {
 	if l.isFloat || r.isFloat {
-		return nil // v1: integer literals only
+		return nil
 	}
 	switch be.Op {
 	case "&":
@@ -273,8 +235,6 @@ func foldBitwise(be *ast.BinaryExpression, l, r num) ast.Expression {
 	return nil
 }
 
-// shift implements Lua's 64-bit logical left shift. A negative count shifts
-// right; a count with magnitude >= 64 yields 0.
 func shift(a, n int64) int64 {
 	switch {
 	case n <= -64 || n >= 64:
@@ -286,7 +246,6 @@ func shift(a, n int64) int64 {
 	}
 }
 
-// floorDiv is Lua's `//` for integers: division rounding toward -infinity.
 func floorDiv(a, b int64) int64 {
 	q := a / b
 	if (a%b != 0) && ((a < 0) != (b < 0)) {
@@ -295,7 +254,6 @@ func floorDiv(a, b int64) int64 {
 	return q
 }
 
-// floorMod is Lua's `%` for integers: result takes the sign of the divisor.
 func floorMod(a, b int64) int64 {
 	m := a % b
 	if m != 0 && ((m < 0) != (b < 0)) {
@@ -345,10 +303,6 @@ func compareStrings(op, l, r string) bool {
 	return false
 }
 
-// literalsEqual compares two literal expressions with Lua `==` semantics.
-// The second return is false when the comparison should not be folded
-// (mixed int/float, where Lua's exact comparison can diverge from a float
-// conversion for large integers).
 func literalsEqual(l, r ast.Expression) (eq bool, ok bool) {
 	switch lv := l.(type) {
 	case *ast.NilLiteral:
@@ -369,16 +323,16 @@ func literalsEqual(l, r ast.Expression) (eq bool, ok bool) {
 		case *ast.IntegerLiteral:
 			return lv.Value == rv.Value, true
 		case *ast.FloatLiteral:
-			return false, false // mixed numeric: skip
+			return false, false
 		default:
-			return false, true // int vs string/bool/nil: never equal
+			return false, true
 		}
 	case *ast.FloatLiteral:
 		switch rv := r.(type) {
 		case *ast.FloatLiteral:
 			return lv.Value == rv.Value, true
 		case *ast.IntegerLiteral:
-			return false, false // mixed numeric: skip
+			return false, false
 		default:
 			return false, true
 		}

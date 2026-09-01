@@ -7,9 +7,6 @@ import (
 	"strings"
 )
 
-// Env carries everything the commands operate on: the project root (where the
-// manifest, lockfile, and lua_modules/ live), the Fetcher to clone with, and
-// an optional progress logger. A zero Logf means silent.
 type Env struct {
 	Root    string
 	Fetcher Fetcher
@@ -28,9 +25,6 @@ func (e *Env) moduleDir(name string) string {
 	return filepath.Join(e.Root, ModulesDir, name)
 }
 
-// Add fetches a single package, installs it under lua_modules/<name>, and
-// records it in both the manifest and the lockfile. name may be "" to derive
-// it from the spec's last path segment.
 func (e *Env) Add(specStr, name string) error {
 	spec, err := ParseSpec(specStr)
 	if err != nil {
@@ -74,10 +68,6 @@ func (e *Env) Add(specStr, name string) error {
 	return nil
 }
 
-// Install fetches every dependency listed in the manifest that is not already
-// present under lua_modules/. When the lockfile pins a commit for a package,
-// that exact commit is checked out (reproducible install); otherwise the
-// manifest's ref is resolved and written back to the lock.
 func (e *Env) Install() error {
 	manifest, found, err := LoadManifest(e.manifestPath())
 	if err != nil {
@@ -100,15 +90,11 @@ func (e *Env) Install() error {
 			return err
 		}
 
-		// Already installed → leave it. `remove` then `install`, or `add`,
-		// is the way to force a refetch.
 		if _, statErr := os.Stat(e.moduleDir(name)); statErr == nil {
 			e.log("up to date: %s", name)
 			continue
 		}
 
-		// Reproducible path: if the lock pins a commit, fetch that exact
-		// commit rather than whatever the manifest ref now points to.
 		fetchSpec := spec
 		if locked, ok := lock.Packages[name]; ok && locked.Commit != "" {
 			fetchSpec = Spec{Source: spec.Source, Ref: locked.Commit}
@@ -129,9 +115,6 @@ func (e *Env) Install() error {
 	return lock.Save(e.lockPath())
 }
 
-// Remove deletes the installed package and drops it from the manifest and
-// lockfile. Removing something that is not installed still prunes the
-// manifest/lock entries (and is not an error).
 func (e *Env) Remove(name string) error {
 	if err := validName(name); err != nil {
 		return err
@@ -161,8 +144,6 @@ func (e *Env) Remove(name string) error {
 	return nil
 }
 
-// fetchInto clones spec into lua_modules/<name>, replacing any existing
-// install. It ensures the lua_modules root exists first.
 func (e *Env) fetchInto(spec Spec, name string) (string, error) {
 	dest := e.moduleDir(name)
 	if err := os.MkdirAll(filepath.Join(e.Root, ModulesDir), 0o755); err != nil {
@@ -175,9 +156,6 @@ func (e *Env) fetchInto(spec Spec, name string) (string, error) {
 	return e.Fetcher.Fetch(spec, dest)
 }
 
-// validName rejects package names that would escape lua_modules/ or collide
-// with path syntax. Names are used verbatim as a directory and as the
-// `require` key, so they must be a single safe path segment.
 func validName(name string) error {
 	if name == "" {
 		return fmt.Errorf("empty package name")

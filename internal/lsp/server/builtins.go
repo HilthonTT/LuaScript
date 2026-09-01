@@ -5,13 +5,6 @@ import (
 	"github.com/hilthontt/luascript/internal/lsp/protocol"
 )
 
-// The completion and hover data is derived from internal/docs, the same
-// curated registry `luascript doc` renders as man pages. Nothing is
-// hand-maintained here: adding a stdlib entry there surfaces it in the
-// editor automatically, and `luascript doc -audit` keeps that registry
-// honest against the live VM.
-
-// builtin describes one completable / hoverable identifier.
 type builtin struct {
 	label  string
 	kind   protocol.CompletionItemKind
@@ -19,11 +12,6 @@ type builtin struct {
 	doc    string
 }
 
-// keywords are the Lua 5.4 + luascript reserved words (compiler/token).
-// This is the lexer's list rather than the docs registry's, because
-// completion wants every reserved word — including the ones that only make
-// sense as part of a larger construct (then, end, until, ...) and so have no
-// page of their own.
 var keywords = []string{
 	"and", "break", "do", "else", "elseif", "end", "false", "for",
 	"function", "goto", "if", "in", "local", "nil", "not", "or",
@@ -32,15 +20,10 @@ var keywords = []string{
 	"continue", "struct", "type",
 }
 
-// globals are the builtin global functions installed by vm/stdlib.go.
 var globals = builtinsFromTopic("_G")
 
-// modules are the namespaces reachable through require(), plus the
-// auto-global libraries — both are worth completing at top level.
 var modules = buildModuleBuiltins()
 
-// members maps a namespace to the fields reachable through it via `ns.field`,
-// feeding dotted completion (`math.` -> floor, ceil, ...) and qualified hover.
 var members = buildMembers()
 
 func builtinsFromTopic(name string) []builtin {
@@ -106,8 +89,6 @@ func completionKind(k docs.EntryKind) protocol.CompletionItemKind {
 	}
 }
 
-// entryDoc is the markdown body: the summary, plus the long-form detail as
-// a second paragraph when there is one.
 func entryDoc(e docs.Entry) string {
 	if e.Detail == "" {
 		return e.Summary
@@ -115,9 +96,6 @@ func entryDoc(e docs.Entry) string {
 	return e.Summary + "\n\n" + e.Detail
 }
 
-// hoverDocs is the label -> markdown lookup used by textDocument/hover. Keys
-// are bare names (`print`, `math`) and qualified member names (`math.floor`)
-// so hover works on either half of a dotted expression.
 var hoverDocs = buildHoverDocs()
 
 func buildHoverDocs() map[string]string {
@@ -139,8 +117,6 @@ func buildHoverDocs() map[string]string {
 			m[ns+"."+b.label] = render(b)
 		}
 	}
-	// Keyword hovers come from the syntax page where it documents one, so
-	// `if` explains the if *expression* too. The rest get a bare label.
 	for _, kw := range keywords {
 		if _, exists := m[kw]; exists {
 			continue
@@ -154,8 +130,6 @@ func buildHoverDocs() map[string]string {
 	return m
 }
 
-// memberCompletionItems returns the completion set for `ns.` — the fields of a
-// known namespace — or nil when ns is not a namespace we model.
 func memberCompletionItems(ns string) []protocol.CompletionItem {
 	ms, ok := members[ns]
 	if !ok {
@@ -176,8 +150,6 @@ func memberCompletionItems(ns string) []protocol.CompletionItem {
 	return items
 }
 
-// completionItems returns the static completion set: keywords, globals, and
-// namespace names.
 func completionItems() []protocol.CompletionItem {
 	items := make([]protocol.CompletionItem, 0, len(keywords)+len(globals)+len(modules))
 	for _, kw := range keywords {

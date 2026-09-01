@@ -37,11 +37,6 @@ func TestChannelTryReceiveEmpty(t *testing.T) {
 	}
 }
 
-// TestChannelClosedDrainsBufferFirst is the core close-semantics guarantee:
-// values already in the buffer when Close lands must still be receivable, and
-// only once they run out does the receiver see Closed. Selecting over the data
-// channel and the done channel together would let Go pick either ready case at
-// random and lose buffered values.
 func TestChannelClosedDrainsBufferFirst(t *testing.T) {
 	c := NewChannel(4)
 	c.Send("a", 0)
@@ -59,9 +54,6 @@ func TestChannelClosedDrainsBufferFirst(t *testing.T) {
 	}
 }
 
-// TestChannelSendOnClosed: a send after close reports Closed. Crucially it does
-// NOT panic — the data channel is never closed, so there is no
-// "send on closed channel" window for a racing sender to fall into.
 func TestChannelSendOnClosed(t *testing.T) {
 	c := NewChannel(1)
 	c.Close()
@@ -76,14 +68,12 @@ func TestChannelSendOnClosed(t *testing.T) {
 func TestChannelDoubleCloseIsNoop(t *testing.T) {
 	c := NewChannel(0)
 	c.Close()
-	c.Close() // sync.Once: must not panic
+	c.Close()
 	if !c.IsClosed() {
 		t.Fatal("IsClosed = false after Close")
 	}
 }
 
-// TestChannelCloseUnblocksReceiver: a receiver parked forever must wake on
-// Close rather than hang.
 func TestChannelCloseUnblocksReceiver(t *testing.T) {
 	c := NewChannel(0)
 	done := make(chan Result, 1)
@@ -92,7 +82,7 @@ func TestChannelCloseUnblocksReceiver(t *testing.T) {
 		done <- r
 	}()
 
-	time.Sleep(10 * time.Millisecond) // let the receiver park
+	time.Sleep(10 * time.Millisecond)
 	c.Close()
 
 	select {
@@ -124,7 +114,6 @@ func TestChannelSendTimeout(t *testing.T) {
 	}
 }
 
-// TestChannelUnbufferedHandoff: an unbuffered channel is a rendezvous.
 func TestChannelUnbufferedHandoff(t *testing.T) {
 	c := NewChannel(0)
 	go func() { c.Send(int64(42), -1) }()
@@ -135,8 +124,6 @@ func TestChannelUnbufferedHandoff(t *testing.T) {
 	}
 }
 
-// TestChannelConcurrentSendersAndClose hammers the send/close race that a
-// naive close(c.ch) implementation would panic on. Run with -race.
 func TestChannelConcurrentSendersAndClose(t *testing.T) {
 	c := NewChannel(8)
 
@@ -146,11 +133,10 @@ func TestChannelConcurrentSendersAndClose(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < 100; j++ {
-				c.Send(int64(j), 0) // must return Closed, never panic
+				c.Send(int64(j), 0)
 			}
 		}()
 	}
-	// Drain concurrently so senders make progress.
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -164,8 +150,6 @@ func TestChannelConcurrentSendersAndClose(t *testing.T) {
 	wg.Wait()
 }
 
-// TestChannelCarriesLuaValues checks the FFI rule: what goes in comes out
-// identically, with integers staying int64.
 func TestChannelCarriesLuaValues(t *testing.T) {
 	c := NewChannel(4)
 	tbl := vm.NewTable(0, 1)

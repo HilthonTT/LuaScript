@@ -2,7 +2,6 @@ package classification
 
 import "testing"
 
-// Two linearly separable numeric classes.
 func numericData() ([][]float64, []string) {
 	features := [][]float64{
 		{1, 1}, {1.5, 2}, {2, 1.5},
@@ -46,7 +45,6 @@ func TestLogisticRegressionProbabilities(t *testing.T) {
 	if got := m.Predict([]float64{8, 8.5}); got != "B" {
 		t.Fatalf("expected B, got %s", got)
 	}
-	// The positive ("B") class probability should be high for a B-like point.
 	if p := m.PredictProba([]float64{9, 9}); p < 0.5 {
 		t.Fatalf("expected P(positive) > 0.5 for B-like point, got %f", p)
 	}
@@ -67,12 +65,10 @@ func TestSVMLinearSeparates(t *testing.T) {
 	}
 }
 
-// XOR-like data is not linearly separable; only the RBF kernel should
-// classify it correctly.
 func TestSVMRBFHandlesNonLinear(t *testing.T) {
 	features := [][]float64{
-		{0, 0}, {0.1, 0.1}, {1, 1}, {0.9, 1.1}, // inner / one class
-		{0, 1}, {0.1, 0.9}, {1, 0}, {1.1, 0.1}, // outer / other class
+		{0, 0}, {0.1, 0.1}, {1, 1}, {0.9, 1.1},
+		{0, 1}, {0.1, 0.9}, {1, 0}, {1.1, 0.1},
 	}
 	labels := []string{"in", "in", "in", "in", "out", "out", "out", "out"}
 	m := NewSVM(SVMConfig{Kernel: KernelRBF, Gamma: 2.0, C: 10.0, MaxIter: 300, Seed: 1})

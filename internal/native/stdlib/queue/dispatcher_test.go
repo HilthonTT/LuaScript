@@ -7,7 +7,6 @@ import (
 	"time"
 )
 
-// drainIDs pops every currently-due job and returns their IDs in pop order.
 func drainIDs(t *testing.T, d *Dispatcher) []string {
 	t.Helper()
 	var got []string
@@ -28,11 +27,6 @@ func mustSubmit(t *testing.T, d *Dispatcher, j *Job) {
 	}
 }
 
-// TestPriorityThenFIFO is the regression guard for the seq tiebreak. The old
-// heap broke priority ties on Created (a time.Time), and time.Now()'s
-// resolution is coarse enough (~1-15ms on Windows) that a burst of same-tick
-// submissions ordered arbitrarily. Equal-priority jobs must come out in
-// submission order, every time.
 func TestPriorityThenFIFO(t *testing.T) {
 	d := NewDispatcher(0)
 	mustSubmit(t, d, &Job{ID: "lo-1", Priority: 0})
@@ -53,9 +47,6 @@ func TestPriorityThenFIFO(t *testing.T) {
 	}
 }
 
-// TestDelayedJobDoesNotMaskReadyWork is why delayed jobs live in a heap of
-// their own. A high-priority job parked on a delay must not sit at the root of
-// the ready heap starving the runnable low-priority work behind it.
 func TestDelayedJobDoesNotMaskReadyWork(t *testing.T) {
 	d := NewDispatcher(0)
 	mustSubmit(t, d, &Job{ID: "delayed-hi", Priority: 100, ReadyAt: time.Now().Add(time.Hour)})
@@ -70,8 +61,6 @@ func TestDelayedJobDoesNotMaskReadyWork(t *testing.T) {
 	}
 	d.Complete(j, false, 0, 0)
 
-	// Nothing else is due, but a delayed job is pending: the pump must be told
-	// to wait, not to quit.
 	_, wait, ok := d.NextDue(time.Now())
 	if ok {
 		t.Fatal("delayed job came due an hour early")
@@ -81,7 +70,6 @@ func TestDelayedJobDoesNotMaskReadyWork(t *testing.T) {
 	}
 }
 
-// TestDelayedJobPromotedWhenDue covers the delayed -> ready promotion.
 func TestDelayedJobPromotedWhenDue(t *testing.T) {
 	d := NewDispatcher(0)
 	start := time.Now()
@@ -99,8 +87,6 @@ func TestDelayedJobPromotedWhenDue(t *testing.T) {
 	}
 }
 
-// TestCapacityRejectsAndCounts checks backpressure: a bounded queue refuses
-// work with ErrFull rather than growing without limit.
 func TestCapacityRejectsAndCounts(t *testing.T) {
 	d := NewDispatcher(2)
 	mustSubmit(t, d, &Job{ID: "a"})
@@ -118,13 +104,10 @@ func TestCapacityRejectsAndCounts(t *testing.T) {
 	}
 }
 
-// TestRetryRequeuesWithBackoff covers the failure path: a job with retries left
-// comes back, and only counts as Failed once the attempts run out.
 func TestRetryRequeuesWithBackoff(t *testing.T) {
 	d := NewDispatcher(0)
 	mustSubmit(t, d, &Job{ID: "flaky", Retries: 2})
 
-	// Attempt 1 and 2 fail -> Retried; the job returns to the queue.
 	for i := 1; i <= 2; i++ {
 		j, _, ok := d.NextDue(time.Now())
 		if !ok {
@@ -135,7 +118,6 @@ func TestRetryRequeuesWithBackoff(t *testing.T) {
 		}
 	}
 
-	// Attempt 3 exhausts the retries -> Failed, and it does not come back.
 	j, _, ok := d.NextDue(time.Now())
 	if !ok {
 		t.Fatal("attempt 3: job was not requeued")
@@ -153,8 +135,6 @@ func TestRetryRequeuesWithBackoff(t *testing.T) {
 	}
 }
 
-// TestRetryBackoffDelaysRequeue: a backoff must park the retry, not make it
-// instantly runnable again (which would spin the pump).
 func TestRetryBackoffDelaysRequeue(t *testing.T) {
 	d := NewDispatcher(0)
 	mustSubmit(t, d, &Job{ID: "slow-retry", Retries: 1, Backoff: time.Hour})
@@ -168,7 +148,6 @@ func TestRetryBackoffDelaysRequeue(t *testing.T) {
 	}
 }
 
-// TestExpiredJob covers the start deadline.
 func TestExpiredJob(t *testing.T) {
 	j := &Job{ID: "stale", Timeout: 10 * time.Millisecond, ReadyAt: time.Now()}
 	if j.Expired(time.Now()) {
@@ -178,15 +157,12 @@ func TestExpiredJob(t *testing.T) {
 		t.Fatal("job past its deadline did not expire")
 	}
 
-	// A job with no timeout never expires.
 	forever := &Job{ID: "patient", ReadyAt: time.Now()}
 	if forever.Expired(time.Now().Add(24 * time.Hour)) {
 		t.Fatal("a job with no timeout must never expire")
 	}
 }
 
-// TestStopRejectsAndDrainsNothing: after Stop, Submit fails and NextDue reports
-// "nothing pending" so a parked :run returns instead of hanging.
 func TestStopRejectsAndDrainsNothing(t *testing.T) {
 	d := NewDispatcher(0)
 	mustSubmit(t, d, &Job{ID: "a"})
@@ -198,14 +174,9 @@ func TestStopRejectsAndDrainsNothing(t *testing.T) {
 	if _, wait, ok := d.NextDue(time.Now()); ok || wait != 0 {
 		t.Fatalf("NextDue after Stop = (ok=%v wait=%v), want (false, 0) so the pump returns", ok, wait)
 	}
-	// Stop is idempotent — the old Shutdown closed a channel and panicked on
-	// the second call.
 	d.Stop()
 }
 
-// TestStopIsSafeFromAnyGoroutine exercises Submit/Stop/NextDue concurrently.
-// The design this replaces closed the job channel inside Shutdown, so a Submit
-// racing a Shutdown panicked with "send on closed channel". Run with -race.
 func TestStopIsSafeFromAnyGoroutine(t *testing.T) {
 	d := NewDispatcher(0)
 
@@ -215,7 +186,6 @@ func TestStopIsSafeFromAnyGoroutine(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < 50; j++ {
-				// Submit must return ErrStopped, never panic.
 				_ = d.Submit(&Job{ID: "x"})
 			}
 		}()
@@ -232,7 +202,6 @@ func TestStopIsSafeFromAnyGoroutine(t *testing.T) {
 	wg.Wait()
 }
 
-// TestClearDropsPending covers :clear().
 func TestClearDropsPending(t *testing.T) {
 	d := NewDispatcher(0)
 	mustSubmit(t, d, &Job{ID: "a"})
@@ -249,7 +218,6 @@ func TestClearDropsPending(t *testing.T) {
 	}
 }
 
-// TestMetricsAverages covers the divide-by-zero guard and the averages.
 func TestMetricsAverages(t *testing.T) {
 	d := NewDispatcher(0)
 	if m := d.Snapshot(); m.AvgWait() != 0 || m.AvgExec() != 0 {

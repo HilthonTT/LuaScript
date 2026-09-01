@@ -8,9 +8,6 @@ import (
 	"testing"
 )
 
-// On a platform without Go plugin support the module still loads, but every
-// entry point has to fail with a message that says why — not with Go's bare
-// "plugin: not implemented", and not with a nil dereference.
 func TestStubReportsWhyItCannotLoadPlugins(t *testing.T) {
 	if pluginSupported {
 		t.Fatal("stub backend compiled in but pluginSupported is true")

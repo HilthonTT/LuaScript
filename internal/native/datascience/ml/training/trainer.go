@@ -6,12 +6,10 @@ import (
 	"github.com/hilthontt/luascript/internal/native/datascience/ml"
 )
 
-// Trainer is a neural network trainer
 type Trainer interface {
 	Train(n *ml.Neural, examples, validation Examples, iterations int)
 }
 
-// OnlineTrainer is a basic, online network trainer
 type OnlineTrainer struct {
 	*internal
 	solver    Solver
@@ -42,7 +40,6 @@ func newTraining(layers []*ml.Layer) *internal {
 	}
 }
 
-// Train trains n
 func (t *OnlineTrainer) Train(n *ml.Neural, examples, validation Examples, iterations int) {
 	t.internal = newTraining(n.Layers)
 

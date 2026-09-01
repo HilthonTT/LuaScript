@@ -2,20 +2,14 @@ package clustering
 
 import "math"
 
-// Linkage selects how the distance between two clusters is measured during
-// agglomerative merging.
 type Linkage int
 
 const (
-	// SingleLinkage uses the closest pair of members (min distance).
 	SingleLinkage Linkage = iota
-	// CompleteLinkage uses the farthest pair of members (max distance).
 	CompleteLinkage
-	// AverageLinkage uses the mean over all cross-cluster member pairs.
 	AverageLinkage
 )
 
-// ParseLinkage maps a string name to a Linkage, defaulting to average.
 func ParseLinkage(s string) Linkage {
 	switch s {
 	case "single":
@@ -27,22 +21,12 @@ func ParseLinkage(s string) Linkage {
 	}
 }
 
-// Hierarchical performs bottom-up agglomerative clustering: every point
-// starts as its own cluster and the two closest clusters are merged
-// repeatedly until exactly k clusters remain. The pairwise point-distance
-// matrix is precomputed once; linkage decides how cluster-to-cluster
-// distance is derived from it.
-//
-// This is an O(n^3) implementation suited to small/medium inputs. Returned
-// labels are 1-based cluster ids.
 func Hierarchical(data []Point, k int, linkage Linkage) []int {
 	n := len(data)
 	if k < 1 {
 		k = 1
 	}
 
-	// Precompute pairwise squared distances; linkage comparisons only need
-	// the ordering, so squared distances are sufficient and cheaper.
 	dist := make([][]float64, n)
 	for i := range n {
 		dist[i] = make([]float64, n)
@@ -120,7 +104,7 @@ func clusterDistance(dist [][]float64, a, b []int, linkage Linkage) float64 {
 			}
 		}
 		return best
-	default: // AverageLinkage
+	default:
 		sum := 0.0
 		for _, i := range a {
 			for _, j := range b {

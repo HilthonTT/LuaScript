@@ -8,16 +8,13 @@ import (
 	"github.com/hilthontt/luascript/internal/version"
 )
 
-// Options controls rendering. The zero value is valid: 80 columns, no color.
 type Options struct {
-	// Width is the target line width for wrapped prose.
 	Width int
-	// Color enables ANSI bold on headings and signatures.
 	Color bool
 }
 
 const (
-	bodyIndent  = "       " // 7 spaces, as man(1) uses
+	bodyIndent  = "       "
 	entryIndent = "              "
 	minWidth    = 40
 )
@@ -46,7 +43,6 @@ func (o Options) dim(s string) string {
 	return "\033[2m" + s + "\033[0m"
 }
 
-// RenderTopic renders one topic as a man page.
 func RenderTopic(t *Topic, o Options) string {
 	var b strings.Builder
 	b.WriteString(header(t, o))
@@ -110,8 +106,6 @@ func RenderTopic(t *Topic, o Options) string {
 	return b.String()
 }
 
-// RenderEntry renders a single member as a short page — the common case for
-// `luascript doc math.floor`.
 func RenderEntry(t *Topic, e *Entry, o Options) string {
 	var b strings.Builder
 	b.WriteString(header(t, o))
@@ -143,7 +137,6 @@ func RenderEntry(t *Topic, e *Entry, o Options) string {
 	return b.String()
 }
 
-// RenderIndex renders the table of contents shown by a bare `luascript doc`.
 func RenderIndex(o Options) string {
 	var b strings.Builder
 	b.WriteString(o.bold("luascript documentation"))
@@ -187,7 +180,6 @@ func RenderIndex(o Options) string {
 	return b.String()
 }
 
-// RenderSearch renders apropos results, one per line.
 func RenderSearch(results []Result, o Options) string {
 	if len(results) == 0 {
 		return ""
@@ -212,8 +204,6 @@ func RenderSearch(results []Result, o Options) string {
 	return b.String()
 }
 
-// RenderAll concatenates every topic page, separated by form feeds so the
-// output pipes cleanly into a pager or a file.
 func RenderAll(o Options) string {
 	var b strings.Builder
 	for i, t := range registry {
@@ -225,8 +215,6 @@ func RenderAll(o Options) string {
 	return b.String()
 }
 
-// TopicNames returns every lookup key, sorted — used for shell completion
-// and the "did you mean" suggestion on a miss.
 func TopicNames() []string {
 	out := make([]string, 0, len(index))
 	for k := range index {
@@ -236,10 +224,6 @@ func TopicNames() []string {
 	return out
 }
 
-// Suggest returns names close to a failed query: prefix matches first, then
-// substring matches, then — when neither found anything — names within a
-// small edit distance, which is what catches an actual typo. Capped at 8 so
-// the error stays readable.
 func Suggest(query string) []string {
 	q := strings.ToLower(query)
 	if q == "" {
@@ -260,9 +244,6 @@ func Suggest(query string) []string {
 	out := append(prefix, sub...)
 
 	if len(out) == 0 {
-		// Allow one edit per four characters, at least one and at most
-		// three — enough for a fat-fingered name, not so loose that it
-		// suggests something unrelated.
 		budget := min(max(len(q)/4, 1), 3)
 		for _, name := range candidates {
 			if editDistanceWithin(q, strings.ToLower(name), budget) {
@@ -276,8 +257,6 @@ func Suggest(query string) []string {
 	return out
 }
 
-// suggestionCandidates is every topic name plus every qualified entry name,
-// so a miss on "string.formt" can be pointed at "string.format".
 func suggestionCandidates() []string {
 	out := TopicNames()
 	for i := range registry {
@@ -290,8 +269,6 @@ func suggestionCandidates() []string {
 	return out
 }
 
-// editDistanceWithin reports whether a and b are within max edits of each
-// other, bailing out as soon as the whole row exceeds the budget.
 func editDistanceWithin(a, b string, budget int) bool {
 	if abs(len(a)-len(b)) > budget {
 		return false
@@ -328,8 +305,6 @@ func abs(n int) int {
 	return n
 }
 
-// --- layout helpers ---------------------------------------------------
-
 func header(t *Topic, o Options) string {
 	left := strings.ToUpper(t.Name) + "(3)"
 	return banner(left, string(t.Kind), left, o)
@@ -340,7 +315,6 @@ func footer(t *Topic, o Options) string {
 	return banner("luascript "+version.Version, "", right, o)
 }
 
-// banner lays out the man-style three-column rule: left, centered, right.
 func banner(left, center, right string, o Options) string {
 	w := o.width()
 	if len(left)+len(center)+len(right)+2 > w {
@@ -371,8 +345,6 @@ func para(b *strings.Builder, o Options, indent, text string) {
 	}
 }
 
-// body renders prose: blank lines split paragraphs, and any line already
-// indented by two spaces is treated as preformatted (code).
 func body(b *strings.Builder, o Options, indent, text string) {
 	blocks := strings.Split(strings.TrimRight(text, "\n"), "\n\n")
 	for i, block := range blocks {
@@ -432,9 +404,6 @@ func entries(b *strings.Builder, o Options, es []Entry) {
 	}
 }
 
-// wrap breaks text into lines of at most width runes, splitting on spaces.
-// A word longer than width gets its own (over-long) line rather than being
-// chopped — signatures and URLs stay copy-pasteable.
 func wrap(text string, width int) []string {
 	if width < 20 {
 		width = 20
@@ -479,8 +448,6 @@ func truncate(s string, width int) string {
 	return string(r[:width-1]) + "…"
 }
 
-// truncateVisible truncates a line that may carry ANSI escapes, measuring
-// only the visible text so styling does not eat the column budget.
 func truncateVisible(line string, width int) string {
 	visible := len([]rune(stripANSI(line)))
 	if visible <= width {
@@ -501,7 +468,7 @@ func stripANSI(s string) string {
 			for i < len(s) && s[i] != 'm' {
 				i++
 			}
-			i++ // skip the 'm'
+			i++
 			continue
 		}
 		b.WriteByte(s[i])

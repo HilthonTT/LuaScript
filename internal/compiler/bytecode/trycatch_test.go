@@ -1,10 +1,5 @@
 package bytecode
 
-// Codegen tests for `try ... catch ... end` and `throw`. These assert the
-// exact shape of the protected region, since the VM's unwind depends on it:
-// the Try's operand must address the catch clause, and every non-raising exit
-// from the region must be preceded by an EndTry.
-
 import (
 	"strings"
 	"testing"
@@ -12,8 +7,6 @@ import (
 	"github.com/hilthontt/luascript/internal/compiler/ast"
 )
 
-// tryStmt builds `try <try> catch [name] do <catch> end`. An empty name means
-// the handler takes no binding.
 func tryStmt(name string, try, catch *ast.Block) *ast.TryCatchStatement {
 	s := &ast.TryCatchStatement{BaseNode: base(1), Try: try, Catch: catch}
 	if name != "" {
@@ -32,13 +25,13 @@ func TestTryCatchEmitsProtectedRegion(t *testing.T) {
 	})[0]
 
 	assertOpcodes(t, main,
-		"try",        // 0: install handler; operand addresses the catch clause
-		"loadstring", // 1: "boom"
-		"throw",      // 2
-		"endtry",     // 3: body finished cleanly — pop the handler
-		"jump",       // 4: skip the handler
-		"setlocal",   // 5: catch target — bind the error value the VM pushed
-		"leave",      // 6
+		"try",
+		"loadstring",
+		"throw",
+		"endtry",
+		"jump",
+		"setlocal",
+		"leave",
 	)
 
 	if got, want := int(main.Instructions[0].A), 5; got != want {
@@ -52,8 +45,6 @@ func TestTryCatchEmitsProtectedRegion(t *testing.T) {
 	}
 }
 
-// A handler with no binding must still consume the error value the VM pushes,
-// or the stack would be left one deep.
 func TestTryCatchWithoutBindingPopsErrorValue(t *testing.T) {
 	main := generate(t, []ast.Statement{
 		tryStmt("", block(throwStmt(strLit("x", 1))), block()),
@@ -71,8 +62,6 @@ func TestThrowEmitsThrowOpcode(t *testing.T) {
 	assertOpcodes(t, main, "loadstring", "throw", "leave")
 }
 
-// TestBreakInsideTryEmitsEndTry is the codegen half of the stale-handler guard:
-// a `break` that leaves a protected region must pop its handler before jumping.
 func TestBreakInsideTryEmitsEndTry(t *testing.T) {
 	main := generate(t, []ast.Statement{
 		&ast.WhileStatement{
@@ -89,19 +78,15 @@ func TestBreakInsideTryEmitsEndTry(t *testing.T) {
 	if endtry == nil {
 		t.Fatal("no endtry emitted for a break out of a try")
 	}
-	// The first EndTry must be the break's, ahead of the body's own.
 	if got := int(endtry.A); got != 1 {
 		t.Errorf("endtry count = %d, want 1", got)
 	}
-	// [loadtrue jumpiffalse try | endtry jump | endtry jump setlocal ...]:
-	// indices 3-4 are the break's pop-then-jump, ahead of the body's own pair.
 	ops := opcodes(main)
 	if ops[3] != "endtry" || ops[4] != "jump" {
 		t.Errorf("expected the break to emit endtry then jump; got %v", ops)
 	}
 }
 
-// A break out of two nested try regions pops both with a single EndTry.
 func TestBreakOutOfNestedTryEmitsCountedEndTry(t *testing.T) {
 	main := generate(t, []ast.Statement{
 		&ast.WhileStatement{
@@ -126,8 +111,6 @@ func TestBreakOutOfNestedTryEmitsCountedEndTry(t *testing.T) {
 	}
 }
 
-// A break in a loop *inside* a try stays within the protected region, so it
-// escapes nothing and must not pop the handler.
 func TestBreakInsideLoopInsideTryEmitsNoEndTry(t *testing.T) {
 	main := generate(t, []ast.Statement{
 		tryStmt("e",
@@ -140,7 +123,6 @@ func TestBreakInsideLoopInsideTryEmitsNoEndTry(t *testing.T) {
 		),
 	})[0]
 
-	// Exactly one endtry: the try body's own clean-exit pop.
 	n := 0
 	for _, ins := range main.Instructions {
 		if ins.Opcode == EndTry {
@@ -152,8 +134,6 @@ func TestBreakInsideLoopInsideTryEmitsNoEndTry(t *testing.T) {
 	}
 }
 
-// A `return` out of a try needs no EndTry: handlers live on the frame, so the
-// return discards them along with it.
 func TestReturnInsideTryEmitsNoEndTry(t *testing.T) {
 	body := block()
 	body.Return = &ast.ReturnStatement{BaseNode: base(1), Values: []ast.Expression{intLit(1, 1)}}

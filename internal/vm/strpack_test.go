@@ -16,22 +16,20 @@ func TestPacksizeFixedFormats(t *testing.T) {
 	`)
 	assertGlobalEqual(t, v, "a", int64(8))
 	assertGlobalEqual(t, v, "b", int64(16))
-	assertGlobalEqual(t, v, "c", int64(3)) // 'x' is one padding byte
-	assertGlobalEqual(t, v, "d", int64(8)) // spaces are ignored
+	assertGlobalEqual(t, v, "c", int64(3))
+	assertGlobalEqual(t, v, "d", int64(8))
 	assertGlobalEqual(t, v, "e", int64(1+1+2+2+8+8+8+8+8))
 }
 
-// '!' raises the alignment ceiling, and each option is then padded up to
-// min(its size, the ceiling).
 func TestPacksizeAlignment(t *testing.T) {
 	v := run(t, `
 		a = string.packsize("!4i1i4")
 		b = string.packsize("!8i1Xi4i4")
 		c = string.packsize("i1i4")
 	`)
-	assertGlobalEqual(t, v, "a", int64(8)) // 1 byte, 3 pad, 4 bytes
-	assertGlobalEqual(t, v, "b", int64(8)) // 'X' aligns to 4 then consumes the i4
-	assertGlobalEqual(t, v, "c", int64(5)) // no '!' means no alignment at all
+	assertGlobalEqual(t, v, "a", int64(8))
+	assertGlobalEqual(t, v, "b", int64(8))
+	assertGlobalEqual(t, v, "c", int64(5))
 }
 
 func TestPackEndianness(t *testing.T) {
@@ -70,7 +68,6 @@ func TestPackUnpackRoundTrip(t *testing.T) {
 	assertGlobalEqual(t, v, "bigbe", int64(-5))
 }
 
-// 'c' pads to a fixed width with zeros, and unpack hands the padding back.
 func TestPackFixedWidthString(t *testing.T) {
 	v := run(t, `
 		s = string.pack("c5", "ab")
@@ -81,8 +78,6 @@ func TestPackFixedWidthString(t *testing.T) {
 	assertGlobalEqual(t, v, "got", "ab\x00\x00\x00")
 }
 
-// unpack returns every value followed by the position of the first unread
-// byte, so successive calls can walk a buffer.
 func TestUnpackReturnsNextPosition(t *testing.T) {
 	v := run(t, `
 		local buf = string.pack("<i2i2", 7, 9)
@@ -95,11 +90,9 @@ func TestUnpackReturnsNextPosition(t *testing.T) {
 	assertGlobalEqual(t, v, "nxt", int64(5))
 	assertGlobalEqual(t, v, "second", int64(9))
 	assertGlobalEqual(t, v, "nxt2", int64(5))
-	assertGlobalEqual(t, v, "neg", int64(9)) // negative init counts from the end
+	assertGlobalEqual(t, v, "neg", int64(9))
 }
 
-// A value too wide for its slot must raise rather than write truncated bytes,
-// which the reader would have no way to detect.
 func TestPackRejectsOverflow(t *testing.T) {
 	for _, c := range []struct{ src, want string }{
 		{`string.pack("i1", 300)`, "integer overflow"},
@@ -115,7 +108,6 @@ func TestPackRejectsOverflow(t *testing.T) {
 	}
 }
 
-// packsize is only meaningful for formats whose width is known up front.
 func TestPacksizeRejectsVariableWidth(t *testing.T) {
 	for _, src := range []string{`string.packsize("z")`, `string.packsize("s4")`} {
 		if msg := runErr(t, src); !strings.Contains(msg, "variable-size format") {
@@ -139,8 +131,6 @@ func TestPackFormatErrors(t *testing.T) {
 	}
 }
 
-// An integer wider than 8 bytes unpacks only when the surplus bytes are pure
-// sign extension; otherwise the true value has no int64 representation.
 func TestUnpackWideIntegerOutOfRange(t *testing.T) {
 	msg := runErr(t, `
 		local s = string.pack("<i8", -1) .. string.rep("\0", 8)

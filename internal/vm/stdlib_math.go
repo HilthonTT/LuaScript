@@ -1,13 +1,9 @@
 package vm
 
-// The baseline `math` library.
-
 import (
 	"math"
 	"math/rand"
 )
-
-// math
 
 func buildMathLibrary() *Table {
 	t := NewTable(0, 32)
@@ -77,8 +73,6 @@ func buildMathLibrary() *Table {
 		return []Value{best}
 	})
 	add("fmod", func(_ *VM, args []Value) []Value {
-		// Two integer operands keep the integer subtype (truncated
-		// remainder, sign of x — Go's % matches C fmod here).
 		if len(args) >= 2 {
 			if xi, okx := args[0].(int64); okx {
 				if yi, oky := args[1].(int64); oky {
@@ -104,10 +98,6 @@ func buildMathLibrary() *Table {
 		return []Value{math.Pow(x, y)}
 	})
 	add("ult", func(_ *VM, args []Value) []Value {
-		// Unsigned less-than: both operands are reinterpreted as uint64, so
-		// math.ult(-1, 0) is false (-1 is the largest unsigned value). The
-		// point is to let scripts do unsigned comparison on a runtime whose
-		// only integer type is signed.
 		a := IntArg("math.ult", 1, args)
 		b := IntArg("math.ult", 2, args)
 		return []Value{uint64(a) < uint64(b)}
@@ -142,7 +132,6 @@ func buildMathLibrary() *Table {
 		case 1:
 			m := IntArg("math.random", 1, args[:1])
 			if m == 0 {
-				// Lua 5.4: math.random(0) returns a value with all bits random.
 				return []Value{int64(rng.Uint64())}
 			}
 			if m < 0 {
@@ -155,9 +144,6 @@ func buildMathLibrary() *Table {
 			if hi < lo {
 				panic(LuaError("bad argument #2 to 'math.random' (interval is empty)"))
 			}
-			// Compute the span as unsigned to avoid int64 overflow on wide
-			// intervals (e.g. mininteger..maxinteger). span == ^0 means the
-			// full 2^64 range: every value is equally likely.
 			span := uint64(hi) - uint64(lo)
 			if span == ^uint64(0) {
 				return []Value{int64(rng.Uint64())}
@@ -166,10 +152,6 @@ func buildMathLibrary() *Table {
 		}
 	})
 	add("randomseed", func(_ *VM, args []Value) []Value {
-		// Lua 5.4 returns the two integer components that made up the seed, so
-		// a run that seeded itself can print them and be replayed exactly.
-		// This VM derives its stream from a single int64, so the second
-		// component is reported as 0 rather than invented.
 		seed := int64(1)
 		if len(args) >= 1 && args[0] != nil {
 			seed = IntArg("math.randomseed", 1, args)
@@ -180,8 +162,6 @@ func buildMathLibrary() *Table {
 	return t
 }
 
-// mathLess wraps the VM-level less() so math.max / math.min can use it on
-// numeric pairs without a *VM (no metamethods are honoured here).
 func mathLess(a, b Value) bool {
 	switch x := a.(type) {
 	case int64:
@@ -202,13 +182,6 @@ func mathLess(a, b Value) bool {
 	panic(Errorf("bad argument to 'math.max' or 'math.min' (number expected, got %s)", TypeName(b)))
 }
 
-// roundToInt builds math.floor / math.ceil. An integer argument is returned
-// unchanged: routing it through float64 first would round any magnitude above
-// 2^53 to the nearest representable double, so math.floor(math.maxinteger)
-// came back as the float 9.2233720368548e+18 instead of maxinteger itself.
-// Only float input needs the rounding step, and its result is narrowed back to
-// an integer when it fits — matching Lua 5.4, where both functions return an
-// integer whenever one can represent the result.
 func roundToInt(name string, round func(float64) float64) func(*VM, []Value) []Value {
 	return func(_ *VM, args []Value) []Value {
 		if i, f, isInt, ok := NumArg(name, 1, args); ok {

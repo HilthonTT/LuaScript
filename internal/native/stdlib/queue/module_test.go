@@ -10,7 +10,6 @@ import (
 	"github.com/hilthontt/luascript/internal/vm"
 )
 
-// runQueue compiles and runs src on a VM with the queue module preloaded.
 func runQueue(t *testing.T, src string) *vm.VM {
 	t.Helper()
 	chunks, err := compiler.CompileToInstructions(src, parser.NormalMode)
@@ -50,8 +49,6 @@ func TestRequireResolves(t *testing.T) {
 	}
 }
 
-// TestRunExecutesInPriorityOrder is the end-to-end ordering check, observed
-// from Lua: priority first, submission order within a priority.
 func TestRunExecutesInPriorityOrder(t *testing.T) {
 	v := runQueue(t, `
 		local queue = require("queue")
@@ -77,7 +74,6 @@ func TestRunExecutesInPriorityOrder(t *testing.T) {
 	}
 }
 
-// TestJobArgsAndPayload covers the opts plumbing.
 func TestJobArgsAndPayload(t *testing.T) {
 	v := runQueue(t, `
 		local queue = require("queue")
@@ -90,9 +86,6 @@ func TestJobArgsAndPayload(t *testing.T) {
 	}
 }
 
-// TestFailingJobIsIsolated is the regression guard for routing jobs through
-// vm.SafeCall. A job that errors must (a) not kill the run, (b) reach on_error,
-// and (c) leave the VM clean enough for the next job to run correctly.
 func TestFailingJobIsIsolated(t *testing.T) {
 	v := runQueue(t, `
 		local queue = require("queue")
@@ -124,7 +117,6 @@ func TestFailingJobIsIsolated(t *testing.T) {
 	}
 }
 
-// TestRetriesFromLua: a job that fails twice then succeeds.
 func TestRetriesFromLua(t *testing.T) {
 	v := runQueue(t, `
 		local queue = require("queue")
@@ -149,8 +141,6 @@ func TestRetriesFromLua(t *testing.T) {
 	}
 }
 
-// TestDelayedJobRunsAfterReadyOnes: :run waits out the delay, and the delayed
-// job does not block the runnable one behind it.
 func TestDelayedJobRunsAfterReadyOnes(t *testing.T) {
 	v := runQueue(t, `
 		local queue = require("queue")
@@ -161,14 +151,11 @@ func TestDelayedJobRunsAfterReadyOnes(t *testing.T) {
 		q:run()
 		order = table.concat(log, ",")
 	`)
-	// The delayed job outranks on priority but isn't eligible yet, so the
-	// immediate one goes first; :run then parks and picks it up when it's due.
 	if got := v.Globals.Get("order"); got != "immediate,delayed" {
 		t.Fatalf("order = %v, want immediate,delayed", got)
 	}
 }
 
-// TestPollDoesNotWaitForDelays: :poll takes only what is due right now.
 func TestPollDoesNotWaitForDelays(t *testing.T) {
 	v := runQueue(t, `
 		local queue = require("queue")
@@ -190,7 +177,6 @@ func TestPollDoesNotWaitForDelays(t *testing.T) {
 	}
 }
 
-// TestPollMax caps how much a single poll takes.
 func TestPollMax(t *testing.T) {
 	v := runQueue(t, `
 		local queue = require("queue")
@@ -207,8 +193,6 @@ func TestPollMax(t *testing.T) {
 	}
 }
 
-// TestCapacityBackpressure: a bounded queue reports fullness to the script
-// rather than growing without bound.
 func TestCapacityBackpressure(t *testing.T) {
 	v := runQueue(t, `
 		local queue = require("queue")
@@ -227,8 +211,6 @@ func TestCapacityBackpressure(t *testing.T) {
 	}
 }
 
-// TestStopFromInsideJobHaltsRun: a job calling :stop() ends the drain, leaving
-// the rest queued.
 func TestStopFromInsideJobHaltsRun(t *testing.T) {
 	v := runQueue(t, `
 		local queue = require("queue")
@@ -256,9 +238,6 @@ func TestStopFromInsideJobHaltsRun(t *testing.T) {
 	}
 }
 
-// TestRunOnEmptyQueueReturns: :run must not hang on an empty queue. It drains
-// and returns — the property that keeps a single-threaded script from
-// deadlocking on its own scheduler.
 func TestRunOnEmptyQueueReturns(t *testing.T) {
 	v := runQueue(t, `
 		local queue = require("queue")
@@ -269,8 +248,6 @@ func TestRunOnEmptyQueueReturns(t *testing.T) {
 	}
 }
 
-// TestSelfRescheduling: a job that re-queues itself with a delay is the event
-// loop this design is built for.
 func TestSelfRescheduling(t *testing.T) {
 	v := runQueue(t, `
 		local queue = require("queue")
@@ -331,8 +308,6 @@ func TestChannelReceiveTimeoutFromLua(t *testing.T) {
 	}
 }
 
-// TestChannelSendNilRejected: nil would collide with receive's (value, ok)
-// protocol, so it is refused at the boundary with a clear message.
 func TestChannelSendNilRejected(t *testing.T) {
 	msg := runQueueErr(t, `
 		local queue = require("queue")
@@ -355,8 +330,6 @@ func TestChannelSendOnClosedRaises(t *testing.T) {
 	}
 }
 
-// TestAfter is the cross-goroutine hand-off: a Go timer goroutine produces a
-// value that the VM goroutine consumes. The goroutine never touches the VM.
 func TestAfter(t *testing.T) {
 	v := runQueue(t, `
 		local queue = require("queue")
@@ -391,7 +364,6 @@ func TestTick(t *testing.T) {
 	}
 }
 
-// TestTostring covers the __tostring metamethods.
 func TestTostring(t *testing.T) {
 	v := runQueue(t, `
 		local queue = require("queue")
@@ -408,7 +380,6 @@ func TestTostring(t *testing.T) {
 	}
 }
 
-// TestPushRejectsNonFunction: the arg helpers must produce a Lua-shaped error.
 func TestPushRejectsNonFunction(t *testing.T) {
 	msg := runQueueErr(t, `
 		local queue = require("queue")

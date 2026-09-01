@@ -10,8 +10,6 @@ import (
 	"github.com/hilthontt/luascript/internal/vm"
 )
 
-// runJSON compiles and runs `src` on a VM with the json module preloaded.
-// Mirrors the os module's runOS helper — vm.run is package-private.
 func runJSON(t *testing.T, src string) *vm.VM {
 	t.Helper()
 	chunks, err := compiler.CompileToInstructions(src, parser.NormalMode)
@@ -64,13 +62,7 @@ func TestDecodeRoundTrip(t *testing.T) {
 	}
 }
 
-// json.Decoder stops at the end of the first complete value, so decode used to
-// accept a valid prefix and silently drop whatever followed — the case where a
-// caller most needs to hear that the payload wasn't the document they expected
-// (an HTML error page appended to a JSON body, say).
 func TestDecodeRejectsTrailingContent(t *testing.T) {
-	// Each payload is embedded in a single-quoted Lua string, so it may
-	// contain the double quotes JSON needs but no single quotes of its own.
 	for _, payload := range []string{
 		`{"a":1} <html>`,
 		`{"a":1}{"b":2}`,
@@ -86,7 +78,6 @@ func TestDecodeRejectsTrailingContent(t *testing.T) {
 	}
 }
 
-// Trailing whitespace is not trailing content.
 func TestDecodeAllowsTrailingWhitespace(t *testing.T) {
 	v := runJSON(t, `
 		local json = require("json")
@@ -98,9 +89,6 @@ func TestDecodeAllowsTrailingWhitespace(t *testing.T) {
 	}
 }
 
-// Values with no JSON form used to fall through to fmt.Sprintf("%v"), so a
-// stray function landed in the output as the string "0xc000123456" and only
-// broke for whoever consumed the document later.
 func TestEncodeRejectsUnencodableValues(t *testing.T) {
 	msg := runJSONErr(t, `
 		local json = require("json")
@@ -128,9 +116,6 @@ func TestEncodeArraysAndObjects(t *testing.T) {
 	}
 }
 
-// A JSON null decoded to nil is indistinguishable from an absent key, and
-// inside an array it truncates the rest — [1, null, 3] became a 1-element
-// table. The sentinel keeps the value addressable.
 func TestDecodeNullSentinel(t *testing.T) {
 	v := runJSON(t, `
 		local json = require("json")
@@ -166,7 +151,6 @@ func TestDecodeNullSentinel(t *testing.T) {
 	}
 }
 
-// Encoding the sentinel produces a null in either decode mode.
 func TestEncodeNullSentinel(t *testing.T) {
 	v := runJSON(t, `
 		local json = require("json")
@@ -181,8 +165,6 @@ func TestEncodeNullSentinel(t *testing.T) {
 	}
 }
 
-// An empty Lua table is both an empty array and an empty object; without a
-// marker there is no way to ask for the one encode did not pick.
 func TestEncodeEmptyArrayMarker(t *testing.T) {
 	v := runJSON(t, `
 		local json = require("json")

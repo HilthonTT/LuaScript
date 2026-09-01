@@ -1,8 +1,5 @@
 package vm
 
-// End-to-end behavior tests for the language-surface additions: `continue`,
-// if expressions, default parameter values, and `<const>` enforcement.
-
 import (
 	"strings"
 	"testing"
@@ -11,7 +8,6 @@ import (
 	"github.com/hilthontt/luascript/internal/compiler/parser"
 )
 
-// compileErr expects compilation to fail and returns the error message.
 func compileErr(t *testing.T, src string) string {
 	t.Helper()
 	_, err := compiler.CompileToInstructions(src, parser.NormalMode)
@@ -20,8 +16,6 @@ func compileErr(t *testing.T, src string) string {
 	}
 	return err.Error()
 }
-
-// --- continue ----------------------------------------------------------------
 
 func TestContinueNumericFor(t *testing.T) {
 	v := run(t, `
@@ -80,8 +74,6 @@ func TestContinueTargetsInnermostLoop(t *testing.T) {
 }
 
 func TestContinueClosesLoopUpvalues(t *testing.T) {
-	// A continue-skipped iteration must still close its captured loop
-	// variable, so each stored closure sees its own `i`.
 	v := run(t, `
 		local fns = {}
 		for i = 1, 4 do
@@ -99,8 +91,6 @@ func TestContinueStillAnIdentifier(t *testing.T) {
 	assertGlobalEqual(t, v, "r", int64(42))
 }
 
-// --- if expressions ------------------------------------------------------------
-
 func TestIfExpressionBasic(t *testing.T) {
 	v := run(t, `
 		local x = 7
@@ -114,7 +104,6 @@ func TestIfExpressionElseArm(t *testing.T) {
 }
 
 func TestIfExpressionLazyBranches(t *testing.T) {
-	// Only the taken branch may evaluate.
 	v := run(t, `
 		hits = ""
 		local function mark(s, v) hits = hits .. s return v end
@@ -124,7 +113,6 @@ func TestIfExpressionLazyBranches(t *testing.T) {
 }
 
 func TestIfExpressionSingleValueAdjustment(t *testing.T) {
-	// Each arm is clamped to exactly one value even when it is a call.
 	v := run(t, `
 		local function two() return 1, 2 end
 		local a, b = (if true then two() else 0), 9
@@ -138,8 +126,6 @@ func TestIfExpressionInCallArgs(t *testing.T) {
 		r = pick(if false then "x" else "y", if true then "z" else "w")`)
 	assertGlobalEqual(t, v, "r", "yz")
 }
-
-// --- default parameters ----------------------------------------------------------
 
 func TestDefaultParamOmittedAndNil(t *testing.T) {
 	v := run(t, `
@@ -155,8 +141,6 @@ func TestDefaultParamOmittedAndNil(t *testing.T) {
 }
 
 func TestDefaultParamFalseIsNotNil(t *testing.T) {
-	// Unlike the `x = x or d` idiom, an explicit false must NOT trigger
-	// the default.
 	v := run(t, `
 		local function f(flag = true)
 			return flag
@@ -197,11 +181,7 @@ func TestDefaultParamOnMethods(t *testing.T) {
 	assertGlobalEqual(t, v, "r", int64(26))
 }
 
-// --- REPL-mode compile path -----------------------------------------------------
-
 func TestNewSyntaxInREPLMode(t *testing.T) {
-	// Two separate REPL chunks: the first's top-level local must survive
-	// into the second (REPL local promotion), and both use the new syntax.
 	v := New()
 	for _, src := range []string{
 		`local mode = if 2 > 1 then "up" else "down"`,
@@ -225,8 +205,6 @@ func TestNewSyntaxInREPLMode(t *testing.T) {
 	}
 	assertGlobalEqual(t, v, "result", "up:6")
 }
-
-// --- <const> enforcement -----------------------------------------------------------
 
 func TestConstAssignRejected(t *testing.T) {
 	msg := compileErr(t, "local x <const> = 1\nx = 2")
@@ -277,7 +255,6 @@ func TestConstShadowingIsAssignable(t *testing.T) {
 }
 
 func TestConstFieldWriteAllowed(t *testing.T) {
-	// The binding is const, not the value it holds.
 	v := run(t, `
 		local t <const> = {}
 		t.x = 42
@@ -285,12 +262,6 @@ func TestConstFieldWriteAllowed(t *testing.T) {
 	assertGlobalEqual(t, v, "r", int64(42))
 }
 
-// --- string interpolation ----------------------------------------------------
-
-// TestInterpolationEscapes pins the split-on-raw-source rule for backtick
-// strings. The lexer decodes escapes before the parser re-scans for `{expr}`
-// spans, so scanning the decoded literal made `\u{7B}` look like the start of
-// an interpolation and ended a nested `"..."` early at its escaped quote.
 func TestInterpolationEscapes(t *testing.T) {
 	v := run(t, "\n"+`
 		local a = 5

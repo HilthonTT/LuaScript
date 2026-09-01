@@ -8,7 +8,6 @@ import (
 	"github.com/hilthontt/luascript/internal/vm"
 )
 
-// specTable builds the Lua-side spec a script would pass to plugin.generate.
 func specTable(pkgs, fns []map[string]string) *vm.Table {
 	entries := func(ms []map[string]string) *vm.Table {
 		list := vm.NewTable(len(ms), 0)
@@ -58,7 +57,6 @@ func TestParseSpec(t *testing.T) {
 		s.Packages[1] != (pkg{Prefix: "_", Name: "github.com/lib/pq"}) {
 		t.Fatalf("packages: got %#v", s.Packages)
 	}
-	// `as` defaults to `name`, and is honoured when given.
 	if len(s.Functions) != 2 ||
 		s.Functions[0] != (function{Pkg: "sql", Name: "Open", As: "Open"}) ||
 		s.Functions[1] != (function{Pkg: "sql", Name: "Drivers", As: "ListDrivers"}) {
@@ -99,8 +97,6 @@ func TestParseSpecErrors(t *testing.T) {
 			want: "functions[1].pkg must be a string",
 		},
 		{
-			// spec.validate runs on the parsed spec, so a bad symbol never
-			// reaches the Go source.
 			name: "unexported symbol",
 			tbl: specTable(
 				[]map[string]string{{"name": "strings"}},
@@ -134,8 +130,6 @@ func TestPluginDirHonoursEnv(t *testing.T) {
 	}
 }
 
-// The build directory is keyed by the generated source, so an unchanged spec
-// reuses its .so and a changed one cannot collide with the stale artifact.
 func TestSourceHashDistinguishesSources(t *testing.T) {
 	a := sourceHash("package main\nvar X = strings.ToUpper\n")
 	b := sourceHash("package main\nvar X = strings.ToLower\n")
@@ -147,8 +141,6 @@ func TestSourceHashDistinguishesSources(t *testing.T) {
 	}
 }
 
-// require("plugin") must succeed on every platform — including the ones that
-// cannot load plugins — so a script can inspect plugin.supported and degrade.
 func TestModuleLoadsEverywhere(t *testing.T) {
 	res := pluginLoader(nil, nil)
 	m, ok := res[0].(*vm.Table)

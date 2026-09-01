@@ -7,15 +7,10 @@ import (
 	"testing"
 )
 
-// TestInflateRejectsDecompressionBomb verifies the output cap: a small gzip
-// stream whose inflated size exceeds maxDecodeBytes must raise rather than
-// allocating the full expansion.
 func TestInflateRejectsDecompressionBomb(t *testing.T) {
-	// Compress a highly-repetitive payload larger than the cap. Zeroes
-	// compress to a tiny stream, so this stays small on disk.
 	var buf bytes.Buffer
 	w := gzip.NewWriter(&buf)
-	chunk := make([]byte, 1<<20) // 1 MiB of zeroes
+	chunk := make([]byte, 1<<20)
 	for written := int64(0); written <= maxDecodeBytes; written += int64(len(chunk)) {
 		if _, err := w.Write(chunk); err != nil {
 			t.Fatalf("write: %v", err)
@@ -38,8 +33,6 @@ func TestInflateRejectsDecompressionBomb(t *testing.T) {
 	}
 }
 
-// TestInflateAcceptsNormalStream confirms a normal, under-cap payload still
-// round-trips.
 func TestInflateAcceptsNormalStream(t *testing.T) {
 	const msg = "the quick brown fox jumps over the lazy dog"
 	var buf bytes.Buffer

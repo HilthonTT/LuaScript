@@ -8,9 +8,6 @@ import (
 	"github.com/hilthontt/luascript/internal/compiler/parser"
 )
 
-// compileBench compiles src once for use across b.N iterations. Compile
-// failures fail the benchmark; do not measure compile time here — these
-// benches target the VM, not the front end.
 func compileBench(b *testing.B, src string) *bytecode.InstructionSet {
 	b.Helper()
 	chunks, err := compiler.CompileToInstructions(src, parser.NormalMode)
@@ -20,10 +17,6 @@ func compileBench(b *testing.B, src string) *bytecode.InstructionSet {
 	return chunks[0]
 }
 
-// runBench creates a fresh VM and runs `is` once. A new VM per iteration
-// keeps state isolated (no cross-iteration pollution of globals/stack) and
-// includes VM construction in the measurement — which is what we want for
-// "run a small program end-to-end" benchmarks.
 func runBench(b *testing.B, is *bytecode.InstructionSet) {
 	b.Helper()
 	v := New()
@@ -32,8 +25,6 @@ func runBench(b *testing.B, is *bytecode.InstructionSet) {
 	}
 }
 
-// BenchmarkFibRecursive — call-heavy. Recursive fib(20) exercises function
-// call setup/teardown, the doCall arg-copy path, and stack growth.
 func BenchmarkFibRecursive(b *testing.B) {
 	is := compileBench(b, `
 		local function fib(n)
@@ -48,8 +39,6 @@ func BenchmarkFibRecursive(b *testing.B) {
 	}
 }
 
-// BenchmarkTableInsertSequential — table-heavy. 500 sequential integer
-// inserts exercise the array-part promotion path in vm/table.go.
 func BenchmarkTableInsertSequential(b *testing.B) {
 	is := compileBench(b, `
 		local t = {}
@@ -64,9 +53,6 @@ func BenchmarkTableInsertSequential(b *testing.B) {
 	}
 }
 
-// BenchmarkTableInsertHash — hash-part-heavy. String keys force every
-// store into the hash map; this measures map churn and the keys-slice
-// bookkeeping.
 func BenchmarkTableInsertHash(b *testing.B) {
 	is := compileBench(b, `
 		local t = {}
@@ -82,8 +68,6 @@ func BenchmarkTableInsertHash(b *testing.B) {
 	}
 }
 
-// BenchmarkTableLiteralChurn — many ephemeral empty tables. Targets the
-// NewTable opcode allocation cost (P-2).
 func BenchmarkTableLiteralChurn(b *testing.B) {
 	is := compileBench(b, `
 		local n = 0
@@ -99,8 +83,6 @@ func BenchmarkTableLiteralChurn(b *testing.B) {
 	}
 }
 
-// BenchmarkStringConcat — concat-heavy loop. Each iteration produces a
-// new string via concatPair; tests garbage churn.
 func BenchmarkStringConcat(b *testing.B) {
 	is := compileBench(b, `
 		local s = ""
@@ -113,8 +95,6 @@ func BenchmarkStringConcat(b *testing.B) {
 	}
 }
 
-// BenchmarkGlobalAccess — tight GetGlobal/SetGlobal loop. Each iteration
-// pays one map lookup + normalizeKey + interface assertion per access.
 func BenchmarkGlobalAccess(b *testing.B) {
 	is := compileBench(b, `
 		g = 0
@@ -127,8 +107,6 @@ func BenchmarkGlobalAccess(b *testing.B) {
 	}
 }
 
-// BenchmarkClosureCall — closure with upvalues called repeatedly.
-// Targets makeClosure allocation and upvalue access.
 func BenchmarkClosureCall(b *testing.B) {
 	is := compileBench(b, `
 		local function make()
@@ -149,8 +127,6 @@ func BenchmarkClosureCall(b *testing.B) {
 	}
 }
 
-// BenchmarkLocalArithmetic — tight loop in locals only. Baseline number
-// for "ideal" execution (no globals, no tables, no calls).
 func BenchmarkLocalArithmetic(b *testing.B) {
 	is := compileBench(b, `
 		local s = 0

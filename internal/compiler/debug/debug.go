@@ -1,7 +1,3 @@
-// Package debug provides opt-in profiling helpers for the .lsc profile`
-// subcommand. It is deliberately narrow — anything that flips a global
-// runtime knob (GC percent, memory limit, traceback level) lives at the
-// caller's risk and is not exported here.
 package debug
 
 import (
@@ -13,19 +9,11 @@ import (
 	"time"
 )
 
-// Profile bundles the open files / pprof state for a profiling session.
-// Returned by Start and passed to Stop. A zero Profile is safe to Stop
-// (it's a no-op), which keeps the deferred-stop pattern clean even when
-// Start failed partway.
 type Profile struct {
 	cpuFile *os.File
 	memPath string
 }
 
-// Start opens cpuPath (if non-empty) and begins CPU profiling. If memPath
-// is non-empty, the path is remembered and the heap profile is written on
-// Stop. Returns the Profile handle even on partial failure so the caller
-// can still defer Stop and clean up whichever side opened successfully.
 func Start(cpuPath, memPath string) (*Profile, error) {
 	p := &Profile{memPath: memPath}
 	if cpuPath != "" {
@@ -42,8 +30,6 @@ func Start(cpuPath, memPath string) (*Profile, error) {
 	return p, nil
 }
 
-// Stop ends CPU profiling and writes the heap profile (if requested at
-// Start). Safe to call on a nil/zero Profile.
 func (p *Profile) Stop() error {
 	if p == nil {
 		return nil
@@ -57,8 +43,6 @@ func (p *Profile) Stop() error {
 		p.cpuFile = nil
 	}
 	if p.memPath != "" {
-		// runtime.GC before WriteHeapProfile so the snapshot reflects
-		// live objects rather than uncollected garbage from the run.
 		runtime.GC()
 		f, err := os.Create(p.memPath)
 		if err != nil {
@@ -78,7 +62,6 @@ func (p *Profile) Stop() error {
 	return firstErr
 }
 
-// MemoryStats is a snapshot of process memory state at one moment in time.
 type MemoryStats struct {
 	HeapAlloc     uint64
 	HeapSys       uint64
@@ -95,8 +78,6 @@ type MemoryStats struct {
 	NumGoroutines int
 }
 
-// CollectMemoryStats gathers the current heap/GC/goroutine snapshot.
-// Intended for one-shot reporting at the end of a profiling run.
 func CollectMemoryStats() MemoryStats {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)

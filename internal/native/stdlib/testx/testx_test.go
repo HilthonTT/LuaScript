@@ -10,9 +10,6 @@ import (
 	"github.com/hilthontt/luascript/internal/vm"
 )
 
-// runSuite compiles src and runs it against a registry, returning the
-// registry so a test can assert on what was recorded. The chunk is named so
-// assertion positions in the results are predictable.
 func runSuite(t *testing.T, src string, tune func(*testx.Registry)) *testx.Registry {
 	t.Helper()
 	chunks, err := compiler.CompileToInstructions(src, parser.NormalMode)
@@ -33,8 +30,6 @@ func runSuite(t *testing.T, src string, tune func(*testx.Registry)) *testx.Regis
 	return reg
 }
 
-// names renders the recorded results as "status name" lines, which is a
-// readable shape for a whole-suite comparison.
 func names(reg *testx.Registry) []string {
 	out := make([]string, 0, len(reg.Results))
 	for _, r := range reg.Results {
@@ -71,9 +66,6 @@ func TestPassFailSkipAreRecorded(t *testing.T) {
 	}
 }
 
-// TestFailureCarriesPosition is the property the whole reporting story rests
-// on: an assertion raises a vm.LuaError, which the VM stamps with the line of
-// the Lua frame that called it.
 func TestFailureCarriesPosition(t *testing.T) {
 	reg := runSuite(t, `local t = require("test")
 t.test("fails", function()
@@ -92,8 +84,6 @@ end)`, nil)
 	}
 }
 
-// TestFailureCarriesTraceback covers the SafeCallTrace plumbing: a failure
-// raised below the test body reports the chain that got there.
 func TestFailureCarriesTraceback(t *testing.T) {
 	reg := runSuite(t, `local t = require("test")
 local function helper() t.assert_eq(1, 2) end
@@ -106,8 +96,6 @@ t.test("fails", function() helper() end)`, nil)
 	if !strings.Contains(stack, "helper") {
 		t.Errorf("stack = %q, want the intermediate frame named", stack)
 	}
-	// The capture must stop at the protected call: the chunk that declared
-	// the test is the caller's business, not the failure's.
 	if strings.Contains(stack, "main chunk") {
 		t.Errorf("stack = %q, want the caller's frames excluded", stack)
 	}
@@ -128,8 +116,6 @@ func TestDescribeNestsNames(t *testing.T) {
 	wantResults(t, reg, "pass outer/a", "pass outer/inner/b", "pass top")
 }
 
-// TestDescribeBodyFailureIsContained: a group that blows up while declaring
-// its tests must not take the rest of the file with it.
 func TestDescribeBodyFailureIsContained(t *testing.T) {
 	reg := runSuite(t, `
 		local t = require("test")
@@ -143,8 +129,6 @@ func TestDescribeBodyFailureIsContained(t *testing.T) {
 	}
 }
 
-// TestHookOrder pins the contract: before_each outermost-first, after_each
-// innermost-first, both applying to nested scopes.
 func TestHookOrder(t *testing.T) {
 	src := `
 		local t = require("test")
@@ -184,8 +168,6 @@ func TestHookOrder(t *testing.T) {
 	}
 }
 
-// TestAfterEachRunsWhenSetupFails: cleanup has to be reachable even when
-// before_each is what broke.
 func TestAfterEachRunsWhenSetupFails(t *testing.T) {
 	src := `
 		local t = require("test")
@@ -288,8 +270,6 @@ func TestOnResultSeesEveryResult(t *testing.T) {
 	}
 }
 
-// TestAssertions exercises the assertion surface from Lua: each case is a
-// body that must pass, paired with one that must fail.
 func TestAssertions(t *testing.T) {
 	cases := []struct {
 		name string
@@ -339,8 +319,6 @@ func TestAssertions(t *testing.T) {
 	}
 }
 
-// TestAssertErrorReturnsTheValue: the error value comes back so a test can
-// keep inspecting it.
 func TestAssertErrorReturnsTheValue(t *testing.T) {
 	reg := runSuite(t, `
 		local t = require("test")
@@ -354,8 +332,6 @@ func TestAssertErrorReturnsTheValue(t *testing.T) {
 	}
 }
 
-// TestDeepEqualHandlesCycles: a self-referential table must terminate rather
-// than recurse until the stack gives out.
 func TestDeepEqualHandlesCycles(t *testing.T) {
 	reg := runSuite(t, `
 		local t = require("test")
@@ -370,8 +346,6 @@ func TestDeepEqualHandlesCycles(t *testing.T) {
 	}
 }
 
-// TestDeepEqualRespectsEq: a type that defines equality gets to define it for
-// deep comparison too, or == and assert_deep_eq would disagree.
 func TestDeepEqualRespectsEq(t *testing.T) {
 	reg := runSuite(t, `
 		local t = require("test")
@@ -390,8 +364,6 @@ func TestDeepEqualRespectsEq(t *testing.T) {
 	wantResults(t, reg, "pass equal by id", "fail unequal by id")
 }
 
-// TestFailureMessagePreviewsTables: an address is useless in a diff, so a
-// plain table is reproduced structurally.
 func TestFailureMessagePreviewsTables(t *testing.T) {
 	reg := runSuite(t, `
 		local t = require("test")
@@ -403,8 +375,6 @@ func TestFailureMessagePreviewsTables(t *testing.T) {
 	}
 }
 
-// TestUserMessageIsIncluded: the optional trailing message is what tells a
-// reader which of five similar assertions tripped.
 func TestUserMessageIsIncluded(t *testing.T) {
 	reg := runSuite(t, `
 		local t = require("test")

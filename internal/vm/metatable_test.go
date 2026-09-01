@@ -5,8 +5,6 @@ import (
 	"testing"
 )
 
-// __index
-
 func TestIndexMetamethodWithTable(t *testing.T) {
 	v := run(t, `
 		base = {greeting = "hello"}
@@ -42,8 +40,6 @@ func TestIndexPrefersRawValueOverMetamethod(t *testing.T) {
 	assertGlobalEqual(t, v, "r", "raw")
 }
 
-// __newindex
-
 func TestNewIndexMetamethodInterceptsNewKeys(t *testing.T) {
 	v := run(t, `
 		log = {}
@@ -53,7 +49,6 @@ func TestNewIndexMetamethodInterceptsNewKeys(t *testing.T) {
 		raw = rawget(obj, "foo")
 	`)
 	assertGlobalEqual(t, v, "r", int64(42))
-	// Lua spec: __newindex prevents the raw write.
 	assertGlobalEqual(t, v, "raw", nil)
 }
 
@@ -65,8 +60,6 @@ func TestNewIndexNotCalledForExistingKey(t *testing.T) {
 	`)
 	assertGlobalEqual(t, v, "r", int64(2))
 }
-
-// Arithmetic metamethods
 
 func TestAddMetamethod(t *testing.T) {
 	v := run(t, `
@@ -100,8 +93,6 @@ func TestUnaryMinusMetamethod(t *testing.T) {
 	assertGlobalEqual(t, v, "r", int64(-7))
 }
 
-// Comparison metamethods
-
 func TestEqMetamethodForTables(t *testing.T) {
 	v := run(t, `
 		mt = {__eq = function(a, b) return a.id == b.id end}
@@ -127,8 +118,6 @@ func TestLtMetamethod(t *testing.T) {
 	assertGlobalEqual(t, v, "s", false)
 }
 
-// __concat / __len
-
 func TestConcatMetamethod(t *testing.T) {
 	v := run(t, `
 		mt = {__concat = function(a, b) return "C" end}
@@ -148,8 +137,6 @@ func TestLenMetamethod(t *testing.T) {
 	assertGlobalEqual(t, v, "r", int64(42))
 }
 
-// __call
-
 func TestCallMetamethod(t *testing.T) {
 	v := run(t, `
 		x = setmetatable({prefix = "hi:"}, {__call = function(self, name) return self.prefix .. name end})
@@ -157,8 +144,6 @@ func TestCallMetamethod(t *testing.T) {
 	`)
 	assertGlobalEqual(t, v, "r", "hi:world")
 }
-
-// raw* functions
 
 func TestRawgetSkipsMetamethod(t *testing.T) {
 	v := run(t, `
@@ -191,8 +176,6 @@ func TestRawequal(t *testing.T) {
 	assertGlobalEqual(t, v, "raweq", false)
 }
 
-// OO pattern via metatables
-
 func TestClassPatternViaMetatables(t *testing.T) {
 	v := run(t, `
 		Animal = {}
@@ -211,19 +194,12 @@ func TestClassPatternViaMetatables(t *testing.T) {
 	assertGlobalEqual(t, v, "greeting", "I am Whiskers")
 }
 
-// Error path: arithmetic on a metamethod-less table
-
 func TestArithOnTableWithoutMetamethodErrors(t *testing.T) {
-	// `--!nocheck` opts out of static type checking — this test exercises
-	// the VM's runtime arithmetic error path on a deliberately invalid
-	// program.
 	msg := runErr(t, "--!nocheck\nr = ({}) + 1")
 	if !strings.Contains(msg, "arithmetic") {
 		t.Errorf("error = %q, want it to mention arithmetic", msg)
 	}
 }
-
-// __tostring — invoked by tostring(), print(), io.write(), error(value)
 
 func TestTostringMetamethod(t *testing.T) {
 	v := run(t, `
@@ -246,8 +222,6 @@ func TestTostringFallsBackWithoutMetamethod(t *testing.T) {
 }
 
 func TestErrorPropagatesValueToPcall(t *testing.T) {
-	// error(value) propagates the value unchanged (Lua 5.4): pcall returns
-	// the original table, and tostring on it honours __tostring.
 	v := run(t, `
 		obj = setmetatable({}, {__tostring = function() return "boom" end})
 		ok, err = pcall(function() error(obj) end)
@@ -260,7 +234,6 @@ func TestErrorPropagatesValueToPcall(t *testing.T) {
 }
 
 func TestErrorPropagatesNonStringValueToPcall(t *testing.T) {
-	// A table error object keeps its fields when caught — not stringified.
 	v := run(t, `
 		ok, err = pcall(function() error({code = 42}) end)
 		code = err.code
@@ -270,7 +243,6 @@ func TestErrorPropagatesNonStringValueToPcall(t *testing.T) {
 }
 
 func TestUncaughtErrorRoutesThroughTostringMetamethod(t *testing.T) {
-	// An uncaught error(value) reaching the top level renders via __tostring.
 	msg := runErr(t, `
 		obj = setmetatable({}, {__tostring = function() return "boom" end})
 		error(obj)

@@ -8,8 +8,6 @@ import (
 	"github.com/hilthontt/luascript/internal/compiler/parser"
 )
 
-// run compiles `src` end-to-end (lex → parse → bytecode) and executes it on
-// a fresh VM. Returns the VM so the caller can inspect globals / state.
 func run(t *testing.T, src string) *VM {
 	t.Helper()
 	chunks, err := compiler.CompileToInstructions(src, parser.NormalMode)
@@ -23,7 +21,6 @@ func run(t *testing.T, src string) *VM {
 	return v
 }
 
-// runErr expects execution to fail and returns the error message.
 func runErr(t *testing.T, src string) string {
 	t.Helper()
 	chunks, err := compiler.CompileToInstructions(src, parser.NormalMode)
@@ -50,8 +47,6 @@ func assertGlobalEqual(t *testing.T, v *VM, name string, want Value) {
 		t.Errorf("global %q = %v (%T), want %v (%T)", name, got, got, want, want)
 	}
 }
-
-// Arithmetic & numeric subtypes
 
 func TestIntegerArithmeticPreservesIntegerSubtype(t *testing.T) {
 	v := run(t, `r = 2 + 3 * 4`)
@@ -113,8 +108,6 @@ func TestBitwiseOps(t *testing.T) {
 	assertGlobalEqual(t, v, "f", int64(-1))
 }
 
-// Strings
-
 func TestStringConcat(t *testing.T) {
 	v := run(t, `s = "hello" .. " " .. "world"`)
 	assertGlobalEqual(t, v, "s", "hello world")
@@ -129,8 +122,6 @@ func TestLengthOfString(t *testing.T) {
 	v := run(t, `n = #"hello"`)
 	assertGlobalEqual(t, v, "n", int64(5))
 }
-
-// Comparison & logical
 
 func TestNumericComparisonAcrossSubtypes(t *testing.T) {
 	v := run(t, `
@@ -175,8 +166,6 @@ func TestNotOperator(t *testing.T) {
 	assertGlobalEqual(t, v, "c", true)
 	assertGlobalEqual(t, v, "d", false)
 }
-
-// Control flow
 
 func TestIfElseChooses(t *testing.T) {
 	v := run(t, `
@@ -242,7 +231,6 @@ func TestNumericForWithStep(t *testing.T) {
 		s = 0
 		for i = 10, 1, -2 do s = s + i end
 	`)
-	// 10+8+6+4+2 = 30
 	assertGlobalEqual(t, v, "s", int64(30))
 }
 
@@ -272,8 +260,6 @@ func TestGotoForwardJump(t *testing.T) {
 	`)
 	assertGlobalEqual(t, v, "x", int64(0))
 }
-
-// Tables
 
 func TestTableArrayPart(t *testing.T) {
 	v := run(t, `
@@ -325,8 +311,6 @@ func TestTableMutation(t *testing.T) {
 	assertGlobalEqual(t, v, "b", "two")
 }
 
-// Functions, returns, varargs
-
 func TestSimpleFunctionCallReturnsValue(t *testing.T) {
 	v := run(t, `
 		function sq(x) return x * x end
@@ -363,10 +347,6 @@ func TestExtraReturnValuesDiscarded(t *testing.T) {
 	assertGlobalEqual(t, v, "a", int64(1))
 }
 
-// TestVarargFirstValueOnly checks that `local x = ...` captures the first
-// vararg. Tail-position vararg expansion (e.g. `{...}`, `f(...)`,
-// `select("#", ...)`) is not supported by the current bytecode generator —
-// it propagates a static argument count — so we don't exercise it here.
 func TestVarargFirstValueOnly(t *testing.T) {
 	v := run(t, `
 		function first(...)
@@ -377,8 +357,6 @@ func TestVarargFirstValueOnly(t *testing.T) {
 	`)
 	assertGlobalEqual(t, v, "r", int64(10))
 }
-
-// Closures & upvalues
 
 func TestClosureCapturesLocal(t *testing.T) {
 	v := run(t, `
@@ -414,8 +392,6 @@ func TestClosuresShareUpvalue(t *testing.T) {
 	assertGlobalEqual(t, v, "r", int64(3))
 }
 
-// Methods (colon)
-
 func TestMethodCallReceivesSelf(t *testing.T) {
 	v := run(t, `
 		obj = { v = 42 }
@@ -424,8 +400,6 @@ func TestMethodCallReceivesSelf(t *testing.T) {
 	`)
 	assertGlobalEqual(t, v, "r", int64(42))
 }
-
-// Errors / pcall
 
 func TestPcallCatchesError(t *testing.T) {
 	v := run(t, `
@@ -448,9 +422,6 @@ func TestPcallReturnsResultsOnSuccess(t *testing.T) {
 }
 
 func TestArithOnStringRaises(t *testing.T) {
-	// `--!nocheck` opts the input out of static type checking — this test
-	// exercises the VM's runtime arithmetic error path on a deliberately
-	// invalid program.
 	msg := runErr(t, "--!nocheck\nr = {} + 1")
 	if !strings.Contains(msg, "arithmetic") {
 		t.Errorf("error = %q, want it to mention arithmetic", msg)
@@ -463,8 +434,6 @@ func TestCallNonFunctionRaises(t *testing.T) {
 		t.Errorf("error = %q, want it to mention 'call'", msg)
 	}
 }
-
-// Built-ins
 
 func TestTypeBuiltin(t *testing.T) {
 	v := run(t, `
@@ -521,8 +490,6 @@ func TestAssertFailsWithMessage(t *testing.T) {
 	}
 }
 
-// pairs (hash iteration)
-
 func TestPairsVisitsAllEntries(t *testing.T) {
 	v := run(t, `
 		t = {a = 1, b = 2, c = 3}
@@ -532,9 +499,6 @@ func TestPairsVisitsAllEntries(t *testing.T) {
 	assertGlobalEqual(t, v, "s", int64(6))
 }
 
-// Single-target assignments take a fast path in the generator that stores
-// the value straight into the target (no temp slot). These pin the
-// semantics that path has to preserve.
 func TestSingleAssignSemantics(t *testing.T) {
 	v := run(t, `
 		local t = {}
@@ -558,8 +522,6 @@ func TestSingleAssignSemantics(t *testing.T) {
 	assertGlobalEqual(t, v, "hits", int64(99))
 }
 
-// A multiple assignment evaluates every value before any store, so a later
-// target's index cannot observe an earlier target's write (Lua 5.4 §3.3.3).
 func TestMultiAssignEvaluatesValuesFirst(t *testing.T) {
 	v := run(t, `
 		local t = {}
@@ -579,8 +541,6 @@ func TestMultiAssignEvaluatesValuesFirst(t *testing.T) {
 	assertGlobalEqual(t, v, "swapped", int64(21))
 }
 
-// `x = f()` clamps a multi-value producer to its first result on the fast
-// path just as the general path does.
 func TestSingleAssignClampsMultiValue(t *testing.T) {
 	v := run(t, `
 		local function two() return 1, 2 end

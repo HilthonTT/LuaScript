@@ -10,7 +10,6 @@ import (
 	"github.com/hilthontt/luascript/internal/compiler/parser"
 )
 
-// Severity ranks a finding's importance.
 type Severity int
 
 const (
@@ -32,24 +31,21 @@ func (s Severity) String() string {
 	}
 }
 
-// Finding is a single issue reported by a pass.
 type Finding struct {
-	Pass     string // pass that produced it: "complexity", "lint", "security"
-	Rule     string // rule id, e.g. "high-complexity", "unused-local"
+	Pass     string
+	Rule     string
 	Severity Severity
 	Message  string
 	Line     int
 }
 
-// Metrics are whole-program counts gathered during analysis.
 type Metrics struct {
 	Lines           int
-	Functions       int // excludes the main chunk
+	Functions       int
 	MaxComplexity   int
 	TotalComplexity int
 }
 
-// Report is the full result of analyzing one source file.
 type Report struct {
 	Findings []Finding
 	Metrics  Metrics
@@ -59,26 +55,21 @@ func (r *Report) add(f Finding) {
 	r.Findings = append(r.Findings, f)
 }
 
-// Options configures the analysis.
 type Options struct {
-	MaxComplexity int // functions above this are flagged; default 10
+	MaxComplexity int
 }
 
-// Pass is one analysis stage. New checks are added by appending to passes.
 type Pass interface {
 	Name() string
 	Run(prog *ast.Program, opts Options, rep *Report)
 }
 
-// passes is the ordered registry. Append here to extend the analyzer.
 var passes = []Pass{
 	complexityPass{},
 	lintPass{},
 	securityPass{},
 }
 
-// Analyze parses src and runs every registered pass over it. A parse error is
-// returned as-is (no findings); otherwise the populated *Report is returned.
 func Analyze(src string, opts Options) (*Report, error) {
 	if opts.MaxComplexity <= 0 {
 		opts.MaxComplexity = 10
@@ -106,7 +97,6 @@ func Analyze(src string, opts Options) (*Report, error) {
 	return rep, nil
 }
 
-// String renders the report as human-readable text.
 func (r *Report) String() string {
 	var b strings.Builder
 	b.WriteString("analysis report\n\n")

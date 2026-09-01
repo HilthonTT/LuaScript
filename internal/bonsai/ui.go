@@ -9,7 +9,7 @@ import (
 
 type screen struct {
 	tcell.Screen
-	x, y   int // cursor
+	x, y   int
 	active bool
 }
 
@@ -19,7 +19,6 @@ func (sc *screen) draw(text string, style tcell.Style) {
 	for _, r := range []rune(text) {
 		rw := runewidth.RuneWidth(r)
 
-		// skip oob writes
 		if sc.x+rw >= w || sc.y >= h {
 			continue
 		}
@@ -29,17 +28,14 @@ func (sc *screen) draw(text string, style tcell.Style) {
 }
 
 func (sc *screen) drawMessage(msg string, x int, y int) {
-	// upper border
 	sc.x = x
 	sc.y = y
 	sc.draw("+"+strings.Repeat("-", len(msg)+2)+"+", styleGray)
-	// center with message and front- and back-border
 	sc.x = x
 	sc.y = y + 1
 	sc.draw("| ", styleGray)
 	sc.draw(msg, styleDefault)
 	sc.draw(" |", styleGray)
-	// lower border
 	sc.x = x
 	sc.y = y + 2
 	sc.draw("+"+strings.Repeat("-", len(msg)+2)+"+", styleGray)
@@ -47,14 +43,11 @@ func (sc *screen) drawMessage(msg string, x int, y int) {
 
 func (sc *screen) put(r rune, style tcell.Style) {
 	if !sc.active {
-		// stop drawing while shutdown to
-		// avoid a data race with screen.Fini()
 		return
 	}
 
 	w := runewidth.RuneWidth(r)
 
-	// skip all non-printable
 	if w < 1 {
 		return
 	}

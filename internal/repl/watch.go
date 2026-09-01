@@ -36,9 +36,9 @@ func (r *REPL) WatchFile(filePath string) error {
 	defer ticker.Stop()
 
 	var (
-		lastMod    time.Time // mtime of the last run we performed
-		pendingMod time.Time // mtime observed but not yet stable
-		seenAt     time.Time // when pendingMod was first observed
+		lastMod    time.Time
+		pendingMod time.Time
+		seenAt     time.Time
 		firstRun   = true
 	)
 
@@ -51,8 +51,6 @@ func (r *REPL) WatchFile(filePath string) error {
 		case <-ticker.C:
 			info, err := os.Stat(absPath)
 			if err != nil {
-				// File transiently missing during atomic saves is normal —
-				// only report unexpected errors.
 				if !errors.Is(err, fs.ErrNotExist) {
 					fmt.Fprintf(os.Stderr, "watch: %s\n", err)
 				}
@@ -62,16 +60,13 @@ func (r *REPL) WatchFile(filePath string) error {
 			mod := info.ModTime()
 			switch {
 			case mod.Equal(lastMod):
-				// Unchanged since the last run.
 				continue
 
 			case !mod.Equal(pendingMod):
-				// New (or further) change — (re)start the debounce timer.
 				pendingMod = mod
 				seenAt = time.Now()
 
 			case time.Since(seenAt) >= watchDebounce:
-				// Same mtime observed long enough — run it.
 				lastMod = pendingMod
 				pendingMod = time.Time{}
 

@@ -14,19 +14,6 @@ import (
 	"github.com/hilthontt/luascript/internal/vm"
 )
 
-// Fake sql driver — a minimal in-memory key/value store implemented behind
-// the database/sql/driver interfaces. Avoids pulling a real DB dependency
-// (sqlite, etc.) into the test suite. The "schema" is one column "key" and
-// one column "value"; SQL is parsed as a tiny custom DSL:
-//
-//   "set k v"   → store/update key k = v
-//   "del k"     → remove key k
-//   "all"       → return every row sorted by insertion order
-//   "get k"     → return zero or one row
-//
-// Bind parameters are not used by the tests, but the interface implementations
-// accept and ignore them so the helper stays generic.
-
 type fakeDriver struct{}
 
 type fakeConn struct {
@@ -72,8 +59,6 @@ func (r *fakeRows) Next(dest []driver.Value) error {
 	return nil
 }
 
-// Shared store keyed by dataSourceName so multiple connections in one test
-// hit the same data. fakeDriver.Open looks it up here.
 var (
 	storesMu sync.Mutex
 	stores   = map[string]*fakeStore{}
@@ -100,11 +85,10 @@ func (c *fakeConn) Prepare(query string) (driver.Stmt, error) {
 func (c *fakeConn) Close() error              { return nil }
 func (c *fakeConn) Begin() (driver.Tx, error) { return nil, nil }
 
-// Ping is optional but database/sql calls it when handle.Ping is invoked.
 func (c *fakeConn) Ping() error { return nil }
 
 func (s *fakeStmt) Close() error  { return nil }
-func (s *fakeStmt) NumInput() int { return -1 } // variadic / unknown
+func (s *fakeStmt) NumInput() int { return -1 }
 
 func (s *fakeStmt) Exec(args []driver.Value) (driver.Result, error) {
 	parts := strings.Fields(s.query)
@@ -124,7 +108,6 @@ func (s *fakeStmt) Exec(args []driver.Value) (driver.Result, error) {
 			return fakeResult{affected: 0}, nil
 		}
 		delete(s.conn.store.values, parts[1])
-		// Trim keys slice — O(n) but fine for tests.
 		for i, k := range s.conn.store.keys {
 			if k == parts[1] {
 				s.conn.store.keys = append(s.conn.store.keys[:i], s.conn.store.keys[i+1:]...)
@@ -158,8 +141,6 @@ func init() {
 	sql.Register("luascripttest", fakeDriver{})
 }
 
-// VM harness
-
 func runDB(t *testing.T, src string) *vm.VM {
 	t.Helper()
 	chunks, err := compiler.CompileToInstructions(src, parser.NormalMode)
@@ -188,8 +169,6 @@ func runDBErr(t *testing.T, src string) string {
 	}
 	return e.Error()
 }
-
-// Tests
 
 func TestModuleExposesOpenAndVersion(t *testing.T) {
 	v := runDB(t, `
@@ -254,7 +233,6 @@ func TestPingAndClose(t *testing.T) {
 }
 
 func TestOpenRejectsNonStringDriver(t *testing.T) {
-	// table can't coerce to string — triggers StringArg's error path.
 	msg := runDBErr(t, `
 		local db = require("db")
 		db.open({}, "")

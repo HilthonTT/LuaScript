@@ -1,10 +1,3 @@
-// Package parser builds an *ast.Program from a token stream produced by the
-// lexer. The grammar implemented here is Lua 5.4 (reference manual §9).
-//
-// The parser is a hand-written, single-pass recursive-descent parser with a
-// Pratt-style operator-precedence layer for expressions. There is no state
-// machine and no lookahead beyond a single peek token — Lua 5.4 is LL(2) at
-// most (see the Name vs. funcname disambiguation in `parseStatement`).
 package parser
 
 import (
@@ -18,17 +11,13 @@ import (
 	"github.com/hilthontt/luascript/internal/compiler/token"
 )
 
-// Mode controls REPL-friendly error reporting (e.g. distinguishing
-// "still typing — give me more input" from a real syntax error).
 type Mode int
 
-// Recognised parser modes.
 const (
 	NormalMode Mode = iota + 1
 	REPLMode
 )
 
-// Parser owns the token cursor and parser state.
 type Parser struct {
 	Lexer *lexer.Lexer
 	Mode  Mode
@@ -37,61 +26,24 @@ type Parser struct {
 
 	curToken  token.Token
 	peekToken token.Token
-	// peek2 holds a one-token-ahead-of-peek lookahead, populated lazily by
-	// peek2Token() and consumed by the next nextToken() call. The Lua 5.4
-	// grammar is mostly LL(2)-or-less, but the Luau-style type-assertion
-	// vs goto-label disambiguation needs to look two tokens past `::`.
-	peek2 *token.Token
+	peek2     *token.Token
 
-	// compoundCounter generates unique temp-local names for the compound
-	// assignment desugar (compiler/parser/statement_parsing.go). An index
-	// target like `t[f()] += 1` hoists its object and key into fresh
-	// `__caobj_N` / `__cakey_N` locals so they are evaluated exactly once.
 	compoundCounter int
 
-	// loopDepth tracks how many for/while/repeat loops enclose the
-	// current cursor. parseBreakStatement rejects `break` when it's 0.
-	// Function bodies save and zero this — break does not escape into
-	// the enclosing loop across a function boundary, matching Lua.
 	loopDepth int
 
-	// structNames records every `struct Name` declared so far in this
-	// chunk, and enumVariants every payload-carrying tagged-enum variant.
-	// The match-statement desugar uses them to disambiguate call-shaped
-	// patterns: `Circle(r)` positionally destructures (tests __tag) only
-	// when Circle is a known tagged-enum variant, and `Point{ x = a }`
-	// destructures by name only when Point is a known struct; otherwise
-	// the expression stays a value pattern (call the function, compare
-	// the result). Without the gate, any `f(x)` with identifier args
-	// silently flipped into a never-matching __tag probe.
 	structNames  map[string]bool
 	enumVariants map[string]bool
 
-	// depth tracks nesting of the recursive parse funnels (expressions,
-	// types, blocks). Without a bound, pathologically nested input — e.g. a
-	// megabyte of `(((…)))` — drives the recursive-descent parser past the Go
-	// goroutine stack limit, a fatal error that ParseProgram's recover() cannot
-	// catch. Exceeding maxParseDepth records an ordinary syntax error instead.
 	depth int
 }
 
-// maxParseDepth bounds recursive parse nesting. Set well above any realistic
-// hand-written nesting (Lua's own LUAI_MAXCCALLS is 200) yet orders of
-// magnitude below where the Go stack actually overflows (~hundreds of
-// thousands of levels), so it turns a fatal crash into a clean parse error
-// without rejecting legitimate deeply-chained code.
 const maxParseDepth = 4000
 
-// New constructs a parser ready to consume the supplied lexer's tokens.
-// Call ParseProgram to drive it.
 func New(l *lexer.Lexer) *Parser {
 	return &Parser{Lexer: l, Mode: NormalMode}
 }
 
-// enterDepth bumps the recursion counter, returning true (and recording a
-// syntax error) when nesting is pathologically deep. A caller that gets true
-// must stop recursing (return nil) and must NOT call leaveDepth; a caller that
-// gets false must pair the call with `defer p.leaveDepth()`.
 func (p *Parser) enterDepth(construct string) bool {
 	if p.depth >= maxParseDepth {
 		if p.error == nil {
@@ -106,9 +58,6 @@ func (p *Parser) enterDepth(construct string) bool {
 
 func (p *Parser) leaveDepth() { p.depth-- }
 
-// ParseProgram drives the top-level block until EOF and returns the AST.
-// Returns the partial AST and an error if one occurred. The parser is
-// single-shot: do not call ParseProgram more than once on the same Parser.
 func (p *Parser) ParseProgram() (program *ast.Program, err *errors.Error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -124,7 +73,6 @@ func (p *Parser) ParseProgram() (program *ast.Program, err *errors.Error) {
 		}
 	}()
 
-	// Prime the cursor: read two tokens so curToken/peekToken are both set.
 	p.nextToken()
 	p.nextToken()
 
@@ -142,10 +90,6 @@ func (p *Parser) ParseProgram() (program *ast.Program, err *errors.Error) {
 	return &ast.Program{Block: block}, nil
 }
 
-// parseBlock reads statements until it hits a block-terminating token
-// (`end`, `else`, `elseif`, `until`, `catch`, EOF). A leading or trailing return
-// statement is recognised here because Lua restricts `return` to the last
-// statement of a block.
 func (p *Parser) parseBlock() *ast.Block {
 	block := &ast.Block{
 		BaseNode:   ast.BaseNode{Token: p.curToken},
@@ -158,8 +102,6 @@ func (p *Parser) parseBlock() *ast.Block {
 	for !p.endOfBlock() {
 		if p.curTokenIs(token.Return) {
 			block.Return = p.parseReturnStatement()
-			// `return` must be the last statement in a block; an
-			// optional `;` may follow but no further statements.
 			p.skipSemicolons()
 			break
 		}
@@ -175,8 +117,6 @@ func (p *Parser) parseBlock() *ast.Block {
 	return block
 }
 
-// endOfBlock reports whether the current token closes the surrounding block
-// in the Lua grammar.
 func (p *Parser) endOfBlock() bool {
 	switch p.curToken.Type {
 	case token.EOF, token.End, token.Else, token.ElseIf, token.Until, token.Catch:
@@ -185,8 +125,6 @@ func (p *Parser) endOfBlock() bool {
 	return false
 }
 
-// skipSemicolons consumes any number of stray `;` separators. Lua allows
-// `;` as a no-op statement separator (and after a `return`).
 func (p *Parser) skipSemicolons() {
 	for p.curTokenIs(token.Semicolon) {
 		p.nextToken()
@@ -203,10 +141,6 @@ func (p *Parser) nextToken() {
 	}
 }
 
-// peek2Token returns the token immediately after peekToken without
-// advancing the cursor. The first call consumes one token from the lexer
-// and buffers it; subsequent calls return the same buffered token until a
-// nextToken() call drains the buffer.
 func (p *Parser) peek2Token() token.Token {
 	if p.peek2 == nil {
 		t := p.Lexer.NextToken()
@@ -223,8 +157,6 @@ func (p *Parser) peekTokenIs(t token.Type) bool {
 	return p.peekToken.Type == t
 }
 
-// expectPeek advances if the peek token matches `t`; otherwise records an
-// error and returns false. The caller MUST check the boolean.
 func (p *Parser) expectPeek(t token.Type) bool {
 	if p.peekTokenIs(t) {
 		p.nextToken()
@@ -234,9 +166,6 @@ func (p *Parser) expectPeek(t token.Type) bool {
 	return false
 }
 
-// expectCur asserts the current token type without advancing. Records an
-// error and returns false on mismatch. EOF promotion to EndOfFileError is
-// handled centrally in errorAt.
 func (p *Parser) expectCur(t token.Type) bool {
 	if p.curTokenIs(t) {
 		return true
@@ -257,17 +186,6 @@ func (p *Parser) peekError(t token.Type) {
 		"")
 }
 
-// errorAt records a structured parse error anchored to a specific token.
-// Format:
-//
-//	<construct>: <msg> at line N, column M.
-//	       hint: <hint>           (only when hint != "")
-//
-// If `construct` is empty the prefix is dropped. If the offending token
-// predates column tracking (Column == 0) the column suffix is omitted so
-// older lexer paths don't print "column 0". When the cursor sits on EOF,
-// generic SyntaxError / UnexpectedTokenError categories are promoted to
-// EndOfFileError so the REPL's IsEOF() check fires for truncated input.
 func (p *Parser) errorAt(tok token.Token, category int, construct, msg, hint string) {
 	if p.error != nil {
 		return
@@ -296,9 +214,6 @@ func (p *Parser) errorAt(tok token.Token, category int, construct, msg, hint str
 	p.error = errors.InitError(b.String(), category)
 }
 
-// describeToken returns a human-friendly description of a token suitable
-// for embedding in an error message. Keywords and punctuation are quoted
-// by their literal; numbers/strings/identifiers get a kind word.
 func describeToken(t token.Token) string {
 	switch t.Type {
 	case token.EOF:
@@ -315,8 +230,6 @@ func describeToken(t token.Token) string {
 	case token.Ident:
 		return "identifier '" + t.Literal + "'"
 	case token.Illegal:
-		// Multi-rune literals are lexer-authored descriptions (e.g.
-		// "unfinished string"), not source characters — render them as-is.
 		if utf8.RuneCountInString(t.Literal) > 1 {
 			return t.Literal
 		}
@@ -331,10 +244,6 @@ func describeToken(t token.Token) string {
 	return string(t.Type)
 }
 
-// describeTokenType describes an *expected* token type — symmetric with
-// describeToken but takes a Type alone (no literal available). Keywords
-// are rendered in their source form (lower-case) and punctuation by its
-// operator form.
 func describeTokenType(t token.Type) string {
 	switch t {
 	case token.EOF:
@@ -402,13 +311,9 @@ func describeTokenType(t token.Type) string {
 	case token.Not:
 		return "'not'"
 	}
-	// Operators and punctuation have a literal-shaped Type string already.
 	return "'" + string(t) + "'"
 }
 
-// baseAt builds a BaseNode anchored to a specific token. Used when an AST
-// node's source position should be the token that opened it rather than the
-// cursor position at the end of parsing.
 func baseAt(tok token.Token) ast.BaseNode {
 	return ast.BaseNode{Token: tok}
 }

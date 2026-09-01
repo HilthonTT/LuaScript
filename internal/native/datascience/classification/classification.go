@@ -1,17 +1,7 @@
-// Package classification is a require()-able host module exposing
-// supervised classifiers to .lsc code: a Naive Bayesian text classifier,
-// k-nearest-neighbours, a perceptron, logistic regression, and a
-// kernel SVM.
-//
-// Each constructor returns an object (a table whose methods close over the
-// underlying Go model), so usage reads as `clf:learn(...)`, `clf:fit(...)`,
-// `clf:predict(...)`, etc.
 package classification
 
 import "github.com/hilthontt/luascript/internal/vm"
 
-// RegisterClassificationPreload installs the loader under package.preload;
-// the module table is built lazily on the first require("classification").
 func RegisterClassificationPreload(v *vm.VM) {
 	vm.RegisterPreload(v, "classification", classificationLoader)
 }
@@ -27,11 +17,6 @@ func classificationLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
 	return []vm.Value{mod}
 }
 
-// Naive Bayes (text)
-
-// newNaiveBayes: classification.naivebayes(class1, class2 [, ...]) -> object
-// Optionally pass { tfidf = true } as the final argument to build a TF-IDF
-// classifier instead of a plain multinomial one.
 func newNaiveBayes(_ *vm.VM, args []vm.Value) []vm.Value {
 	tfidf := false
 	end := len(args)
@@ -40,7 +25,7 @@ func newNaiveBayes(_ *vm.VM, args []vm.Value) []vm.Value {
 			if b, ok := t.Get("tfidf").(bool); ok {
 				tfidf = b
 			}
-			end-- // the options table is not a class name
+			end--
 		}
 	}
 
@@ -76,14 +61,12 @@ func newBayesObject(clf *Classifier) *vm.Table {
 		return nil
 	}})
 
-	// classify(doc) -> class, logScores, strict
 	methods.Set("classify", &vm.GoFunc{Name: "naivebayes:classify", Fn: func(_ *vm.VM, a []vm.Value) []vm.Value {
 		doc := stringList("naivebayes:classify", 2, a)
 		cls, scores, strict := clf.Classify(doc)
 		return []vm.Value{string(cls), floatsToTable(scores), strict}
 	}})
 
-	// classifyProb(doc) -> class, probabilities, strict
 	methods.Set("classifyProb", &vm.GoFunc{Name: "naivebayes:classifyProb", Fn: func(_ *vm.VM, a []vm.Value) []vm.Value {
 		doc := stringList("naivebayes:classifyProb", 2, a)
 		cls, probs, strict := clf.ClassifyProb(doc)
@@ -105,19 +88,12 @@ func newBayesObject(clf *Classifier) *vm.Table {
 	return withMethods(methods)
 }
 
-// K-nearest neighbours
-
-// newKNNObject: classification.knn([k=3]) -> object
 func newKNNObject(_ *vm.VM, args []vm.Value) []vm.Value {
 	k := int(vm.OptInt("classification.knn", 1, args, 3))
 	model := NewKNN(k)
 	return []vm.Value{newNumericObject("knn", model.Fit, model.Predict, nil)}
 }
 
-// Perceptron
-
-// newPerceptronObject: classification.perceptron([opts]) -> object
-// opts: { lr = 0.1, epochs = 50 }
 func newPerceptronObject(_ *vm.VM, args []vm.Value) []vm.Value {
 	opts := optTable(args, 1)
 	lr := optFloat(opts, "lr", 0.1)
@@ -126,10 +102,6 @@ func newPerceptronObject(_ *vm.VM, args []vm.Value) []vm.Value {
 	return []vm.Value{newNumericObject("perceptron", model.Fit, model.Predict, nil)}
 }
 
-// Logistic regression
-
-// newLogisticObject: classification.logistic([opts]) -> object
-// opts: { lr = 0.1, epochs = 200 }
 func newLogisticObject(_ *vm.VM, args []vm.Value) []vm.Value {
 	opts := optTable(args, 1)
 	lr := optFloat(opts, "lr", 0.1)
@@ -138,11 +110,6 @@ func newLogisticObject(_ *vm.VM, args []vm.Value) []vm.Value {
 	return []vm.Value{newNumericObject("logistic", model.Fit, model.Predict, model.PredictProba)}
 }
 
-// Support Vector Machine
-
-// newSVMObject: classification.svm([opts]) -> object.
-// opts keys: kernel ("rbf"|"linear"|"poly"), C, gamma, coef0, degree,
-// tol, maxIter, seed.
 func newSVMObject(_ *vm.VM, args []vm.Value) []vm.Value {
 	opts := optTable(args, 1)
 	model := NewSVM(SVMConfig{
@@ -158,8 +125,6 @@ func newSVMObject(_ *vm.VM, args []vm.Value) []vm.Value {
 
 	methods := vm.NewTable(0, 4)
 
-	// Trained feature width — see newNumericObject for why queries must be
-	// validated before reaching the kernel loops.
 	width := -1
 
 	checkQuery := func(fn string, x []float64) {
@@ -178,8 +143,6 @@ func newSVMObject(_ *vm.VM, args []vm.Value) []vm.Value {
 			panic(vm.Errorf("svm:fit: #features (%d) must equal #labels (%d)", len(features), len(labels)))
 		}
 		if len(features) < 2 {
-			// The SMO pair-selection loop assumes at least two samples; one
-			// sample would index out of range deep inside the solver.
 			panic(vm.Errorf("svm:fit: training set needs at least 2 samples, got %d", len(features)))
 		}
 		model.Fit(features, labels)
@@ -206,9 +169,6 @@ func newSVMObject(_ *vm.VM, args []vm.Value) []vm.Value {
 	return []vm.Value{withMethods(methods)}
 }
 
-// newNumericObject builds the shared object surface for the numeric
-// classifiers: fit(features, labels), predict(x), and (optionally)
-// predict_proba(x). The closures bridge the Lua tables to []float64.
 func newNumericObject(
 	name string,
 	fit func([][]float64, []string),
@@ -217,9 +177,6 @@ func newNumericObject(
 ) *vm.Table {
 	methods := vm.NewTable(0, 3)
 
-	// Trained feature width; the numeric cores index the query vector by the
-	// training width, so a mismatched query must be rejected here instead of
-	// panicking with an index-out-of-range deep in the model.
 	width := -1
 
 	checkQuery := func(fn string, x []float64) {
@@ -262,10 +219,6 @@ func newNumericObject(
 	return withMethods(methods)
 }
 
-// Shared helpers
-
-// withMethods wraps a methods table in a fresh object table whose
-// metatable routes lookups through __index, mirroring the db/http modules.
 func withMethods(methods *vm.Table) *vm.Table {
 	obj := vm.NewTable(0, 1)
 	mt := vm.NewTable(0, 1)
@@ -274,7 +227,6 @@ func withMethods(methods *vm.Table) *vm.Table {
 	return obj
 }
 
-// stringList reads a Lua array of strings into []string.
 func stringList(name string, n int, args []vm.Value) []string {
 	t := vm.TableArg(name, n, args)
 	count := int(t.Len())
@@ -289,7 +241,6 @@ func stringList(name string, n int, args []vm.Value) []string {
 	return out
 }
 
-// floatList reads a Lua array of numbers into []float64.
 func floatList(name string, n int, args []vm.Value) []float64 {
 	t := vm.TableArg(name, n, args)
 	count := int(t.Len())
@@ -304,8 +255,6 @@ func floatList(name string, n int, args []vm.Value) []float64 {
 	return out
 }
 
-// tableToMatrix reads an array-of-arrays Lua table into [][]float64,
-// enforcing a uniform row width.
 func tableToMatrix(name string, t *vm.Table) [][]float64 {
 	rows := int(t.Len())
 	out := make([][]float64, 0, rows)
@@ -341,8 +290,6 @@ func floatsToTable(xs []float64) *vm.Table {
 	}
 	return out
 }
-
-// Option-table helpers
 
 func optTable(args []vm.Value, n int) *vm.Table {
 	if n < 1 || n > len(args) || args[n-1] == nil {

@@ -1,35 +1,4 @@
-// Package ndarray is a require()-able host module providing a dense,
-// N-dimensional numeric array — the NumPy-style primitive that most
-// data-science numerics build on. Unlike a Lua table (a boxed hash map),
-// an ndarray stores its elements in a single contiguous []float64 in
-// row-major (C) order, so vectorized arithmetic, reductions, and matrix
-// products run over flat Go slices instead of chasing pointers.
-//
-// Construction:
-//
-//	local nd = require("ndarray")
-//	a = nd.array({ {1, 2, 3}, {4, 5, 6} })   -- 2x3 from nested tables
-//	z = nd.zeros(2, 3)                        -- 2x3 of zeros
-//	r = nd.arange(0, 10)                      -- 0,1,..,9  (1-D)
-//	l = nd.linspace(0, 1, 5)                  -- 5 points in [0,1]
-//	i = nd.eye(3)                             -- 3x3 identity
-//
-// Arithmetic operators are overloaded and broadcast NumPy-style, so an
-// array and a scalar, or two arrays whose shapes align, combine elementwise:
-//
-//	b = a * 2 + 1
-//	c = a + nd.array({10, 20, 30})           -- row broadcast over a 2x3
-//
-// Reductions take an optional axis; with no axis they collapse to a scalar:
-//
-//	a:sum()          -- scalar
-//	a:mean(1)        -- per-row means (a 1-D array of length 2)
-//
-// Every arithmetic/transform method returns a NEW array; the receiver is
-// never mutated (only :set and the in-place-free API mutate, explicitly).
 package ndarray
-
-// Array operations: elementwise, reductions, reshape/transpose, matmul.
 
 import (
 	"math"
@@ -37,7 +6,6 @@ import (
 	"github.com/hilthontt/luascript/internal/vm"
 )
 
-// ewise applies a binary op elementwise with broadcasting.
 func ewise(site string, a, b *ndarray, op func(x, y float64) float64) *ndarray {
 	out, ok := broadcast(a.shape, b.shape)
 	if !ok {
@@ -51,7 +19,6 @@ func ewise(site string, a, b *ndarray, op func(x, y float64) float64) *ndarray {
 	oa, ob := 0, 0
 	for i := range r.data {
 		r.data[i] = op(a.data[oa], b.data[ob])
-		// Odometer increment of the multi-index, keeping oa/ob in step.
 		for d := len(out) - 1; d >= 0; d-- {
 			idx[d]++
 			oa += sa[d]
@@ -67,7 +34,6 @@ func ewise(site string, a, b *ndarray, op func(x, y float64) float64) *ndarray {
 	return r
 }
 
-// unary applies f elementwise, returning a new array of the same shape.
 func (a *ndarray) unary(f func(float64) float64) *ndarray {
 	r := &ndarray{data: make([]float64, len(a.data)), shape: append([]int(nil), a.shape...)}
 	for i, x := range a.data {
@@ -76,8 +42,6 @@ func (a *ndarray) unary(f func(float64) float64) *ndarray {
 	return r
 }
 
-// alongAxis reduces one axis with reducer, returning an array with that axis
-// removed. axis is 0-based.
 func (a *ndarray) alongAxis(site string, axis int, reducer func([]float64) float64) *ndarray {
 	if axis < 0 || axis >= len(a.shape) {
 		panic(vm.Errorf("%s: axis %d out of range for %d-D array", site, axis+1, len(a.shape)))
@@ -91,10 +55,9 @@ func (a *ndarray) alongAxis(site string, axis int, reducer func([]float64) float
 	r := newND(outShape)
 	strides := rowStrides(a.shape)
 	axisLen, axisStride := a.shape[axis], strides[axis]
-	idx := make([]int, len(outShape)) // index into outShape
+	idx := make([]int, len(outShape))
 	buf := make([]float64, axisLen)
 	for o := range r.data {
-		// Map the output multi-index to a base offset in a (axis fixed at 0).
 		base, oi := 0, 0
 		for src := 0; src < len(a.shape); src++ {
 			if src == axis {
@@ -118,7 +81,6 @@ func (a *ndarray) alongAxis(site string, axis int, reducer func([]float64) float
 	return r
 }
 
-// reduceAll collapses every element with reducer to a single value.
 func (a *ndarray) reduceAll(reducer func([]float64) float64) float64 {
 	return reducer(a.data)
 }
@@ -181,8 +143,6 @@ func varf(xs []float64) float64 {
 }
 func stdf(xs []float64) float64 { return math.Sqrt(varf(xs)) }
 
-// reshape returns a new (copied) array with the given shape, which must have
-// the same total size. A single -1 dimension is inferred.
 func (a *ndarray) reshape(site string, shape []int) *ndarray {
 	total := 1
 	infer := -1
@@ -215,8 +175,6 @@ func (a *ndarray) reshape(site string, shape []int) *ndarray {
 	return r
 }
 
-// transpose returns a new array with axes permuted by perm (a permutation of
-// 0..ndim-1). A nil perm reverses the axes.
 func (a *ndarray) transpose(site string, perm []int) *ndarray {
 	nd := len(a.shape)
 	if perm == nil {
@@ -257,8 +215,6 @@ func (a *ndarray) transpose(site string, perm []int) *ndarray {
 	return r
 }
 
-// matmul implements dot/matrix-product for 1-D and 2-D operands, returning a
-// scalar (as a 0-D array) for the vector·vector case.
 func matmul(a, b *ndarray) *ndarray {
 	switch {
 	case a.ndim() == 1 && b.ndim() == 1:

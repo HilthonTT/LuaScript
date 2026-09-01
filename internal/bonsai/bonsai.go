@@ -1,9 +1,3 @@
-// Package bonsai grows procedural ASCII bonsai trees in the terminal.
-//
-// It is a tcell-based port of cbonsai (https://gitlab.com/jallbrit/cbonsai).
-// The public surface is intentionally small: build an Options value and call
-// Run. The package owns the screen lifetime; on return the terminal is
-// restored.
 package bonsai
 
 import (
@@ -15,42 +9,35 @@ import (
 	"github.com/gdamore/tcell/v3"
 )
 
-// Pot kinds accepted by Options.Pot.
 const (
 	PotBig   = 1
 	PotSmall = 2
 )
 
-// Alignment values accepted by Options.Align.
 const (
 	AlignCenter = int(center)
 	AlignLeft   = int(left)
 	AlignRight  = int(right)
 )
 
-// Options configures a single Run. Zero values pick cbonsai-compatible
-// defaults inside Run, so callers can pass an empty Options{} for "just
-// grow a tree".
 type Options struct {
-	Seed         int64         // 0 -> time.Now().UnixNano()
-	Life         int           // 0 -> 32, clamped to [1,127]
-	Multiplier   int           // 0 -> 5, clamped to [0,20]
-	Pot          int           // 0 -> PotBig
-	Align        int           // 0 -> AlignCenter
-	Leaves       []string      // nil -> []string{"&"}
-	Message      string        // optional message box
-	MsgX, MsgY   int           // upper-left of message; defaults 4,2
-	BaseX, BaseY int           // overrides for pot position; 0 = auto-center
-	Print        bool          // dump tree to stdout and exit
-	Live         bool          // animate growth step-by-step
-	Step         time.Duration // delay between live steps; 0 -> 33ms
-	Infinite     bool          // keep regrowing until quit
-	Wait         time.Duration // delay between trees in infinite mode; 0 -> 4s
-	Screensaver  bool          // implies Live + Infinite, exits on any keypress
+	Seed         int64
+	Life         int
+	Multiplier   int
+	Pot          int
+	Align        int
+	Leaves       []string
+	Message      string
+	MsgX, MsgY   int
+	BaseX, BaseY int
+	Print        bool
+	Live         bool
+	Step         time.Duration
+	Infinite     bool
+	Wait         time.Duration
+	Screensaver  bool
 }
 
-// applyDefaults fills zero-valued fields with cbonsai defaults and clamps
-// out-of-range numerics.
 func (o *Options) applyDefaults() {
 	if o.Seed == 0 {
 		o.Seed = time.Now().UnixNano()
@@ -100,9 +87,6 @@ func (o *Options) applyDefaults() {
 	}
 }
 
-// Run grows a tree according to o. It blocks until the user quits (Esc /
-// Ctrl-C / Ctrl-D) or, in non-infinite non-print mode, until any keypress
-// after the first tree finishes drawing. On return, the terminal is restored.
 func Run(o Options) error {
 	o.applyDefaults()
 
@@ -131,12 +115,8 @@ func Run(o Options) error {
 
 	shutdown := make(chan struct{})
 
-	// Drawing goroutine.
 	go func() {
 		defer func() {
-			// Swallow panics here so the event loop still gets a chance
-			// to run Fini via the deferred cleanup. We surface the panic
-			// after restoring the terminal.
 			if r := recover(); r != nil {
 				evQuit(sc)
 				panic(r)
@@ -199,7 +179,6 @@ func Run(o Options) error {
 		}
 	}()
 
-	// Event loop on the calling goroutine.
 	for {
 		ev := <-sc.EventQ()
 		switch ev := ev.(type) {
@@ -221,7 +200,6 @@ func Run(o Options) error {
 			close(shutdown)
 			return nil
 		case nil:
-			// PollEvent returns nil when the screen is finalized.
 			return nil
 		}
 	}
@@ -238,8 +216,6 @@ func selectPot(kind int) (Pot, error) {
 	}
 }
 
-// captureScreen reads the rendered cell grid back into a single string,
-// trimming all-blank lines above the tree.
 func captureScreen(sc *screen) string {
 	w, h := sc.Size()
 	lines := make([]string, 0, h)

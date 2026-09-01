@@ -1,8 +1,3 @@
-// Package clustering is a require()-able host module exposing unsupervised
-// clustering algorithms (k-means, DBSCAN, agglomerative/hierarchical, and
-// mean shift) to .lsc code. Data is passed as an array of points, where a
-// point is itself an array of numbers; results report 1-based cluster ids
-// so they index naturally from Lua.
 package clustering
 
 import (
@@ -11,8 +6,6 @@ import (
 	"github.com/hilthontt/luascript/internal/vm"
 )
 
-// RegisterClusteringPreload installs the loader under package.preload so
-// the module table is built lazily on the first require("clustering").
 func RegisterClusteringPreload(v *vm.VM) {
 	vm.RegisterPreload(v, "clustering", clusteringLoader)
 }
@@ -27,8 +20,6 @@ func clusteringLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
 	return []vm.Value{mod}
 }
 
-// clKmeans: clustering.kmeans(data, k [, opts]) -> { centroids, assignments, iterations }
-// opts: { delta = 0.001, maxIter = 100, seed = 1 }
 func clKmeans(_ *vm.VM, args []vm.Value) []vm.Value {
 	data := tableToPoints("clustering.kmeans", vm.TableArg("clustering.kmeans", 1, args))
 	k := int(vm.IntArg("clustering.kmeans", 2, args))
@@ -47,13 +38,11 @@ func clKmeans(_ *vm.VM, args []vm.Value) []vm.Value {
 
 	out := vm.NewTable(0, 3)
 	out.Set("centroids", pointsToTable(res.Centers))
-	out.Set("assignments", labelsToTable(res.Assignments, true)) // +1: 0-based -> 1-based
+	out.Set("assignments", labelsToTable(res.Assignments, true))
 	out.Set("iterations", int64(res.Iterations))
 	return []vm.Value{out}
 }
 
-// clDBSCAN: clustering.dbscan(data, eps, minPts) -> assignments
-// Cluster ids are 1-based; 0 marks noise points.
 func clDBSCAN(_ *vm.VM, args []vm.Value) []vm.Value {
 	data := tableToPoints("clustering.dbscan", vm.TableArg("clustering.dbscan", 1, args))
 	eps := vm.FloatArg("clustering.dbscan", 2, args)
@@ -64,11 +53,9 @@ func clDBSCAN(_ *vm.VM, args []vm.Value) []vm.Value {
 	}
 
 	labels := DBSCAN(data, eps, minPts)
-	return []vm.Value{labelsToTable(labels, false)} // already 1-based / 0=noise
+	return []vm.Value{labelsToTable(labels, false)}
 }
 
-// clHierarchical: clustering.hierarchical(data, k [, opts]) -> assignments
-// opts: { linkage = "average" | "single" | "complete" }
 func clHierarchical(_ *vm.VM, args []vm.Value) []vm.Value {
 	data := tableToPoints("clustering.hierarchical", vm.TableArg("clustering.hierarchical", 1, args))
 	k := int(vm.IntArg("clustering.hierarchical", 2, args))
@@ -80,11 +67,9 @@ func clHierarchical(_ *vm.VM, args []vm.Value) []vm.Value {
 
 	linkage := ParseLinkage(optString(opts, "linkage", "average"))
 	labels := Hierarchical(data, k, linkage)
-	return []vm.Value{labelsToTable(labels, false)} // already 1-based
+	return []vm.Value{labelsToTable(labels, false)}
 }
 
-// clMeanShift: clustering.meanshift(data, bandwidth [, opts]) -> { centroids, assignments, iterations }
-// opts: { maxIter = 100 }
 func clMeanShift(_ *vm.VM, args []vm.Value) []vm.Value {
 	data := tableToPoints("clustering.meanshift", vm.TableArg("clustering.meanshift", 1, args))
 	bandwidth := vm.FloatArg("clustering.meanshift", 2, args)
@@ -99,15 +84,11 @@ func clMeanShift(_ *vm.VM, args []vm.Value) []vm.Value {
 
 	out := vm.NewTable(0, 3)
 	out.Set("centroids", pointsToTable(res.Centers))
-	out.Set("assignments", labelsToTable(res.Assignments, false)) // already 1-based
+	out.Set("assignments", labelsToTable(res.Assignments, false))
 	out.Set("iterations", int64(res.Iterations))
 	return []vm.Value{out}
 }
 
-// Conversion helpers
-
-// tableToPoints reads an array-of-arrays Lua table into []Point. Each inner
-// table must hold only numbers.
 func tableToPoints(name string, t *vm.Table) []Point {
 	n := int(t.Len())
 	if n == 0 {
@@ -136,8 +117,6 @@ func tableToPoints(name string, t *vm.Table) []Point {
 	return pts
 }
 
-// requireUniformDims rejects ragged input — every algorithm here assumes a
-// shared dimensionality, and distanceSqTo would otherwise read out of range.
 func requireUniformDims(name string, pts []Point) {
 	dims := len(pts[0].Entry)
 	for i := range pts {
@@ -160,8 +139,6 @@ func pointsToTable(pts []Point) *vm.Table {
 	return out
 }
 
-// labelsToTable converts a label slice to a Lua array. When bump is true
-// the labels are 0-based and are shifted to 1-based for Lua ergonomics.
 func labelsToTable(labels []int, bump bool) *vm.Table {
 	out := vm.NewTable(len(labels), 0)
 	for i, l := range labels {
@@ -172,8 +149,6 @@ func labelsToTable(labels []int, bump bool) *vm.Table {
 	}
 	return out
 }
-
-// Option-table helpers
 
 func optTable(args []vm.Value, n int) *vm.Table {
 	if n < 1 || n > len(args) || args[n-1] == nil {

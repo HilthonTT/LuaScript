@@ -1,13 +1,9 @@
 package vm
 
-// The baseline `table` library.
-
 import (
 	"sort"
 	"strings"
 )
-
-// table
 
 func buildTableLibrary() *Table {
 	t := NewTable(0, 8)
@@ -21,17 +17,14 @@ func buildTableLibrary() *Table {
 		case 1:
 			panic(LuaError("bad argument to 'table.insert' (value expected)"))
 		case 2:
-			// Append at the end.
 			tbl.Set(tbl.Len()+1, args[1])
 		case 3:
 			pos := IntArg("table.insert", 2, args)
 			val := args[2]
 			n := tbl.Len()
-			// Lua 5.4: the position must be in [1, n+1].
 			if pos < 1 || pos > n+1 {
 				panic(LuaError("bad argument #2 to 'table.insert' (position out of bounds)"))
 			}
-			// Shift right to make room for the new element.
 			for i := n; i >= pos; i-- {
 				tbl.Set(i+1, tbl.Get(i))
 			}
@@ -48,8 +41,6 @@ func buildTableLibrary() *Table {
 			return []Value{nil}
 		}
 		pos := OptInt("table.remove", 2, args, n)
-		// Lua 5.4 validates pos unless it equals the default (n); an out-of-range
-		// pos must error, not silently drive a multi-billion-iteration shift loop.
 		if pos != n && (pos < 1 || pos > n+1) {
 			panic(LuaError("bad argument #2 to 'table.remove' (position out of bounds)"))
 		}
@@ -67,10 +58,6 @@ func buildTableLibrary() *Table {
 		sep := OptString("table.concat", 2, args, "")
 		lo := OptInt("table.concat", 3, args, 1)
 		hi := OptInt("table.concat", 4, args, tbl.Len())
-		// Same wide-span guard as unpack/move: the caller picks both bounds, so
-		// without it table.concat(t, "", 1, math.maxinteger) spins the VM for
-		// the rest of the process's life. uint64 subtraction is exact here
-		// because the loop below only runs when hi >= lo.
 		if hi >= lo && uint64(hi)-uint64(lo) >= 1<<24 {
 			panic(LuaError("too many elements to concat"))
 		}
@@ -86,8 +73,6 @@ func buildTableLibrary() *Table {
 			case int64, float64:
 				b.WriteString(ToString(el))
 			default:
-				// Reference Lua errors here; silently rendering "nil" or
-				// "table: 0x…" into the result masks caller bugs.
 				panic(Errorf("invalid value (%s) at index %d in table for 'table.concat'", TypeName(el), i))
 			}
 		}
@@ -131,7 +116,6 @@ func buildTableLibrary() *Table {
 			a2 = TableArg("table.move", 5, args)
 		}
 		if e >= f {
-			// Same wide-span overflow guard as unpack: hi-lo+1 can wrap.
 			if uint64(e)-uint64(f) >= 1<<24 {
 				panic(LuaError("too many elements to move"))
 			}
@@ -140,8 +124,6 @@ func buildTableLibrary() *Table {
 					a2.Set(d+i, a1.Get(f+i))
 				}
 			} else {
-				// Overlapping shift within one table: copy back-to-front
-				// so sources aren't overwritten before they're read.
 				for i := e - f; i >= 0; i-- {
 					a2.Set(d+i, a1.Get(f+i))
 				}
@@ -159,11 +141,6 @@ func buildTableLibrary() *Table {
 		if hi < lo {
 			return nil
 		}
-		// The element count is hi-lo+1, but that expression overflows int64 for a
-		// wide (lo,hi) span (e.g. mininteger..maxinteger), wrapping negative/small
-		// and bypassing the guard while the loop counter itself wraps and never
-		// terminates. Compute the span in uint64, which is exact here because
-		// hi>=lo: uint64(hi)-uint64(lo) == the true non-negative difference.
 		if uint64(hi)-uint64(lo) >= 1<<24 {
 			panic(LuaError("too many results to unpack"))
 		}

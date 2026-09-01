@@ -2,7 +2,6 @@ package sort
 
 import "github.com/hilthontt/luascript/internal/native/constraints"
 
-// Circle sorts an array using the circle sort algorithm.
 func Circle[T constraints.Ordered](arr []T) []T {
 	if len(arr) == 0 {
 		return arr

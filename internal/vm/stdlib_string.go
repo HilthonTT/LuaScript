@@ -1,15 +1,11 @@
 package vm
 
-// The baseline `string` library, including string.format.
-
 import (
 	"fmt"
 	"math"
 	"strconv"
 	"strings"
 )
-
-// string
 
 func buildStringLibrary() *Table {
 	t := NewTable(0, 16)
@@ -23,9 +19,6 @@ func buildStringLibrary() *Table {
 	})
 	add("upper", func(_ *VM, args []Value) []Value {
 		s := StringArg("string.upper", 1, args)
-		// Byte-wise ASCII case mapping, like Lua's C-locale toupper.
-		// Unicode-aware mapping would rewrite (and can resize) non-ASCII
-		// bytes, breaking byte-oriented string code.
 		return []Value{asciiMapCase(s, 'a', 'z', 'A'-'a')}
 	})
 	add("lower", func(_ *VM, args []Value) []Value {
@@ -34,7 +27,6 @@ func buildStringLibrary() *Table {
 	})
 	add("reverse", func(_ *VM, args []Value) []Value {
 		s := StringArg("string.reverse", 1, args)
-		// Byte-reverse (Lua treats strings as byte sequences).
 		b := []byte(s)
 		for i, j := 0, len(b)-1; i < j; i, j = i+1, j-1 {
 			b[i], b[j] = b[j], b[i]
@@ -51,10 +43,6 @@ func buildStringLibrary() *Table {
 		if len(args) >= 3 {
 			sep = StringArg("string.rep", 3, args)
 		}
-		// Bound the result so a script-chosen count can't demand an
-		// allocation big enough to OOM the process (fatal, not
-		// pcall-catchable). Mirrors reference Lua's "resulting string too
-		// large" error.
 		const maxRepLen = 256 * 1024 * 1024
 		unit := int64(len(s) + len(sep))
 		if unit == 0 {
@@ -66,10 +54,6 @@ func buildStringLibrary() *Table {
 		if sep == "" {
 			return []Value{strings.Repeat(s, int(n))}
 		}
-		// (s..sep) * (n-1) + s. Built directly rather than via a []string +
-		// strings.Join: the slice would cost 16 bytes of header per element,
-		// letting string.rep("", huge, "x") amplify 16x past the byte guard
-		// above into a fatal OOM.
 		var b strings.Builder
 		b.Grow(int(unit*n) - len(sep))
 		for i := int64(0); i < n; i++ {
@@ -87,7 +71,6 @@ func buildStringLibrary() *Table {
 		if len(args) >= 3 {
 			j = IntArg("string.sub", 3, args)
 		}
-		// Lua 1-based, negative indices count from the end.
 		ln := int64(len(s))
 		if i < 0 {
 			i = ln + i + 1
@@ -111,8 +94,6 @@ func buildStringLibrary() *Table {
 		ln := int64(len(s))
 		i := OptInt("string.byte", 2, args, 1)
 		j := OptInt("string.byte", 3, args, i)
-		// Lua 5.4: negative indices count from the end; the range is then
-		// clamped to the string and an empty range yields no values.
 		if i < 0 {
 			i = ln + i + 1
 		}
@@ -146,10 +127,6 @@ func buildStringLibrary() *Table {
 		return []Value{string(buf)}
 	})
 	add("find", func(_ *VM, args []Value) []Value {
-		// Lua semantics: returns startPos, endPos[, captures...]. The
-		// optional 4th `plain` arg bypasses pattern matching; otherwise
-		// any magic character engages the pattern engine. Plain-only
-		// patterns auto-fast-path through strings.Index for performance.
 		s := StringArg("string.find", 1, args)
 		pat := StringArg("string.find", 2, args)
 		init := int64(1)
@@ -224,12 +201,12 @@ func buildStringLibrary() *Table {
 			panic(Errorf("bad argument #3 to 'string.gsub' (string/table/function expected)"))
 		}
 		repl := args[2]
-		n := -1 // sentinel: 4th arg absent → replace all
+		n := -1
 		if len(args) >= 4 {
 			if i, ok := ToInteger(args[3]); ok {
 				n = int(i)
 				if n < 0 {
-					n = 0 // Lua: a non-positive count performs no substitutions
+					n = 0
 				}
 			}
 		}
@@ -242,15 +219,12 @@ func buildStringLibrary() *Table {
 		fmtStr := StringArg("string.format", 1, args)
 		return []Value{luaFormat(v, fmtStr, args[1:])}
 	})
-	// Binary (de)serialization — implemented in strpack.go.
 	add("pack", builtinStringPack)
 	add("unpack", builtinStringUnpack)
 	add("packsize", builtinStringPacksize)
 	return t
 }
 
-// asciiMapCase shifts bytes in [lo, hi] by delta, leaving every other byte
-// (including non-ASCII) untouched.
 func asciiMapCase(s string, lo, hi byte, delta int) string {
 	b := []byte(s)
 	changed := false
@@ -266,11 +240,6 @@ func asciiMapCase(s string, lo, hi byte, delta int) string {
 	return string(b)
 }
 
-// luaFormat implements string.format per Lua 5.4: each %-directive is parsed,
-// its argument coerced to the type the verb expects (integers for diouxXc,
-// floats for aAeEfgG, strings via tostring for s), then rendered through Go's
-// fmt with an equivalent verb. This replaces the old thin fmt.Sprintf wrapper,
-// which leaked Go's stricter verb typing (e.g. %d rejecting a float 3.0).
 func luaFormat(v *VM, format string, args []Value) string {
 	var b strings.Builder
 	argIdx := 0
@@ -290,7 +259,6 @@ func luaFormat(v *VM, format string, args []Value) string {
 			i++
 			continue
 		}
-		// Parse a directive: %[-+ #0]*[width][.precision]verb
 		j := i + 1
 		if j < len(format) && format[j] == '%' {
 			b.WriteByte('%')
@@ -313,23 +281,18 @@ func luaFormat(v *VM, format string, args []Value) string {
 			panic(Errorf("invalid conversion '%s' to 'string.format'", format[i:]))
 		}
 		verb := format[j]
-		spec := format[i : j+1] // the whole directive, e.g. "%5.2d"
+		spec := format[i : j+1]
 		i = j + 1
 
 		switch verb {
 		case 'd', 'i', 'u':
 			b.WriteString(fmt.Sprintf(replaceVerb(spec, 'd'), fmtArgInt(nextArg())))
 		case 'o', 'x', 'X':
-			// C (and Lua) render these as the unsigned 64-bit bit pattern;
-			// Go would print a sign instead ("%x" of -1 → "-1", not "f…f").
 			b.WriteString(fmt.Sprintf(spec, uint64(fmtArgInt(nextArg()))))
 		case 'c':
-			// Render the byte through %s so width/flags apply ("%5c").
 			b.WriteString(fmt.Sprintf(replaceVerb(spec, 's'),
 				string(byte(fmtArgInt(nextArg())))))
 		case 'g', 'G':
-			// C's %g defaults to 6 significant digits; Go's default is
-			// "shortest unique", so make the Lua default explicit.
 			if !strings.Contains(spec, ".") {
 				spec = spec[:len(spec)-1] + ".6" + string(verb)
 			}
@@ -351,12 +314,10 @@ func luaFormat(v *VM, format string, args []Value) string {
 	return b.String()
 }
 
-// replaceVerb swaps the trailing conversion verb of a directive.
 func replaceVerb(spec string, verb byte) string {
 	return spec[:len(spec)-1] + string(verb)
 }
 
-// fmtArgInt coerces a format argument to an integer the way Lua's %d does.
 func fmtArgInt(v Value) int64 {
 	if x, ok := v.(float64); ok {
 		if n, ok2 := floatToInt(x); ok2 {
@@ -370,7 +331,6 @@ func fmtArgInt(v Value) int64 {
 	panic(Errorf("bad argument to 'string.format' (number expected, got %s)", TypeName(v)))
 }
 
-// fmtArgFloat coerces a format argument to a float for the %f/%g/%e family.
 func fmtArgFloat(v Value) float64 {
 	if f, ok := ToFloat(v); ok {
 		return f
@@ -378,11 +338,6 @@ func fmtArgFloat(v Value) float64 {
 	panic(Errorf("bad argument to 'string.format' (number expected, got %s)", TypeName(v)))
 }
 
-// formatQ renders a value as a literal that reads back losslessly, per
-// Lua 5.4: strings get byte-level \ddd escapes (never Go's \uXXXX, which
-// isn't Lua syntax), floats print as hex floats to preserve both value and
-// float-ness, mininteger prints in hex (its decimal form reads back as a
-// float), and inf/nan use the conventional 1e9999 / (0/0) spellings.
 func formatQ(v Value) string {
 	switch x := v.(type) {
 	case string:
@@ -396,11 +351,6 @@ func formatQ(v Value) string {
 				b.WriteByte('\\')
 				b.WriteByte(c)
 			case c < 32 || c >= 127:
-				// \ddd, zero-padded only when the next byte is a digit
-				// (so the escape isn't extended by it). Bytes >= 128 are
-				// escaped too (PUC Lua passes them raw): our lexer decodes
-				// source as UTF-8 runes, so a raw non-UTF-8 byte would be
-				// mangled to U+FFFD on load. Escaping keeps %q ASCII-safe.
 				if i+1 < len(x) && x[i+1] >= '0' && x[i+1] <= '9' {
 					fmt.Fprintf(&b, "\\%03d", c)
 				} else {

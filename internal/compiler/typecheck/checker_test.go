@@ -8,7 +8,6 @@ import (
 	"github.com/hilthontt/luascript/internal/compiler/parser"
 )
 
-// runCheck parses src and runs the checker. Returns the error list.
 func runCheck(t *testing.T, src string) []TypeError {
 	t.Helper()
 	return runCheckWith(t, src, Options{})
@@ -24,7 +23,6 @@ func runCheckWith(t *testing.T, src string, opts Options) []TypeError {
 	return Check(prog, opts)
 }
 
-// expectOK fails if the checker emits any error.
 func expectOK(t *testing.T, src string) {
 	t.Helper()
 	errs := runCheck(t, src)
@@ -37,7 +35,6 @@ func expectOK(t *testing.T, src string) {
 	}
 }
 
-// expectErrContains fails unless at least one error message contains substr.
 func expectErrContains(t *testing.T, src, substr string) {
 	t.Helper()
 	errs := runCheck(t, src)
@@ -68,7 +65,6 @@ func TestPrimitiveAnnotationMismatch(t *testing.T) {
 }
 
 func TestLocalInferenceFromLiteral(t *testing.T) {
-	// `local x = 1` infers number; assigning a string later should error.
 	expectErrContains(t, `local x = 1
 x = "hi"`, `"string"`)
 }
@@ -80,9 +76,6 @@ func TestAnyAcceptsEverything(t *testing.T) {
 }
 
 func TestUnannotatedLocalIsLatent(t *testing.T) {
-	// `local f = something_undefined` — the global lookup falls back to any,
-	// which then propagates. Type-correctness of the reference itself is
-	// not checked at the local-binding level.
 	expectOK(t, `local f = some_global`)
 }
 
@@ -117,8 +110,6 @@ local x: Id = "hi"`, `"string"`)
 func TestUnknownAliasErrors(t *testing.T) {
 	expectErrContains(t, `local x: NotDefined = 1`, `unknown type "NotDefined"`)
 }
-
-// Functions
 
 func TestFunctionParamTypeChecksArgs(t *testing.T) {
 	src := `
@@ -165,8 +156,6 @@ end
 }
 
 func TestFunctionReturnSpreadingFromCall(t *testing.T) {
-	// Multi-return spreading: an unannotated function's return is `any`,
-	// which fills both targets in `g, i = make()`.
 	src := `
 function make()
     return 1, 2
@@ -174,11 +163,8 @@ end
 local a, b = make()
 b()
 `
-	// `b` is `any`, calling it is allowed.
 	expectOK(t, src)
 }
-
-// Type assertions
 
 func TestTypeAssertionOverride(t *testing.T) {
 	src := `local n: number = something :: number`
@@ -186,16 +172,12 @@ func TestTypeAssertionOverride(t *testing.T) {
 }
 
 func TestTypeAssertionFlowsAsAsserted(t *testing.T) {
-	// After `:: number`, the value is treated as number for downstream
-	// flow. Here we feed it into a number-typed function param.
 	src := `
 function takes(x: number) end
 takes(payload :: number)
 `
 	expectOK(t, src)
 }
-
-// Operators
 
 func TestArithmeticRequiresNumbers(t *testing.T) {
 	expectErrContains(t, `local n: number = "x" + 1`, `"string"`)
@@ -216,8 +198,6 @@ func TestLengthOpAcceptsStringOrTable(t *testing.T) {
 	expectOK(t, `local n = #"hi"`)
 	expectOK(t, `local n = #{1,2,3}`)
 }
-
-// Stdlib integration
 
 func TestStdlibPrintAcceptsAnyArgs(t *testing.T) {
 	expectOK(t, `print(1, "x", true, nil)`)
@@ -240,18 +220,12 @@ func TestStdlibUnknownFieldErrors(t *testing.T) {
 	expectErrContains(t, `local x = math.notReal`, `no field`)
 }
 
-// Mode directives
-
 func TestNocheckBypassesAllChecks(t *testing.T) {
-	// Compiler glue handles the actual bypass — but the directive must be
-	// captured so the glue can read it.
 	p := parser.New(lexer.New("--!nocheck\nlocal x: number = \"hi\""))
 	prog, perr := p.ParseProgram()
 	if perr != nil {
 		t.Fatalf("parse error: %s", perr.Message)
 	}
-	// We invoke Check directly here for unit isolation; the compiler
-	// glue is what skips the call entirely under --!nocheck.
 	errs := Check(prog, Options{})
 	if len(errs) == 0 {
 		t.Errorf("expected errors when bypass not honored — directive itself doesn't suppress within Check()")
@@ -277,10 +251,7 @@ func TestNonstrictModeAcceptsImplicitAny(t *testing.T) {
 	}
 }
 
-// Lua programs without annotations remain unaffected
-
 func TestUntypedLuaProgramTypechecks(t *testing.T) {
-	// Realistic Lua program with no annotations — checker must accept.
 	src := `
 local function fact(n)
     if n <= 1 then return 1 end
@@ -307,8 +278,6 @@ print(next())
 	expectOK(t, src)
 }
 
-// Structs
-
 func TestStructPositionalConstruction(t *testing.T) {
 	expectOK(t, `struct Point { x: number, y: number }
 local p = Point(1, 2)
@@ -321,7 +290,6 @@ local p = Point{ x = 1, y = 2 }`)
 }
 
 func TestStructFieldAccessType(t *testing.T) {
-	// p.x is number; assigning it to a string slot must fail.
 	expectErrContains(t, `struct Point { x: number, y: number }
 local p = Point(1, 2)
 local s: string = p.x`, `"number"`)
@@ -364,8 +332,6 @@ func TestStructOptionalFieldMayBeOmitted(t *testing.T) {
 local c = Config{ name = "svc" }`)
 }
 
-// Tagged enums (sum types)
-
 func TestTaggedEnumConstruction(t *testing.T) {
 	expectOK(t, `enum Shape
 	Circle(number),
@@ -393,13 +359,10 @@ local bad: Shape = 42`, "Shape")
 }
 
 func TestPlainEnumStillAliasesNumber(t *testing.T) {
-	// Backward compatibility: a classic integer enum aliases to number.
 	expectOK(t, `enum Color RED, GREEN, BLUE end
 local function name_of(c: Color): string return "?" end
 local s = name_of(Color.RED)`)
 }
-
-// Generics
 
 func TestGenericIdentityInference(t *testing.T) {
 	expectOK(t, `local function id<T>(x: T): T return x end
@@ -408,13 +371,11 @@ local s: string = id("hi")`)
 }
 
 func TestGenericInferenceMismatch(t *testing.T) {
-	// id(5) infers T = number, so binding to a string slot must fail.
 	expectErrContains(t, `local function id<T>(x: T): T return x end
 local s: string = id(5)`, `"string"`)
 }
 
 func TestGenericBodyIsGradual(t *testing.T) {
-	// A type variable is opaque but gradual: using it doesn't error.
 	expectOK(t, `local function id<T>(x: T): T
 	local y: T = x
 	return y
@@ -450,7 +411,6 @@ local q = Pair{ first = true, second = 3.14 }`)
 }
 
 func TestGenericStructFieldInference(t *testing.T) {
-	// Pair(1, "hi") infers A = number; first must not satisfy a string slot.
 	expectErrContains(t, `struct Pair<A, B> { first: A, second: B }
 local p = Pair(1, "hi")
 local s: string = p.first`, `"string"`)

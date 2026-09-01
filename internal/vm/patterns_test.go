@@ -4,7 +4,6 @@ import (
 	"testing"
 )
 
-// nullCall is a stub callback for tests that don't use function replacements.
 func nullCall(_ Value, _ []Value) []Value { return nil }
 
 func TestPatternFindBasic(t *testing.T) {
@@ -87,9 +86,6 @@ func TestPatternQuantifiers(t *testing.T) {
 		{"aaab", "a*", "aaa"},
 		{"aaab", "a+b", "aaab"},
 		{"abc", "a?b", "ab"},
-		// Lua-pattern semantics: `-` is lazy within one match but find
-		// still anchors at the leftmost source position. From x, `.-`
-		// matches "xab" before `c` succeeds.
 		{"xabcy", ".-c", "xabc"},
 	}
 	for _, c := range cases {
@@ -131,7 +127,6 @@ func TestPatternGSubWithTable(t *testing.T) {
 	tbl.Set("a", "AAA")
 	tbl.Set("b", "BBB")
 	out, n := PatternGSub("a-b-c", "%a", tbl, -1, nullCall)
-	// 'a' → AAA, 'b' → BBB, 'c' has no entry → kept.
 	if out != "AAA-BBB-c" || n != 3 {
 		t.Errorf("gsub table = (%q, %d), want (AAA-BBB-c, 3)", out, n)
 	}

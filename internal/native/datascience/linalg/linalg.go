@@ -1,12 +1,3 @@
-// Package linalg is a require()-able host module providing the vector and
-// matrix primitives that underpin most numeric data-science work: dot
-// products, norms, matrix multiplication, transpose, and the small dense
-// solvers (determinant, inverse, linear solve via Gaussian elimination with
-// partial pivoting) needed for, e.g., closed-form linear regression.
-//
-// Conventions: a vector is a Lua array of numbers; a matrix is a Lua array
-// of equal-length row arrays. The numeric core operates on []float64 and
-// [][]float64 and is tested directly in linalg_test.go.
 package linalg
 
 import (
@@ -15,7 +6,6 @@ import (
 	"github.com/hilthontt/luascript/internal/vm"
 )
 
-// RegisterLinalgPreload installs the loader under package.preload.
 func RegisterLinalgPreload(v *vm.VM) {
 	vm.RegisterPreload(v, "linalg", linalgLoader)
 }
@@ -27,7 +17,6 @@ func linalgLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
 		methods.Set(name, &vm.GoFunc{Name: "linalg:" + name, Fn: fn})
 	}
 
-	// --- vector ops -------------------------------------------------------
 	set("dot", func(_ *vm.VM, args []vm.Value) []vm.Value {
 		a := vec("linalg.dot", 1, args)
 		b := vec("linalg.dot", 2, args)
@@ -65,7 +54,6 @@ func linalgLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
 		return []vm.Value{norm(zipWith(a, b, func(x, y float64) float64 { return x - y }))}
 	})
 
-	// --- matrix ops -------------------------------------------------------
 	set("matmul", func(_ *vm.VM, args []vm.Value) []vm.Value {
 		a := mat("linalg.matmul", 1, args)
 		b := mat("linalg.matmul", 2, args)
@@ -129,7 +117,6 @@ func linalgLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
 		}
 		return []vm.Value{matToTable(inv)}
 	})
-	// solve(A, b) -> x such that A x = b.
 	set("solve", func(_ *vm.VM, args []vm.Value) []vm.Value {
 		a := mat("linalg.solve", 1, args)
 		b := vec("linalg.solve", 2, args)
@@ -144,15 +131,6 @@ func linalgLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
 		return []vm.Value{vecToTable(x)}
 	})
 
-	// --- decompositions ---------------------------------------------------
-	//
-	// solve and inverse cover square, non-singular systems. Everything else
-	// real data produces — overdetermined fits, rank-deficient matrices,
-	// covariance structure — needs one of these.
-
-	// cholesky(A) -> L, where L*Lᵀ = A. Requires A symmetric positive
-	// definite; roughly twice as fast as LU and the standard route for
-	// covariance matrices and least-squares normal equations.
 	set("cholesky", func(_ *vm.VM, args []vm.Value) []vm.Value {
 		a := mat("linalg.cholesky", 1, args)
 		requireSquare("linalg.cholesky", a)
@@ -163,8 +141,6 @@ func linalgLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
 		return []vm.Value{matToTable(l)}
 	})
 
-	// qr(A) -> Q, R with A = Q*R, Q orthonormal. The numerically stable
-	// basis for least squares; modified Gram-Schmidt.
 	set("qr", func(_ *vm.VM, args []vm.Value) []vm.Value {
 		a := mat("linalg.qr", 1, args)
 		if len(a) < cols(a) {
@@ -177,9 +153,6 @@ func linalgLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
 		return []vm.Value{matToTable(q), matToTable(r)}
 	})
 
-	// lstsq(A, b) -> x minimising |Ax - b|. The overdetermined case that
-	// solve cannot take: a fit with more observations than parameters, which
-	// is the usual shape of a regression.
 	set("lstsq", func(_ *vm.VM, args []vm.Value) []vm.Value {
 		a := mat("linalg.lstsq", 1, args)
 		b := vec("linalg.lstsq", 2, args)
@@ -196,19 +169,11 @@ func linalgLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
 		return []vm.Value{vecToTable(x)}
 	})
 
-	// rank(A) -> the number of linearly independent rows, via row reduction
-	// with a tolerance. Tells you whether a system is solvable at all before
-	// solve raises.
 	set("rank", func(_ *vm.VM, args []vm.Value) []vm.Value {
 		a := mat("linalg.rank", 1, args)
 		return []vm.Value{int64(rank(a))}
 	})
 
-	// eigh(A) -> values, vectors for a symmetric A. The cyclic Jacobi method:
-	// slower than the general algorithms but short, dependency-free and
-	// unconditionally convergent for symmetric input. Values come back in
-	// descending order with the matching eigenvector as each column of
-	// `vectors`, which is what PCA and covariance analysis consume.
 	set("eigh", func(_ *vm.VM, args []vm.Value) []vm.Value {
 		a := mat("linalg.eigh", 1, args)
 		requireSquare("linalg.eigh", a)
@@ -225,8 +190,6 @@ func linalgLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
 	m.SetMetatable(mt)
 	return []vm.Value{m}
 }
-
-// Numeric core
 
 func dot(a, b []float64) float64 {
 	var s float64
@@ -296,9 +259,7 @@ func identity(n int) [][]float64 {
 	return out
 }
 
-// maxMatElems bounds script-supplied matrix dimensions so they can't force
-// an unrecoverable OOM (fatal, not pcall-catchable) via zeros/ones/identity.
-const maxMatElems = 1 << 26 // 64M elements ≈ 512 MiB of float64
+const maxMatElems = 1 << 26
 
 func checkDims(fn string, r, c int) {
 	if r < 0 || c < 0 {
@@ -322,8 +283,6 @@ func filled(r, c int, v float64) [][]float64 {
 	return out
 }
 
-// determinant via LU decomposition with partial pivoting. Returns 0 for a
-// singular matrix (a zero pivot).
 func determinant(a [][]float64) float64 {
 	lu, _, sign, ok := luDecompose(a)
 	if !ok {
@@ -336,8 +295,6 @@ func determinant(a [][]float64) float64 {
 	return det
 }
 
-// inverse returns A⁻¹ by solving A X = I column by column. ok is false when A
-// is singular.
 func inverse(a [][]float64) ([][]float64, bool) {
 	n := len(a)
 	lu, piv, _, ok := luDecompose(a)
@@ -356,7 +313,6 @@ func inverse(a [][]float64) ([][]float64, bool) {
 	return inv, true
 }
 
-// solve returns x with A x = b. ok is false when A is singular.
 func solve(a [][]float64, b []float64) ([]float64, bool) {
 	lu, piv, _, ok := luDecompose(a)
 	if !ok {
@@ -365,10 +321,6 @@ func solve(a [][]float64, b []float64) ([]float64, bool) {
 	return luSolve(lu, piv, b), true
 }
 
-// luDecompose performs LU decomposition with partial pivoting in place on a
-// copy of a. It returns the combined L/U matrix, the pivot permutation, the
-// permutation sign (for the determinant), and ok=false if a zero pivot makes
-// the matrix singular.
 func luDecompose(a [][]float64) (lu [][]float64, piv []int, sign int, ok bool) {
 	n := len(a)
 	lu = filled(n, n, 0)
@@ -382,7 +334,6 @@ func luDecompose(a [][]float64) (lu [][]float64, piv []int, sign int, ok bool) {
 	sign = 1
 
 	for col := 0; col < n; col++ {
-		// Partial pivot: pick the largest-magnitude entry in this column.
 		p, max := col, math.Abs(lu[col][col])
 		for r := col + 1; r < n; r++ {
 			if v := math.Abs(lu[r][col]); v > max {
@@ -408,20 +359,17 @@ func luDecompose(a [][]float64) (lu [][]float64, piv []int, sign int, ok bool) {
 	return lu, piv, sign, true
 }
 
-// luSolve solves L U x = P b given a decomposition from luDecompose.
 func luSolve(lu [][]float64, piv []int, b []float64) []float64 {
 	n := len(lu)
 	x := make([]float64, n)
 	for i := 0; i < n; i++ {
 		x[i] = b[piv[i]]
 	}
-	// Forward substitution (L has unit diagonal).
 	for i := range n {
 		for j := 0; j < i; j++ {
 			x[i] -= lu[i][j] * x[j]
 		}
 	}
-	// Back substitution.
 	for i := n - 1; i >= 0; i-- {
 		for j := i + 1; j < n; j++ {
 			x[i] -= lu[i][j] * x[j]
@@ -430,8 +378,6 @@ func luSolve(lu [][]float64, piv []int, b []float64) []float64 {
 	}
 	return x
 }
-
-// Marshalling helpers
 
 func vec(site string, n int, args []vm.Value) []float64 {
 	t := vm.TableArg(site, n, args)
@@ -450,7 +396,6 @@ func vec(site string, n int, args []vm.Value) []float64 {
 	return out
 }
 
-// mat reads a matrix and enforces that every row shares the first row's width.
 func mat(site string, n int, args []vm.Value) [][]float64 {
 	t := vm.TableArg(site, n, args)
 	rows := int(t.Len())

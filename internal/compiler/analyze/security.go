@@ -7,8 +7,6 @@ import (
 	"github.com/hilthontt/luascript/internal/compiler/ast"
 )
 
-// securityPass flags a small set of risky patterns. It is the.lsc-AST
-// rewrite of the original ASTAnalyzer's SecurityAnalysisPass.
 type securityPass struct{}
 
 func (securityPass) Name() string {
@@ -20,7 +18,6 @@ func (securityPass) Run(prog *ast.Program, _ Options, rep *Report) {
 	w.onExpr = func(e ast.Expression) {
 		switch n := e.(type) {
 		case *ast.CallExpression:
-			// crypto.md5(...) / crypto.sha1(...)
 			switch dottedName(n.Func) {
 			case "crypto.md5", "crypto.sha1":
 				rep.add(Finding{
@@ -70,8 +67,6 @@ func (securityPass) Run(prog *ast.Program, _ Options, rep *Report) {
 	w.walkBlock(prog.Block)
 }
 
-// checkCredential reports a credential-looking binding whose value is a
-// non-empty string literal.
 func checkCredential(name string, value ast.Expression, rep *Report) {
 	lit, ok := value.(*ast.StringLiteral)
 	if !ok || lit.Value == "" {
@@ -86,8 +81,6 @@ func checkCredential(name string, value ast.Expression, rep *Report) {
 	})
 }
 
-// dottedName renders a dotted index like `crypto.md5` into "crypto.md5", or
-// "" when e is not an identifier.field form.
 func dottedName(e ast.Expression) string {
 	ie, ok := e.(*ast.IndexExpression)
 	if !ok || !ie.IsDot {
@@ -104,7 +97,6 @@ func dottedName(e ast.Expression) string {
 	return obj.Name + "." + fld.Value
 }
 
-// targetName extracts the bound name from an assignment target.
 func targetName(e ast.Expression) string {
 	switch n := e.(type) {
 	case *ast.Identifier:
@@ -119,8 +111,6 @@ func targetName(e ast.Expression) string {
 	return ""
 }
 
-// fieldKeyName extracts a table field's key name, for record (`name = v`) and
-// bracketed-string (`["name"] = v`) entries.
 func fieldKeyName(f ast.TableField) string {
 	switch k := f.Key.(type) {
 	case *ast.Identifier:
@@ -131,7 +121,6 @@ func fieldKeyName(f ast.TableField) string {
 	return ""
 }
 
-// credentialName reports whether name looks like it holds a secret.
 func credentialName(name string) bool {
 	n := strings.ToLower(name)
 	for _, pat := range []string{

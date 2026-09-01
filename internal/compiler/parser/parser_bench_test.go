@@ -7,9 +7,6 @@ import (
 	"github.com/hilthontt/luascript/internal/compiler/lexer"
 )
 
-// BenchmarkParseSmokeProgram — parses the same multi-feature program used
-// by TestSmokeProgramParses. Establishes a baseline for parser throughput
-// on a small real-world chunk.
 func BenchmarkParseSmokeProgram(b *testing.B) {
 	src := `
 local function fib(n)
@@ -35,14 +32,11 @@ return fib(10)
 	}
 }
 
-// BenchmarkParseLargeFile — synthesizes ~500 lines of mixed statements.
-// Exercises the parser's growth paths (stmt slice, AST node count).
 func BenchmarkParseLargeFile(b *testing.B) {
 	var sb strings.Builder
 	for i := range 100 {
 		sb.WriteString("local function f")
 		sb.WriteString("_")
-		// distinct names so the parser can't dedup anything
 		for j := range 3 {
 			sb.WriteByte(byte('a' + (i+j)%26))
 		}

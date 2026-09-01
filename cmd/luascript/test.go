@@ -8,12 +8,6 @@ import (
 	"github.com/hilthontt/luascript/internal/testrunner"
 )
 
-// runTest implements `luascript test` — discover *_test.lsc files, run them,
-// and report.
-//
-// Exit codes: 0 everything passed, 1 a test or file failed, 2 usage or
-// discovery error. That split lets CI treat "no tests found" (2) differently
-// from "tests ran and failed" (1).
 func runTest(argv []string) int {
 	fs := flag.NewFlagSet("test", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
@@ -40,15 +34,12 @@ Flags:
 	}
 
 	opts := testrunner.Options{
-		Paths:    fs.Args(),
-		Filter:   *run,
-		Verbose:  *verbose,
-		FailFast: *failfast,
-		List:     *list,
-		Out:      os.Stdout,
-		// nativeRegistrars is package main's single source of truth for
-		// bundled modules; the runner takes it as a hook so internal/
-		// packages never have to import the native ones.
+		Paths:           fs.Args(),
+		Filter:          *run,
+		Verbose:         *verbose,
+		FailFast:        *failfast,
+		List:            *list,
+		Out:             os.Stdout,
 		RegisterNatives: registerAllNatives,
 	}
 	opts.Color = !*noColor && testrunner.ColorAuto(opts.Out)

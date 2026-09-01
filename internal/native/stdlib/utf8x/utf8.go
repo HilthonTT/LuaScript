@@ -1,7 +1,3 @@
-// Package utf8x implements Lua 5.4's utf8 library. The package directory is
-// `utf8x` (not `utf8`) so it does not clash with Go's standard `unicode/utf8`
-// when both are imported; the module is exposed to Lua as `utf8` via the
-// preload registrar.
 package utf8x
 
 import (
@@ -11,11 +7,8 @@ import (
 	"github.com/hilthontt/luascript/internal/vm"
 )
 
-// Lua's utf8.charpattern — matches one byte sequence of a UTF-8 character.
-// Same value as in PUC Lua 5.4.
 const charpattern = "[\x00-\x7F\xC2-\xFD][\x80-\xBF]*"
 
-// RegisterUTF8Preload installs the utf8 module at package.preload.
 func RegisterUTF8Preload(v *vm.VM) {
 	vm.RegisterPreload(v, "utf8", loader)
 }
@@ -41,11 +34,6 @@ func newUTF8() *vm.Table {
 			if n < 0 || n > 0x7FFFFFFF {
 				panic(vm.Errorf("bad argument #%d to 'char' (value %d out of range)", i+1, n))
 			}
-			// Encoded by hand rather than via WriteRune: WriteRune replaces
-			// surrogates (U+D800..U+DFFF) and anything above U+10FFFF with
-			// U+FFFD, so utf8.char(0xD800) silently produced a different
-			// string than it was asked for. Lua 5.4 encodes the full 31-bit
-			// range verbatim, surrogates included.
 			b.Write(encodeLua(uint32(n)))
 		}
 		return []vm.Value{b.String()}
@@ -91,7 +79,6 @@ func newUTF8() *vm.Table {
 		for idx < bj {
 			r, sz := utf8.DecodeRuneInString(s[idx:])
 			if r == utf8.RuneError && sz <= 1 {
-				// Lua returns (fail, byte position of bad char).
 				return []vm.Value{nil, int64(idx + 1)}
 			}
 			count++
@@ -103,7 +90,6 @@ func newUTF8() *vm.Table {
 	add("offset", func(_ *vm.VM, args []vm.Value) []vm.Value {
 		s := vm.StringArg("offset", 1, args)
 		n := vm.IntArg("offset", 2, args)
-		// Default i: 1 when n>=0, len(s)+1 when n<0.
 		var i int64
 		if n >= 0 {
 			i = 1
@@ -113,7 +99,7 @@ func newUTF8() *vm.Table {
 		if len(args) >= 3 {
 			i = vm.IntArg("offset", 3, args)
 		}
-		idx := luaPos1(s, i) // byte index (0-based)
+		idx := luaPos1(s, i)
 		if idx < 0 || idx > len(s) {
 			panic(vm.Errorf("bad argument #3 to 'offset' (position out of bounds)"))
 		}
@@ -130,7 +116,6 @@ func newUTF8() *vm.Table {
 			}
 		case n < 0:
 			for n < 0 && idx > 0 {
-				// Step back to the previous rune boundary.
 				idx--
 				for idx > 0 && (s[idx]&0xC0) == 0x80 {
 					idx--
@@ -141,8 +126,6 @@ func newUTF8() *vm.Table {
 				return []vm.Value{nil}
 			}
 		default:
-			// n == 0 (Lua 5.4 special case): return the start of the
-			// character encoding that contains byte i.
 			for idx > 0 && idx < len(s) && (s[idx]&0xC0) == 0x80 {
 				idx--
 			}
@@ -159,8 +142,6 @@ func newUTF8() *vm.Table {
 					cur = n
 				}
 			}
-			// cur is the 1-based position of the LAST rune produced; 0 means
-			// "start at byte 0". Advance by that rune's byte size.
 			idx := 0
 			if cur > 0 {
 				idx = int(cur - 1)
@@ -190,11 +171,6 @@ func newUTF8() *vm.Table {
 	return m
 }
 
-// encodeLua encodes one code point the way PUC Lua's utf8_esc / luaO_utf8esc
-// does: the standard UTF-8 algorithm extended to six bytes so the whole 31-bit
-// range round-trips, with no surrogate or U+10FFFF ceiling. Go's utf8 package
-// deliberately refuses both, which is correct for Go strings and wrong for a
-// Lua utf8 library.
 func encodeLua(r uint32) []byte {
 	switch {
 	case r < 0x80:
@@ -215,9 +191,6 @@ func encodeLua(r uint32) []byte {
 	}
 }
 
-// luaRange converts Lua-style (i, j) 1-based byte indices to Go 0-based
-// half-open [bi, bj). Negative values count from the end. Out-of-range
-// values are clamped to valid bounds rather than raising.
 func luaRange(s string, i, j int64) (int, int) {
 	n := int64(len(s))
 	if i < 0 {

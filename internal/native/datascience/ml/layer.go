@@ -6,7 +6,6 @@ import (
 	"github.com/hilthontt/luascript/internal/native"
 )
 
-// Layer is a set of neurons and corresponding activation
 type Layer struct {
 	Neurons []*Neuron
 	A       ActivationType
@@ -15,8 +14,6 @@ type Layer struct {
 func NewLayer(n int, activation ActivationType) *Layer {
 	neurons := make([]*Neuron, n)
 
-	// A softmax layer's per-neuron activation is linear; the softmax itself is
-	// applied across the whole layer in fire().
 	act := activation
 	if activation == ActivationSoftmax {
 		act = ActivationLinear
@@ -47,8 +44,6 @@ func (l *Layer) fire() {
 	}
 }
 
-// Connect fully connects layer l to next, and initializes each
-// synapse with the given weight function
 func (l *Layer) Connect(next *Layer, weight WeightInitializer) {
 	for i := range l.Neurons {
 		for j := range next.Neurons {
@@ -59,7 +54,6 @@ func (l *Layer) Connect(next *Layer, weight WeightInitializer) {
 	}
 }
 
-// ApplyBias creates and returns a bias synapse for each neuron in l
 func (l *Layer) ApplyBias(weight WeightInitializer) []*Synapse {
 	biases := make([]*Synapse, len(l.Neurons))
 	for i := range l.Neurons {

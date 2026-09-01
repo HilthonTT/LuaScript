@@ -11,7 +11,7 @@ func TestTrieInsertFindRemove(t *testing.T) {
 			t.Errorf("Find(%q) = false, want true", w)
 		}
 	}
-	if n.Find("ca") { // prefix, not a complete word
+	if n.Find("ca") {
 		t.Errorf("Find(%q) = true, want false (prefix is not a leaf)", "ca")
 	}
 	if n.Find("cards") {
@@ -25,8 +25,6 @@ func TestTrieInsertFindRemove(t *testing.T) {
 	if n.Find("car") {
 		t.Errorf("Find(%q) after Remove = true, want false", "car")
 	}
-	// "card" shares the "car" prefix and must remain reachable after the
-	// lazy removal of "car".
 	if !n.Find("card") {
 		t.Errorf("Find(%q) after removing %q = false, want true", "card", "car")
 	}

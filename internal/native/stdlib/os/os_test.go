@@ -11,9 +11,6 @@ import (
 	"github.com/hilthontt/luascript/internal/vm"
 )
 
-// runOS compiles and runs `src` on a VM with the os module preloaded.
-// Mirrors vm.run but lives in the test package; the vm.run helper is
-// package-private so cannot be reused here.
 func runOS(t *testing.T, src string) *vm.VM {
 	t.Helper()
 	chunks, err := compiler.CompileToInstructions(src, parser.NormalMode)
@@ -28,7 +25,6 @@ func runOS(t *testing.T, src string) *vm.VM {
 	return v
 }
 
-// runOSErr expects execution to fail and returns the error message.
 func runOSErr(t *testing.T, src string) string {
 	t.Helper()
 	chunks, err := compiler.CompileToInstructions(src, parser.NormalMode)
@@ -171,8 +167,6 @@ func TestMkdirAndRemove(t *testing.T) {
 }
 
 func TestCreateRejectsNonString(t *testing.T) {
-	// Lua allows number→string coercion for StringArg, so we pass a
-	// table — which cannot be coerced to a string.
 	msg := runOSErr(t, `
 		local os = require("os")
 		os.create({})
@@ -187,8 +181,6 @@ func TestOpenRequiresThreeArgs(t *testing.T) {
 		local os = require("os")
 		os.open("foo")
 	`)
-	// Either missing-arg or unable-to-open style error is acceptable;
-	// just confirm we error out rather than silently succeeding.
 	if msg == "" {
 		t.Errorf("expected an error message")
 	}

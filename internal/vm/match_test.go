@@ -2,12 +2,6 @@ package vm
 
 import "testing"
 
-// Execution-level tests for the `match` statement. `match` is lowered by the
-// bytecode generator into a test-and-branch chain (see
-// bytecode/match_generation.go), so these cover the semantics that lowering
-// has to preserve: single evaluation, first-match-wins ordering, guards
-// falling through, binder scoping, and control flow escaping an arm.
-
 func TestMatchValueArmSelected(t *testing.T) {
 	v := run(t, `
 		match 2 do
@@ -39,8 +33,6 @@ func TestMatchFallsThroughToWildcard(t *testing.T) {
 	assertGlobalEqual(t, v, "r", "other")
 }
 
-// A match that matches nothing is a no-op, not an error — `match` is not
-// exhaustive and has no fallback.
 func TestMatchNoArmMatchesIsNoOp(t *testing.T) {
 	v := run(t, `
 		r = "untouched"
@@ -52,8 +44,6 @@ func TestMatchNoArmMatchesIsNoOp(t *testing.T) {
 	assertGlobalEqual(t, v, "r", "untouched")
 }
 
-// The scrutinee must be evaluated exactly once no matter how many arms are
-// tested before one matches.
 func TestMatchEvaluatesSubjectOnce(t *testing.T) {
 	v := run(t, `
 		calls = 0
@@ -72,9 +62,6 @@ func TestMatchEvaluatesSubjectOnce(t *testing.T) {
 	assertGlobalEqual(t, v, "r", "four")
 }
 
-// The behaviour the old `__matched` flag existed to protect: an arm whose
-// pattern matches but whose guard fails must NOT swallow the value — control
-// continues to later arms.
 func TestMatchFailedGuardFallsThroughToLaterArm(t *testing.T) {
 	v := run(t, `
 		match 5 do
@@ -118,8 +105,6 @@ func TestMatchTypedPatternDispatchesOnRuntimeType(t *testing.T) {
 	assertGlobalEqual(t, v, "d", "other")
 }
 
-// `x: any` always matches, so it must behave exactly like a wildcard that
-// also binds.
 func TestMatchAnyPatternAlwaysMatches(t *testing.T) {
 	v := run(t, `
 		match false do
@@ -129,7 +114,6 @@ func TestMatchAnyPatternAlwaysMatches(t *testing.T) {
 	assertGlobalEqual(t, v, "r", "bound")
 }
 
-// `false` is a legitimate value to match on — it must not read as "no match".
 func TestMatchOnFalseSubject(t *testing.T) {
 	v := run(t, `
 		match false do
@@ -140,20 +124,6 @@ func TestMatchOnFalseSubject(t *testing.T) {
 	assertGlobalEqual(t, v, "r", "no")
 }
 
-// Destructuring a REAL enum/struct value is not testable here: constructing
-// one needs `__enum_adt` from internal/native/stdlib/enumrt, and that package
-// imports this one. The positive path is covered end-to-end by
-// examples/43_tagged_enums.lsc and examples/44_match.lsc. What is testable
-// here is the shape check that must run before any projection.
-//
-// The stub below stands in for that helper. A payload-carrying enum lowers to
-// `__enum_adt(name, arities)` (NOT `__enum_freeze`, which is the nullary-enum
-// path), and a positional pattern only ever compares the subject's `__tag`
-// against the variant name — the namespace the declaration binds is never
-// consulted at match time. So returning a bare table is enough.
-
-// A positional pattern probes `__tag` on a plain table, so a hand-rolled
-// value with the right tag destructures like the real thing.
 func TestMatchPositionalDestructureReadsTagAndPayload(t *testing.T) {
 	v := run(t, `
 		function __enum_adt(n, arities) return {} end
@@ -167,8 +137,6 @@ func TestMatchPositionalDestructureReadsTagAndPayload(t *testing.T) {
 	assertGlobalEqual(t, v, "r", int64(12))
 }
 
-// An `_` position holds its slot but binds no name, so the following binder
-// must still read the correct payload index.
 func TestMatchPositionalUnderscoreSkipsSlot(t *testing.T) {
 	v := run(t, `
 		function __enum_adt(n, arities) return {} end
@@ -181,7 +149,6 @@ func TestMatchPositionalUnderscoreSkipsSlot(t *testing.T) {
 	assertGlobalEqual(t, v, "r", int64(4))
 }
 
-// A tag mismatch must fall through without projecting.
 func TestMatchPositionalRejectsWrongTag(t *testing.T) {
 	v := run(t, `
 		function __enum_adt(n, arities) return {} end
@@ -195,8 +162,6 @@ func TestMatchPositionalRejectsWrongTag(t *testing.T) {
 	assertGlobalEqual(t, v, "r", "not a rect")
 }
 
-// A destructure pattern tests the tag before projecting, so a value of the
-// wrong shape must fall through rather than fault on a missing field.
 func TestMatchDestructureRejectsWrongShape(t *testing.T) {
 	v := run(t, `
 		function __struct_define(n, f) return {} end
@@ -209,7 +174,6 @@ func TestMatchDestructureRejectsWrongShape(t *testing.T) {
 	assertGlobalEqual(t, v, "r", "not a point")
 }
 
-// Arm binders are scoped to their arm and must not survive the `end`.
 func TestMatchBinderDoesNotEscapeArm(t *testing.T) {
 	v := run(t, `
 		match 5 do
@@ -242,8 +206,6 @@ func TestMatchNested(t *testing.T) {
 	assertGlobalEqual(t, v, "s", "?,?")
 }
 
-// `break` inside an arm belongs to the enclosing loop, not the match — one of
-// the reasons match is a real statement rather than a closure lowering.
 func TestMatchBreakEscapesEnclosingLoop(t *testing.T) {
 	v := run(t, `
 		count = 0
@@ -267,11 +229,9 @@ func TestMatchContinueSkipsIteration(t *testing.T) {
 			total = total + i
 		end
 	`)
-	assertGlobalEqual(t, v, "total", int64(9)) // 1 + 3 + 5
+	assertGlobalEqual(t, v, "total", int64(9))
 }
 
-// A closure created in an arm must capture that arm's binder, and the capture
-// must survive the match's scope exit.
 func TestMatchArmClosureCapturesBinder(t *testing.T) {
 	v := run(t, `
 		match 21 do

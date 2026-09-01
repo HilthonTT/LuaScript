@@ -1,40 +1,12 @@
 package vm
 
-// Coroutines implement Lua's symmetric resume/yield pairing. Each coroutine
-// runs on its own Go goroutine; only one goroutine executes Lua at a time
-// (the VM's mutable state isn't safe for parallel access). Control transfer
-// happens via two channels per coroutine:
-//
-//   - resumeCh — main → coroutine: values delivered by `coroutine.resume`.
-//   - yieldCh  — coroutine → main: values delivered by `coroutine.yield`,
-//                  plus a terminal flag and an optional error (for the
-//                  closure returning normally or panicking).
-//
-// Each side blocks on its incoming channel between turns, so the running
-// goroutine has exclusive access to the VM. Before sending on resumeCh the
-// caller swaps the VM's Stack/frames/openUpvs into the coroutine's saved
-// thread; on receipt of yieldCh the inverse swap happens.
-
-// Thread is the per-coroutine stack/frame state. The active thread's fields
-// always match the VM's live Stack/frames/openUpvs; on every resume/yield
-// boundary we save the live state into the outgoing thread and load the
-// incoming thread's state into the live fields.
 type Thread struct {
-	Stack    []Value
-	Frames   []*CallFrame
-	OpenUpvs []*Upvalue
-	// CallMarks is the pending MarkArgs stack. A thread can legitimately
-	// suspend between a MarkArgs and its matching Call (any
-	// `f(coroutine.yield())` shape), so the marks are per-thread state —
-	// leaving them on the VM would let another thread pop them against the
-	// wrong stack.
+	Stack     []Value
+	Frames    []*CallFrame
+	OpenUpvs  []*Upvalue
 	CallMarks []int
 }
 
-// Coroutine wraps a closure plus the channel handshake needed to drive it.
-// `status` follows Lua's vocabulary: "suspended" (waiting for resume),
-// "running" (currently executing), "normal" (suspended because it resumed
-// another coroutine — not modeled in v1), and "dead" (returned or errored).
 type Coroutine struct {
 	fn       *Closure
 	thread   *Thread
@@ -46,27 +18,18 @@ type Coroutine struct {
 
 type yieldMsg struct {
 	values []Value
-	done   bool  // true → final return, goroutine has exited
-	failed bool  // true → terminated by an error/panic (errVal holds it)
-	errVal Value // the propagated error value when failed
+	done   bool
+	failed bool
+	errVal Value
 }
 
-// closeSignal is the panic value used by coroutine.close to unwind a
-// suspended coroutine's goroutine. It must reach goroutineBody's terminal
-// recover no matter what the coroutine body does, so every intermediate
-// recover point (pcall's safeCall, try/catch's execCatching) re-panics it
-// instead of treating it as a catchable Lua error.
 type closeSignal struct{}
 
-// isCloseSignal reports whether a recovered panic value is the coroutine
-// close sentinel.
 func isCloseSignal(r any) bool {
 	_, ok := r.(closeSignal)
 	return ok
 }
 
-// newCoroutine allocates a coroutine wrapping fn. The goroutine isn't
-// spawned until the first resume.
 func newCoroutine(fn *Closure) *Coroutine {
 	return &Coroutine{
 		fn:       fn,
@@ -77,24 +40,13 @@ func newCoroutine(fn *Closure) *Coroutine {
 	}
 }
 
-// goroutineBody is the body of every coroutine's Go-level goroutine. It
-// waits for the first resume, runs the closure, and signals done.
 func (co *Coroutine) goroutineBody(v *VM) {
 	defer func() {
 		if r := recover(); r != nil {
-			// Any panic — a Lua error() or a Go runtime panic (nil deref,
-			// etc.) — terminates the coroutine with a failure. Carry the
-			// value through so resume reports false + the real error
-			// instead of silently looking like a normal completion. The
-			// close sentinel is kept as-is so close can tell a clean
-			// unwind from a genuine error.
 			if isCloseSignal(r) {
 				co.yieldCh <- yieldMsg{done: true, failed: true, errVal: closeSignal{}}
 				return
 			}
-			// errorValue is read here, before the goroutine's frames go
-			// away with it, so a coroutine that dies on a runtime error
-			// reports the position inside the coroutine body.
 			co.yieldCh <- yieldMsg{done: true, failed: true, errVal: v.errorValue(r)}
 		}
 	}()
@@ -103,15 +55,6 @@ func (co *Coroutine) goroutineBody(v *VM) {
 	co.yieldCh <- yieldMsg{values: results, done: true}
 }
 
-// saveActiveTo copies the VM's live thread fields into t.
-//
-// Open upvalues point at the stack they were created over via a *[]Value.
-// While a thread is live that must be &v.Stack (appends can change the
-// header), but once the thread is parked v.Stack will belong to some other
-// thread — so retarget its upvalues at the thread's own saved stack.
-// A closure that escaped the thread (e.g. yielded out of a coroutine) then
-// keeps reading the suspended thread's slots instead of whichever thread
-// happens to be running.
 func (v *VM) saveActiveTo(t *Thread) {
 	t.Stack = v.Stack
 	t.Frames = v.frames
@@ -122,8 +65,6 @@ func (v *VM) saveActiveTo(t *Thread) {
 	}
 }
 
-// loadActiveFrom installs t's fields as the VM's live thread and points its
-// open upvalues back at the live stack (see saveActiveTo).
 func (v *VM) loadActiveFrom(t *Thread) {
 	v.Stack = t.Stack
 	v.frames = t.Frames
@@ -133,8 +74,6 @@ func (v *VM) loadActiveFrom(t *Thread) {
 		u.Stack = &v.Stack
 	}
 }
-
-// coroutine.* library — installed by registerStdlib
 
 func registerCoroutineLibrary(v *VM) {
 	mod := NewTable(0, 8)
@@ -163,8 +102,6 @@ func builtinCoroutineResume(v *VM, args []Value) []Value {
 		return []Value{false, "cannot resume running coroutine"}
 	}
 
-	// Save the caller's live state (always main thread in v1: nested resume
-	// from inside a coroutine isn't supported here) and switch to co's.
 	prev := v.currentCo
 	prevThread := v.activeThread()
 	v.saveActiveTo(prevThread)
@@ -177,11 +114,9 @@ func builtinCoroutineResume(v *VM, args []Value) []Value {
 		go co.goroutineBody(v)
 	}
 
-	// Hand off; co.goroutineBody (or a parked yield) is waiting.
 	co.resumeCh <- args[1:]
 	msg := <-co.yieldCh
 
-	// Restore the caller.
 	v.saveActiveTo(co.thread)
 	v.loadActiveFrom(prevThread)
 	v.currentCo = prev
@@ -205,8 +140,6 @@ func builtinCoroutineYield(v *VM, args []Value) []Value {
 	co := v.currentCo
 	co.yieldCh <- yieldMsg{values: args}
 	resumeArgs := <-co.resumeCh
-	// coroutine.close resumes the parked yield with the close sentinel;
-	// panic it up through the coroutine's frames to goroutineBody.
 	if len(resumeArgs) == 1 && isCloseSignal(resumeArgs[0]) {
 		panic(closeSignal{})
 	}
@@ -218,9 +151,6 @@ func builtinCoroutineStatus(_ *VM, args []Value) []Value {
 	return []Value{co.status}
 }
 
-// builtinCoroutineWrap returns a function that resumes the coroutine each
-// time it is called. The returned function returns just the yielded values
-// (no leading boolean), and re-raises any error.
 func builtinCoroutineWrap(v *VM, args []Value) []Value {
 	cl := ClosureArg("wrap", 1, args)
 	co := newCoroutine(cl)
@@ -233,7 +163,6 @@ func builtinCoroutineWrap(v *VM, args []Value) []Value {
 			}
 			ok, _ := results[0].(bool)
 			if !ok {
-				// Re-raise the original error value unchanged.
 				var ev Value = "error in coroutine"
 				if len(results) > 1 {
 					ev = results[1]
@@ -250,10 +179,6 @@ func builtinCoroutineIsyieldable(v *VM, _ []Value) []Value {
 	return []Value{v.currentCo != nil}
 }
 
-// builtinCoroutineRunning returns the running coroutine plus a boolean that
-// is true when called from the main thread. The main thread has no Coroutine
-// wrapper in this VM, so the first result is nil there (the boolean is the
-// reliable signal, as in Lua idiom `select(2, coroutine.running())`).
 func builtinCoroutineRunning(v *VM, _ []Value) []Value {
 	if v.currentCo == nil {
 		return []Value{nil, true}
@@ -261,11 +186,6 @@ func builtinCoroutineRunning(v *VM, _ []Value) []Value {
 	return []Value{v.currentCo, false}
 }
 
-// builtinCoroutineClose kills a suspended (or dead) coroutine. A started
-// coroutine's goroutine is parked inside yield waiting on resumeCh; it is
-// resumed with the close sentinel, which yield panics with, unwinding the
-// coroutine's frames (running nothing user-visible) back to goroutineBody.
-// Returns true, or false + the error if the unwind itself raised one.
 func builtinCoroutineClose(v *VM, args []Value) []Value {
 	co := CoroutineArg("close", 1, args)
 	switch co.status {
@@ -279,8 +199,6 @@ func builtinCoroutineClose(v *VM, args []Value) []Value {
 		return []Value{true}
 	}
 
-	// Same state-swap dance as resume: the unwinding goroutine touches the
-	// VM's live Stack/frames while it runs, so those must be the coroutine's.
 	prev := v.currentCo
 	prevThread := v.activeThread()
 	v.saveActiveTo(prevThread)
@@ -302,9 +220,6 @@ func builtinCoroutineClose(v *VM, args []Value) []Value {
 	return []Value{true}
 }
 
-// activeThread returns the currently-active Thread snapshot — the main
-// thread when no coroutine is running, the active coroutine's thread
-// otherwise. Used by resume to know where to save the caller's state.
 func (v *VM) activeThread() *Thread {
 	if v.currentCo == nil {
 		return v.mainThread

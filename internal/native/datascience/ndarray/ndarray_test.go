@@ -28,10 +28,10 @@ func TestBroadcastShapes(t *testing.T) {
 		a, b, want []int
 		ok         bool
 	}{
-		{[]int{2, 3}, []int{3}, []int{2, 3}, true},    // row broadcast
-		{[]int{2, 3}, []int{}, []int{2, 3}, true},     // scalar
-		{[]int{2, 1}, []int{1, 3}, []int{2, 3}, true}, // outer
-		{[]int{2, 3}, []int{4}, nil, false},           // mismatch
+		{[]int{2, 3}, []int{3}, []int{2, 3}, true},
+		{[]int{2, 3}, []int{}, []int{2, 3}, true},
+		{[]int{2, 1}, []int{1, 3}, []int{2, 3}, true},
+		{[]int{2, 3}, []int{4}, nil, false},
 	}
 	for _, c := range cases {
 		out, ok := broadcast(c.a, c.b)
@@ -61,13 +61,11 @@ func TestReduceAllAndAxis(t *testing.T) {
 	if s := a.reduceAll(sumf); s != 21 {
 		t.Fatalf("sum all: got %v want 21", s)
 	}
-	// axis 0 -> collapse rows -> length-3 vector of column sums
 	col := a.alongAxis("sum", 0, sumf)
 	if !intsEqual(col.shape, []int{3}) {
 		t.Fatalf("axis0 shape %v", col.shape)
 	}
 	eqData(t, col, 5, 7, 9)
-	// axis 1 -> collapse cols -> length-2 vector of row means
 	rm := a.alongAxis("mean", 1, meanf)
 	eqData(t, rm, 2, 5)
 }
@@ -95,10 +93,8 @@ func TestMatmul(t *testing.T) {
 	if !intsEqual(got.shape, []int{2, 2}) {
 		t.Fatalf("matmul shape %v", got.shape)
 	}
-	// [1 2 3;4 5 6] · [7 8;9 10;11 12] = [58 64; 139 154]
 	eqData(t, got, 58, 64, 139, 154)
 
-	// vector dot collapses to a 0-D scalar
 	v1 := nd([]int{3}, 1, 2, 3)
 	v2 := nd([]int{3}, 4, 5, 6)
 	dot := matmul(v1, v2)

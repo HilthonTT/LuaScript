@@ -1,13 +1,10 @@
 package std
 
-// Node represents each node in Trie.
 type Node struct {
 	children map[rune]*Node
 	isLeaf   bool
 }
 
-// NewNode creates a new Trie node with initialized
-// children map.
 func NewNode() *Node {
 	n := &Node{}
 	n.children = make(map[rune]*Node)
@@ -15,7 +12,6 @@ func NewNode() *Node {
 	return n
 }
 
-// insert a single word at a Trie node.
 func (n *Node) insert(s string) {
 	curr := n
 	for _, c := range s {
@@ -29,14 +25,12 @@ func (n *Node) insert(s string) {
 	curr.isLeaf = true
 }
 
-// Insert zero, one or more words at a Trie node.
 func (n *Node) Insert(s ...string) {
 	for _, ss := range s {
 		n.insert(ss)
 	}
 }
 
-// Find  words at a Trie node.
 func (n *Node) Find(s string) bool {
 	next, ok := n, false
 	for _, c := range s {
@@ -48,7 +42,6 @@ func (n *Node) Find(s string) bool {
 	return next.isLeaf
 }
 
-// Capacity returns the number of nodes in the Trie
 func (n *Node) Capacity() int {
 	r := 0
 	for _, c := range n.children {
@@ -57,7 +50,6 @@ func (n *Node) Capacity() int {
 	return 1 + r
 }
 
-// Size returns the number of words in the Trie
 func (n *Node) Size() int {
 	r := 0
 	for _, c := range n.children {
@@ -69,7 +61,6 @@ func (n *Node) Size() int {
 	return r
 }
 
-// remove lazily a word from the Trie node, no node is actually removed.
 func (n *Node) remove(s string) {
 	if len(s) == 0 {
 		return
@@ -79,21 +70,18 @@ func (n *Node) remove(s string) {
 	for _, c := range s {
 		next, ok = next.children[c]
 		if !ok {
-			// word cannot be found - we're done !
 			return
 		}
 	}
 	next.isLeaf = false
 }
 
-// Remove zero, one or more words lazily from the Trie, no node is actually removed.
 func (n *Node) Remove(s ...string) {
 	for _, ss := range s {
 		n.remove(ss)
 	}
 }
 
-// Compact will remove unecessay nodes, reducing the capacity, returning true if node n itself should be removed.
 func (n *Node) Compact() (remove bool) {
 	for r, c := range n.children {
 		if c.Compact() {

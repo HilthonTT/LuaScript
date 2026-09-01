@@ -8,11 +8,6 @@ import (
 	"github.com/hilthontt/luascript/internal/compiler/parser"
 )
 
-// A statement beginning with `(` fuses onto the previous statement, because
-// Lua ignores the line break between them: `print("a")` followed by
-// `("b"):upper()` is one call, `print("a")("b"):upper()`. Source that parses
-// at all must therefore have carried a `;`, and dropping it on the way out
-// silently changes what the program does.
 func TestFormatKeepsSeparatorBeforeParenStatement(t *testing.T) {
 	cases := []struct {
 		name string
@@ -38,8 +33,6 @@ print("a");
 			if !strings.Contains(out, ";") {
 				t.Errorf("separator dropped — formatted output changes meaning:\n%s", out)
 			}
-			// The strongest check: the result must still parse the same way,
-			// i.e. as more than one statement.
 			mustParseAsTwoOrMoreStatements(t, out)
 		})
 	}
@@ -56,10 +49,6 @@ func mustParseAsTwoOrMoreStatements(t *testing.T, src string) {
 	}
 }
 
-// A long run of one operator must break at a single indentation level. Each
-// binary node used to emit its own group and its own nest, so a broken chain
-// came out as a staircase whose next formatting pass made different choices —
-// formatting was not idempotent, and its output was not a canonical form.
 func TestFormatFlattensOperatorChains(t *testing.T) {
 	src := `local qty, price = 3, 4.5
 print("plain      : " .. tostring(qty) .. " x " .. tostring(price) .. " = " .. tostring(qty * price))`
@@ -76,7 +65,6 @@ print("plain      : " .. tostring(qty) .. " x " .. tostring(price) .. " = " .. t
 		t.Fatalf("chain formatting is not idempotent:\n--- once ---\n%s\n--- twice ---\n%s", once, twice)
 	}
 
-	// Every continuation line of the chain sits at the same indent.
 	var indents []string
 	for _, line := range strings.Split(once, "\n") {
 		if trimmed := strings.TrimLeft(line, " "); strings.HasPrefix(trimmed, "..") {
@@ -93,8 +81,6 @@ print("plain      : " .. tostring(qty) .. " x " .. tostring(price) .. " = " .. t
 	}
 }
 
-// Flattening must never absorb a parenthesised child: `a - (b - c)` and
-// `a - b - c` are different numbers.
 func TestFormatKeepsParenthesesInChains(t *testing.T) {
 	out, err := Format("local x = 10 - (4 - 1)\n", Options{})
 	if err != nil {

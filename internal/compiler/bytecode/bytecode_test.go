@@ -40,8 +40,6 @@ func block(stmts ...ast.Statement) *ast.Block {
 	return &ast.Block{BaseNode: base(0), Statements: stmts}
 }
 
-// generate runs the generator over the supplied statements and returns the
-// emitted instruction sets (main chunk first).
 func generate(t *testing.T, stmts []ast.Statement) []*InstructionSet {
 	t.Helper()
 	g := NewGenerator()
@@ -49,7 +47,6 @@ func generate(t *testing.T, stmts []ast.Statement) []*InstructionSet {
 	return g.GenerateInstructions(stmts)
 }
 
-// opcodes returns just the opcode mnemonics from an instruction set, in order.
 func opcodes(is *InstructionSet) []string {
 	out := make([]string, len(is.Instructions))
 	for i, ins := range is.Instructions {
@@ -71,7 +68,6 @@ func assertOpcodes(t *testing.T, is *InstructionSet, want ...string) {
 	}
 }
 
-// findFirst returns the first instruction with the given opcode, or nil.
 func findFirst(is *InstructionSet, op uint8) *Instruction {
 	for _, ins := range is.Instructions {
 		if ins.Opcode == op {
@@ -152,9 +148,6 @@ func TestREPLModeOmitsTrailingLeave(t *testing.T) {
 	}
 }
 
-// In REPL mode, top-level `local x = v` is promoted to a global assignment so
-// the binding survives across REPL inputs (each line is otherwise its own
-// chunk and stack-frame locals die on return).
 func TestREPLModePromotesTopLevelLocalToGlobal(t *testing.T) {
 	g := NewGenerator()
 	g.REPL = true
@@ -167,15 +160,12 @@ func TestREPLModePromotesTopLevelLocalToGlobal(t *testing.T) {
 		},
 	})
 	main := chunks[0]
-	// loadint 1; setglobal "a"  (no setlocal, no leave because REPL mode)
 	assertOpcodes(t, main, "loadint", "setglobal")
 	if got := main.Instructions[1].Params[0].(string); got != "a" {
 		t.Errorf("SetGlobal name = %q, want %q", got, "a")
 	}
 }
 
-// Top-level `local function` in REPL mode is also promoted so the function
-// is callable from later REPL inputs.
 func TestREPLModePromotesTopLevelLocalFunctionToGlobal(t *testing.T) {
 	g := NewGenerator()
 	g.REPL = true
@@ -194,8 +184,6 @@ func TestREPLModePromotesTopLevelLocalFunctionToGlobal(t *testing.T) {
 	}
 }
 
-// Locals inside a nested scope (do/if/loops/functions) keep normal Lua
-// semantics even under REPL mode — only chunk-root declarations are promoted.
 func TestREPLModeKeepsNestedLocalsAsLocals(t *testing.T) {
 	g := NewGenerator()
 	g.REPL = true
@@ -221,7 +209,6 @@ func TestREPLModeKeepsNestedLocalsAsLocals(t *testing.T) {
 	}
 }
 
-// In NormalMode, top-level locals stay local (no behavior change for scripts).
 func TestNormalModeTopLevelLocalStaysLocal(t *testing.T) {
 	stmts := []ast.Statement{
 		&ast.LocalStatement{
@@ -263,7 +250,6 @@ func TestResetInstructionSetsClearsChunks(t *testing.T) {
 }
 
 func TestLocalSingleAssignment(t *testing.T) {
-	// local x = 7
 	stmts := []ast.Statement{
 		&ast.LocalStatement{
 			BaseNode: base(1),
@@ -281,14 +267,11 @@ func TestLocalSingleAssignment(t *testing.T) {
 		t.Errorf("SetLocal slot = %d, want 0", got)
 	}
 	if main.NumLocals != 0 {
-		// NumLocals on the main chunk isn't populated (only set by popFunction);
-		// but the field default should remain 0.
 		t.Errorf("main chunk NumLocals = %d, want 0 (set only on nested protos)", main.NumLocals)
 	}
 }
 
 func TestLocalAdjustsExtraNamesWithNil(t *testing.T) {
-	// local a, b, c = 1
 	stmts := []ast.Statement{
 		&ast.LocalStatement{
 			BaseNode: base(1),
@@ -297,7 +280,6 @@ func TestLocalAdjustsExtraNamesWithNil(t *testing.T) {
 		},
 	}
 	main := generate(t, stmts)[0]
-	// Expect: loadint(1), loadnil(2), then 3 setlocals
 	assertOpcodes(t, main, "loadint", "loadnil", "setlocal", "setlocal", "setlocal", "leave")
 
 	loadnil := main.Instructions[1]
@@ -307,7 +289,6 @@ func TestLocalAdjustsExtraNamesWithNil(t *testing.T) {
 }
 
 func TestLocalDropsExtraValues(t *testing.T) {
-	// local a = 1, 2, 3   → keep 1, pop the extras
 	stmts := []ast.Statement{
 		&ast.LocalStatement{
 			BaseNode: base(1),
@@ -317,9 +298,9 @@ func TestLocalDropsExtraValues(t *testing.T) {
 	}
 	main := generate(t, stmts)[0]
 	assertOpcodes(t, main,
-		"loadint", "loadint", "loadint", // push 1, 2, 3
-		"pop",      // discard the surplus
-		"setlocal", // store the kept value
+		"loadint", "loadint", "loadint",
+		"pop",
+		"setlocal",
 		"leave",
 	)
 	pop := main.Instructions[3]
@@ -329,7 +310,6 @@ func TestLocalDropsExtraValues(t *testing.T) {
 }
 
 func TestGlobalAssignment(t *testing.T) {
-	// x = 1   (no `local`, no prior decl → global)
 	stmts := []ast.Statement{
 		&ast.AssignStatement{
 			BaseNode: base(1),
@@ -338,8 +318,6 @@ func TestGlobalAssignment(t *testing.T) {
 		},
 	}
 	main := generate(t, stmts)[0]
-	// Single target + single value takes compileAssignOne's fast path: the
-	// value is pushed straight into the store, with no temp round-trip.
 	assertOpcodes(t, main, "loadint", "setglobal", "leave")
 	if got := main.Instructions[1].Params[0].(string); got != "x" {
 		t.Errorf("SetGlobal name = %q, want %q", got, "x")
@@ -347,7 +325,6 @@ func TestGlobalAssignment(t *testing.T) {
 }
 
 func TestIdentifierResolvesLocalBeforeGlobal(t *testing.T) {
-	// local x = 1; x = 2
 	stmts := []ast.Statement{
 		&ast.LocalStatement{
 			BaseNode: base(1),
@@ -361,7 +338,6 @@ func TestIdentifierResolvesLocalBeforeGlobal(t *testing.T) {
 		},
 	}
 	main := generate(t, stmts)[0]
-	// no SetGlobal should appear
 	for _, ins := range main.Instructions {
 		if ins.Opcode == SetGlobal || ins.Opcode == GetGlobal {
 			t.Fatalf("expected no global ops; got %v", opcodes(main))
@@ -383,7 +359,6 @@ func TestBinaryArithmeticOperators(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.op, func(t *testing.T) {
-			// local r = 1 <op> 2
 			stmts := []ast.Statement{
 				&ast.LocalStatement{
 					BaseNode: base(1),
@@ -400,7 +375,6 @@ func TestBinaryArithmeticOperators(t *testing.T) {
 }
 
 func TestConcatEmitsExplicitCount(t *testing.T) {
-	// local s = "a" .. "b"
 	stmts := []ast.Statement{
 		&ast.LocalStatement{
 			BaseNode: base(1),
@@ -441,7 +415,6 @@ func TestUnaryOperators(t *testing.T) {
 }
 
 func TestShortCircuitAndResolvesAnchor(t *testing.T) {
-	// local r = true and 1
 	stmts := []ast.Statement{
 		&ast.LocalStatement{
 			BaseNode: base(1),
@@ -458,7 +431,6 @@ func TestShortCircuitAndResolvesAnchor(t *testing.T) {
 	if !ok {
 		t.Fatalf("jump target not resolved to int: %T %v", jmp.Params[0], jmp.Params[0])
 	}
-	// The jump should land just past the `loadint` (i.e. on `setlocal`, line 3).
 	if target != 3 {
 		t.Errorf("`and` jump target = %d, want 3", target)
 	}
@@ -481,7 +453,6 @@ func TestShortCircuitOrUsesJumpIfTrueKeep(t *testing.T) {
 }
 
 func TestIfElseAnchorsResolved(t *testing.T) {
-	// if true then local a = 1 else local a = 2 end
 	stmts := []ast.Statement{
 		&ast.IfStatement{
 			BaseNode: base(1),
@@ -501,7 +472,6 @@ func TestIfElseAnchorsResolved(t *testing.T) {
 		},
 	}
 	main := generate(t, stmts)[0]
-	// loadtrue, jumpiffalse(else), loadint, setlocal, jump(end), loadint, setlocal, leave
 	assertOpcodes(t, main,
 		"loadtrue", "jumpiffalse", "loadint", "setlocal", "jump", "loadint", "setlocal", "leave",
 	)
@@ -516,7 +486,6 @@ func TestIfElseAnchorsResolved(t *testing.T) {
 }
 
 func TestWhileLoopHasBackwardJump(t *testing.T) {
-	// while true do break end
 	stmts := []ast.Statement{
 		&ast.WhileStatement{
 			BaseNode:  base(1),
@@ -525,7 +494,6 @@ func TestWhileLoopHasBackwardJump(t *testing.T) {
 		},
 	}
 	main := generate(t, stmts)[0]
-	// loadtrue, jumpiffalse(exit), jump(break→exit), jump(back→top), leave
 	assertOpcodes(t, main, "loadtrue", "jumpiffalse", "jump", "jump", "leave")
 
 	jExit := main.Instructions[1]
@@ -544,7 +512,6 @@ func TestWhileLoopHasBackwardJump(t *testing.T) {
 }
 
 func TestNumericForEmitsForPrepAndForLoop(t *testing.T) {
-	// for i = 1, 10 do end
 	stmts := []ast.Statement{
 		&ast.NumericForStatement{
 			BaseNode: base(1),
@@ -564,14 +531,12 @@ func TestNumericForEmitsForPrepAndForLoop(t *testing.T) {
 	if fl == nil {
 		t.Fatalf("expected a ForLoop instruction; got %v", opcodes(main))
 	}
-	// Both should reference index slot 0.
 	if got := fp.Params[0].(int); got != 0 {
 		t.Errorf("ForPrep index slot = %d, want 0", got)
 	}
 	if got := fl.Params[0].(int); got != 0 {
 		t.Errorf("ForLoop index slot = %d, want 0", got)
 	}
-	// Step omitted → generator should synthesize a LoadInt 1.
 	loadint := findFirst(main, LoadInt)
 	if loadint == nil {
 		t.Fatalf("expected a LoadInt for synthesized step")
@@ -589,7 +554,6 @@ func TestNumericForOmittedStepDefaultsToOne(t *testing.T) {
 		},
 	}
 	main := generate(t, stmts)[0]
-	// First three instructions should be loadint(2), loadint(4), loadint(1)
 	if main.Instructions[2].Opcode != LoadInt {
 		t.Fatalf("third instruction should be LoadInt for default step; got %s",
 			main.Instructions[2].ActionName())
@@ -600,13 +564,12 @@ func TestNumericForOmittedStepDefaultsToOne(t *testing.T) {
 }
 
 func TestTableConstructorMixedFields(t *testing.T) {
-	// local t = { 10, x = 20, [99] = 30 }
 	tc := &ast.TableConstructor{
 		BaseNode: base(1),
 		Fields: []ast.TableField{
-			{Value: intLit(10, 1)},                                        // array
-			{Key: ident("x", 1), Value: intLit(20, 1)},                    // record
-			{Key: intLit(99, 1), Value: intLit(30, 1), IsBracketed: true}, // bracketed
+			{Value: intLit(10, 1)},
+			{Key: ident("x", 1), Value: intLit(20, 1)},
+			{Key: intLit(99, 1), Value: intLit(30, 1), IsBracketed: true},
 		},
 	}
 	stmts := []ast.Statement{
@@ -626,7 +589,6 @@ func TestTableConstructorMixedFields(t *testing.T) {
 		t.Errorf("NewTable hints = (%v, %v), want (1, 2)", nt.Params[0], nt.Params[1])
 	}
 
-	// Record-style fields use SetField; array & bracketed use SetTable.
 	var setFieldCount, setTableCount int
 	for _, ins := range main.Instructions {
 		switch ins.Opcode {
@@ -645,7 +607,6 @@ func TestTableConstructorMixedFields(t *testing.T) {
 }
 
 func TestIndexDotUsesGetField(t *testing.T) {
-	// local v = t.x   (assumes t global)
 	idx := &ast.IndexExpression{
 		BaseNode: base(1),
 		Object:   ident("t", 1),
@@ -670,7 +631,6 @@ func TestIndexDotUsesGetField(t *testing.T) {
 }
 
 func TestIndexBracketUsesGetTable(t *testing.T) {
-	// local v = t[1]
 	idx := &ast.IndexExpression{
 		BaseNode: base(1),
 		Object:   ident("t", 1),
@@ -693,7 +653,6 @@ func TestIndexBracketUsesGetTable(t *testing.T) {
 }
 
 func TestCallEmitsCallOpcode(t *testing.T) {
-	// f(1, 2)   as expression statement
 	call := &ast.CallExpression{
 		BaseNode: base(1),
 		Func:     ident("f", 1),
@@ -711,13 +670,11 @@ func TestCallEmitsCallOpcode(t *testing.T) {
 		t.Errorf("Call nargs = %d, want 2", got)
 	}
 	if got := c.Params[1].(int); got != 0 {
-		// Expression-statement context wants 0 results.
 		t.Errorf("Call nresults = %d, want 0", got)
 	}
 }
 
 func TestMethodCallEmitsSelf(t *testing.T) {
-	// obj:m()
 	mc := &ast.MethodCallExpression{
 		BaseNode: base(1),
 		Object:   ident("obj", 1),
@@ -736,7 +693,6 @@ func TestMethodCallEmitsSelf(t *testing.T) {
 	}
 	c := findFirst(main, Call)
 	if c == nil || c.Params[0].(int) != 1 {
-		// nargs == 0 visible + 1 self = 1
 		t.Errorf("Call nargs = %v, want 1 (implicit self)", c.Params[0])
 	}
 }
@@ -770,7 +726,6 @@ func TestReturnMultipleValues(t *testing.T) {
 }
 
 func TestFunctionExpressionEmitsClosureAndProto(t *testing.T) {
-	// local f = function() return 1 end
 	fe := &ast.FunctionExpression{
 		BaseNode: base(1),
 		Body: &ast.Block{
@@ -800,17 +755,14 @@ func TestFunctionExpressionEmitsClosureAndProto(t *testing.T) {
 	if proto.Type() != FunctionDef {
 		t.Errorf("proto type = %q, want %q", proto.Type(), FunctionDef)
 	}
-	// Body was `return 1` → loadint, return, leave
 	assertOpcodes(t, proto, "loadint", "return", "leave")
 
-	// chunks should be: [main, proto] (proto appended via popFunction → g.chunks)
 	if len(chunks) != 2 {
 		t.Errorf("expected 2 chunks (main + nested), got %d", len(chunks))
 	}
 }
 
 func TestUpvalueCapturedFromEnclosingFunction(t *testing.T) {
-	// local x = 1; local f = function() return x end
 	fe := &ast.FunctionExpression{
 		BaseNode: base(2),
 		Body: &ast.Block{
@@ -857,7 +809,6 @@ func TestUpvalueCapturedFromEnclosingFunction(t *testing.T) {
 }
 
 func TestFunctionParametersBecomeLocals(t *testing.T) {
-	// local f = function(a, b) return a end   → proto has GetLocal(0)
 	fe := &ast.FunctionExpression{
 		BaseNode: base(1),
 		Params: []ast.TypedParam{
@@ -890,7 +841,6 @@ func TestFunctionParametersBecomeLocals(t *testing.T) {
 	if gl.Params[0].(int) != 0 {
 		t.Errorf("GetLocal slot = %d, want 0 (first parameter)", gl.Params[0])
 	}
-	// `a` and `b` declared in the function's root scope ⇒ NumLocals == 2.
 	if proto.NumLocals != 2 {
 		t.Errorf("NumLocals = %d, want 2", proto.NumLocals)
 	}
@@ -916,7 +866,6 @@ func TestVarargFunctionFlag(t *testing.T) {
 }
 
 func TestMethodFunctionDeclarationInjectsSelfParam(t *testing.T) {
-	// function obj:m() end   → proto NumParams == 1 (implicit self)
 	stmts := []ast.Statement{
 		&ast.FunctionDeclaration{
 			BaseNode:   base(1),
@@ -949,7 +898,7 @@ func TestLocalTableScopingAndShadowing(t *testing.T) {
 
 	lt.openScope()
 	c := lt.define("c")
-	a2 := lt.define("a") // shadow
+	a2 := lt.define("a")
 	if c != 2 || a2 != 3 {
 		t.Errorf("inner-scope slots = (%d, %d), want (2, 3)", c, a2)
 	}
@@ -973,11 +922,9 @@ func TestLocalTableScopingAndShadowing(t *testing.T) {
 		t.Errorf("`c` should not be visible after its scope closed")
 	}
 
-	// maxSlot tracks the high-water mark.
 	if lt.maxSlot != 4 {
 		t.Errorf("maxSlot = %d, want 4 (shadow grew the frame)", lt.maxSlot)
 	}
-	// nextSlot rolled back.
 	if lt.nextSlot != 2 {
 		t.Errorf("nextSlot = %d, want 2 after closeScope", lt.nextSlot)
 	}
@@ -993,16 +940,11 @@ func TestLocalTableDoesNotWalkIntoParent(t *testing.T) {
 }
 
 func TestCloseScopeIsSafeOnEmpty(t *testing.T) {
-	lt := &localTable{} // no scope opened
-	// Should not panic.
+	lt := &localTable{}
 	lt.closeScope()
 }
 
-// TestStructLowersToDefineCall asserts a struct declaration lowers to a
-// `__struct_define("Name", {fields...})` call bound to a local, mirroring
-// the enum lowering strategy.
 func TestStructLowersToStructDefineCall(t *testing.T) {
-	// struct Point { x: number, y: number }
 	stmts := []ast.Statement{
 		&ast.StructStatement{
 			BaseNode: base(1),
@@ -1015,29 +957,24 @@ func TestStructLowersToStructDefineCall(t *testing.T) {
 	}
 	main := generate(t, stmts)[0]
 	assertOpcodes(t, main,
-		"getglobal",                                // __struct_define
-		"loadstring",                               // "Point"
-		"newtable",                                 // field-name array
-		"dup", "loadint", "loadstring", "settable", // "x"
-		"dup", "loadint", "loadstring", "settable", // "y"
-		"call",     // __struct_define(name, fields)
-		"setlocal", // bind Point
+		"getglobal",
+		"loadstring",
+		"newtable",
+		"dup", "loadint", "loadstring", "settable",
+		"dup", "loadint", "loadstring", "settable",
+		"call",
+		"setlocal",
 		"leave",
 	)
 
-	// The GetGlobal target is the runtime helper.
 	gg := findFirst(main, GetGlobal)
 	if gg == nil || gg.Params[0].(string) != "__struct_define" {
 		t.Fatalf("expected getglobal __struct_define, got %v", opcodes(main))
 	}
 }
 
-// TestTaggedEnumLowersToADTCall asserts a tagged enum lowers to an
-// `__enum_adt("Name", {Variant = arity, ...})` call, distinct from the
-// classic integer-freeze path.
 func TestTaggedEnumLowersToADTCall(t *testing.T) {
 	numT := &ast.TypePrimitive{BaseNode: base(1), Name: "number"}
-	// enum Shape Circle(number), Rect(number, number), Unit end
 	stmts := []ast.Statement{
 		&ast.EnumStatement{
 			BaseNode: base(1),
@@ -1051,12 +988,12 @@ func TestTaggedEnumLowersToADTCall(t *testing.T) {
 	}
 	main := generate(t, stmts)[0]
 	assertOpcodes(t, main,
-		"getglobal",                  // __enum_adt
-		"loadstring",                 // "Shape"
-		"newtable",                   // arities hash
-		"dup", "loadint", "setfield", // Circle = 1
-		"dup", "loadint", "setfield", // Rect = 2
-		"dup", "loadint", "setfield", // Unit = 0
+		"getglobal",
+		"loadstring",
+		"newtable",
+		"dup", "loadint", "setfield",
+		"dup", "loadint", "setfield",
+		"dup", "loadint", "setfield",
 		"call",
 		"setlocal",
 		"leave",
@@ -1067,8 +1004,6 @@ func TestTaggedEnumLowersToADTCall(t *testing.T) {
 	}
 }
 
-// TestPlainEnumStillUsesFreeze guards the classic integer-enum path against
-// regressions from the tagged-enum branch.
 func TestPlainEnumStillUsesFreeze(t *testing.T) {
 	stmts := []ast.Statement{
 		&ast.EnumStatement{
@@ -1084,10 +1019,7 @@ func TestPlainEnumStillUsesFreeze(t *testing.T) {
 	}
 }
 
-// A single-target dot assignment stores straight into SetField — the value
-// must not be staged through a temp local first (compileAssignOne).
 func TestSingleFieldAssignSkipsTemps(t *testing.T) {
-	// t.x = 1   (t global)
 	stmts := []ast.Statement{
 		&ast.AssignStatement{
 			BaseNode: base(1),
@@ -1104,9 +1036,7 @@ func TestSingleFieldAssignSkipsTemps(t *testing.T) {
 	assertOpcodes(t, main, "getglobal", "loadint", "setfield", "leave")
 }
 
-// Same for a bracketed target: table, key, value, store — no temps.
 func TestSingleIndexAssignSkipsTemps(t *testing.T) {
-	// t[k] = 1   (t, k globals)
 	stmts := []ast.Statement{
 		&ast.AssignStatement{
 			BaseNode: base(1),
@@ -1122,11 +1052,7 @@ func TestSingleIndexAssignSkipsTemps(t *testing.T) {
 	assertOpcodes(t, main, "getglobal", "getglobal", "loadint", "settable", "leave")
 }
 
-// A *multiple* assignment must keep staging every value into a temp before
-// any store runs — that is what makes `i, t[i] = 2, 10` write to t[old i].
-// The fast path above must not swallow this case.
 func TestMultiAssignStillStagesThroughTemps(t *testing.T) {
-	// a, b = 1, 2   (both globals)
 	stmts := []ast.Statement{
 		&ast.AssignStatement{
 			BaseNode: base(1),

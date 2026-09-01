@@ -8,13 +8,6 @@ import (
 	"github.com/hilthontt/luascript/internal/lsp/protocol"
 )
 
-// The luascript front-end reports positions as 1-based (line, column) while
-// LSP uses 0-based (line, character). Character offsets are technically
-// UTF-16 code units in LSP, but luascript source is overwhelmingly ASCII, so
-// a rune-count approximation is close enough for v1 and avoids the cost of a
-// full UTF-16 re-encode on every diagnostic.
-
-// lineWidth returns the number of characters on the given 1-based source line.
 func lineWidth(src string, line1 int) int {
 	if line1 < 1 {
 		return 0
@@ -27,8 +20,6 @@ func lineWidth(src string, line1 int) int {
 	return len([]rune(strings.TrimRight(lines[idx], "\r")))
 }
 
-// wholeLine returns an LSP range spanning an entire 1-based source line. Used
-// for diagnostics that carry a line but no column (typecheck / analyze).
 func wholeLine(src string, line1 int) protocol.Range {
 	if line1 < 1 {
 		line1 = 1
@@ -40,8 +31,6 @@ func wholeLine(src string, line1 int) protocol.Range {
 	}
 }
 
-// spanFrom returns a range from a 1-based (line, col) to the end of that line.
-// Used for parser errors, which report a precise start column.
 func spanFrom(src string, line1, col1 int) protocol.Range {
 	if line1 < 1 {
 		line1 = 1
@@ -58,8 +47,6 @@ func spanFrom(src string, line1, col1 int) protocol.Range {
 	if end < start {
 		end = start
 	}
-	// Guarantee a non-empty range so the squiggle is visible even on an empty
-	// line or when the reported column sits past the last character.
 	if end == start {
 		end = start + 1
 	}
@@ -70,12 +57,8 @@ func spanFrom(src string, line1, col1 int) protocol.Range {
 	}
 }
 
-// lineColRe extracts the "at line N, column C" (column optional) suffix that
-// the parser's errorAt helper appends to every syntax error message.
 var lineColRe = regexp.MustCompile(`at line (\d+)(?:, column (\d+))?`)
 
-// extractLineCol pulls a 1-based (line, col) out of a parser error message.
-// Returns (1, 0) when no position is embedded (col 0 means "unknown column").
 func extractLineCol(msg string) (line, col int) {
 	m := lineColRe.FindStringSubmatch(msg)
 	if m == nil {
@@ -91,8 +74,6 @@ func extractLineCol(msg string) (line, col int) {
 	return line, col
 }
 
-// offsetToPosition converts a byte offset into an LSP position. Used when
-// mapping cursor positions supplied by the client back onto the document.
 func offsetToPosition(src string, offset int) protocol.Position {
 	if offset < 0 {
 		offset = 0
@@ -113,7 +94,6 @@ func offsetToPosition(src string, offset int) protocol.Position {
 	return protocol.Position{Line: uint32(line), Character: uint32(col)}
 }
 
-// positionToOffset converts an LSP position into a byte offset into src.
 func positionToOffset(src string, pos protocol.Position) int {
 	line := uint32(0)
 	col := uint32(0)

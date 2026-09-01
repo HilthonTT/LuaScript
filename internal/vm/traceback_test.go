@@ -8,9 +8,6 @@ import (
 	"github.com/hilthontt/luascript/internal/compiler/parser"
 )
 
-// runFailing compiles src, stamps it with `chunk`, runs it, and requires that
-// it fails — returning the *RuntimeError so tests can inspect message and
-// traceback separately.
 func runFailing(t *testing.T, chunk, src string) *RuntimeError {
 	t.Helper()
 	chunks, err := compiler.CompileToInstructions(src, parser.NormalMode)
@@ -29,7 +26,6 @@ func runFailing(t *testing.T, chunk, src string) *RuntimeError {
 	return re
 }
 
-// runNamed is `run` with a chunk name, for tests that assert on positions.
 func runNamed(t *testing.T, chunk, src string) *VM {
 	t.Helper()
 	chunks, err := compiler.CompileToInstructions(src, parser.NormalMode)
@@ -44,8 +40,6 @@ func runNamed(t *testing.T, chunk, src string) *VM {
 	return v
 }
 
-// wantLines asserts that got contains each want in order, so a test pins the
-// shape of a traceback without pinning every character of it.
 func wantLines(t *testing.T, got string, want ...string) {
 	t.Helper()
 	rest := got
@@ -58,8 +52,6 @@ func wantLines(t *testing.T, got string, want ...string) {
 	}
 }
 
-// A VM-raised runtime error carries the chunk name and line it was raised at,
-// which before this existed only for error().
 func TestRuntimeErrorCarriesPosition(t *testing.T) {
 	re := runFailing(t, "demo.lsc", `
 local function boom(t)
@@ -72,8 +64,6 @@ boom(nil)
 	}
 }
 
-// The traceback names every Lua frame between the raise and the chunk root,
-// innermost first, with the line each frame was executing.
 func TestTracebackWalksTheCallChain(t *testing.T) {
 	re := runFailing(t, "demo.lsc", `
 local function inner(t)
@@ -97,8 +87,6 @@ Outer(nil)
 	)
 }
 
-// error() reports the chunk it was called from rather than the hardcoded
-// "script" the old implementation used.
 func TestErrorBuiltinUsesChunkName(t *testing.T) {
 	re := runFailing(t, "mod/thing.lsc", `
 local function f()
@@ -111,8 +99,6 @@ f()
 	}
 }
 
-// A chunk nobody stamped keeps reporting as "script", which is what an
-// unnamed REPL or load() chunk has always done.
 func TestUnstampedChunkKeepsDefaultName(t *testing.T) {
 	re := runFailing(t, "", "local t = nil\nreturn t.x\n")
 	if !strings.HasPrefix(re.Message(), "script:2:") {
@@ -120,8 +106,6 @@ func TestUnstampedChunkKeepsDefaultName(t *testing.T) {
 	}
 }
 
-// error(level) still selects the frame to blame: level 2 points at the
-// caller, which is how argument-validation helpers report their caller.
 func TestErrorLevelSelectsFrame(t *testing.T) {
 	re := runFailing(t, "demo.lsc", `
 local function check()
@@ -137,8 +121,6 @@ caller()
 	}
 }
 
-// A message that is not a string is a Lua error *value*, and positioning
-// must not touch it — pcall and catch hand it back as it was raised.
 func TestNonStringErrorValueIsNotPositioned(t *testing.T) {
 	v := run(t, `
 ok, err = pcall(function() error({ code = 42 }) end)
@@ -153,8 +135,6 @@ ok, err = pcall(function() error({ code = 42 }) end)
 	}
 }
 
-// The position is stamped at the raise site, not at the boundary that caught
-// it: a pcall several frames up still reports the innermost line.
 func TestPcallReportsRaisePosition(t *testing.T) {
 	v := runNamed(t, "demo.lsc", `
 local function deep(t) return t.x end
@@ -167,8 +147,6 @@ ok, err = pcall(mid, nil)
 	}
 }
 
-// Same rule for a `try` region: the catch binding sees where the error came
-// from, not where it was handled.
 func TestCatchReportsRaisePosition(t *testing.T) {
 	v := runNamed(t, "demo.lsc", `
 local function deep(t) return t.x end
@@ -184,8 +162,6 @@ end
 	}
 }
 
-// A coroutine dying on a runtime error reports the position inside the
-// coroutine body — its frames must be read before the goroutine unwinds.
 func TestCoroutineErrorReportsPosition(t *testing.T) {
 	v := runNamed(t, "demo.lsc", `
 local co = coroutine.create(function(t)
@@ -200,7 +176,6 @@ ok, err = coroutine.resume(co, nil)
 	}
 }
 
-// Runaway recursion must not render one traceback line per frame.
 func TestDeepRecursionTracebackIsElided(t *testing.T) {
 	re := runFailing(t, "demo.lsc", `
 local function recur(n)
@@ -220,8 +195,6 @@ recur(1)
 	}
 }
 
-// A one-frame stack adds nothing the message's own position prefix did not
-// already say, so it is not printed.
 func TestSingleFrameErrorOmitsTraceback(t *testing.T) {
 	re := runFailing(t, "demo.lsc", "local t = nil\nreturn t.x\n")
 	if strings.Contains(re.Error(), "stack traceback:") {
@@ -232,8 +205,6 @@ func TestSingleFrameErrorOmitsTraceback(t *testing.T) {
 	}
 }
 
-// Function literals bound to a name are named after it, so a traceback says
-// what a reader would call the function rather than "anon@<line>".
 func TestTracebackNamesBoundFunctionLiterals(t *testing.T) {
 	re := runFailing(t, "demo.lsc", `
 local M = {}
@@ -256,7 +227,6 @@ M.entry(nil)
 	)
 }
 
-// A genuinely anonymous literal still locates its definition.
 func TestAnonymousFunctionKeepsDefinitionSite(t *testing.T) {
 	re := runFailing(t, "demo.lsc", `
 local fns = { function(t) return t.x end }
@@ -267,8 +237,6 @@ fns[1](nil)
 	}
 }
 
-// assert's own default message is positioned like any other builtin error,
-// while a message the caller supplies is the error object and stays verbatim.
 func TestAssertMessagePositioning(t *testing.T) {
 	re := runFailing(t, "demo.lsc", "\nassert(1 == 2)\n")
 	if want := "demo.lsc:2: assertion failed!"; re.Message() != want {
@@ -281,8 +249,6 @@ func TestAssertMessagePositioning(t *testing.T) {
 	}
 }
 
-// The VM's own faults are reported at the script position that provoked
-// them rather than as an opaque "vm panic".
 func TestRuntimeErrorExposesRaisedValue(t *testing.T) {
 	re := runFailing(t, "demo.lsc", `error("raw value")`)
 	if got, ok := re.Value.(string); !ok || got != "demo.lsc:1: raw value" {

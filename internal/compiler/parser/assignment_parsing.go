@@ -1,7 +1,5 @@
 package parser
 
-// Parsing for expression statements, assignment, and compound assignment.
-
 import (
 	"fmt"
 
@@ -10,9 +8,6 @@ import (
 	"github.com/hilthontt/luascript/internal/compiler/token"
 )
 
-// parseExprOrAssignStatement reads a prefix expression. If it's followed by
-// `=` or `,` we have an assignment; otherwise it must be a call (the only
-// expression Lua allows in statement position).
 func (p *Parser) parseExprOrAssignStatement() ast.Statement {
 	tok := p.curToken
 	first := p.parseExpression()
@@ -27,7 +22,6 @@ func (p *Parser) parseExprOrAssignStatement() ast.Statement {
 		return p.parseAssignmentStatement(tok, first)
 	}
 
-	// Statement-position expression: must be a call.
 	switch first.(type) {
 	case *ast.CallExpression, *ast.MethodCallExpression:
 		return &ast.ExpressionStatement{BaseNode: baseAt(tok), Expression: first}
@@ -38,18 +32,6 @@ func (p *Parser) parseExprOrAssignStatement() ast.Statement {
 	return nil
 }
 
-// parseCompoundAssignStatement desugars `target op= rhs` into `target =
-// target op rhs`. The cursor on entry is on the compound operator token;
-// `binOp` is the binary operator string (e.g. "+", "<<").
-//
-// For an index target `t[k] op= rhs`, a naive desugar duplicates the object
-// and key subtrees, so side effects in them (`t[f()] += 1`) would run twice.
-// To evaluate them exactly once, an index target is hoisted into fresh locals
-// inside a scoping `do` block:
-//
-//	do local __caobj_N = t; local __cakey_N = f(); __caobj_N[__cakey_N] = __caobj_N[__cakey_N] op rhs end
-//
-// The dot form `t.x` keeps its constant string key un-hoisted (no side effect).
 func (p *Parser) parseCompoundAssignStatement(tok token.Token, target ast.Expression, binOp string) ast.Statement {
 	if !isAssignTarget(target) {
 		p.errorAt(tok, errors.InvalidAssignmentError, "",
@@ -58,14 +40,12 @@ func (p *Parser) parseCompoundAssignStatement(tok token.Token, target ast.Expres
 		return nil
 	}
 	opTok := p.curToken
-	p.nextToken() // consume the compound op
+	p.nextToken()
 	rhs := p.parseExpression()
 	if rhs == nil {
 		return nil
 	}
 
-	// mkAssign builds `lhsTarget = lhsRead op rhs`. lhsTarget and lhsRead must
-	// be independent AST nodes (they land in different positions of the tree).
 	mkAssign := func(lhsTarget, lhsRead ast.Expression) ast.Statement {
 		return &ast.AssignStatement{
 			BaseNode: baseAt(tok),
@@ -81,11 +61,9 @@ func (p *Parser) parseCompoundAssignStatement(tok token.Token, target ast.Expres
 
 	idx, ok := target.(*ast.IndexExpression)
 	if !ok {
-		// Name target: nothing to duplicate, reuse the node on both sides.
 		return mkAssign(target, target)
 	}
 
-	// Index target: hoist object (and key, unless it's a constant dot field).
 	p.compoundCounter++
 	objName := fmt.Sprintf("__caobj_%d", p.compoundCounter)
 	body := &ast.Block{
@@ -128,7 +106,7 @@ func (p *Parser) parseAssignmentStatement(tok token.Token, first ast.Expression)
 	}
 	targets := []ast.Expression{first}
 	for p.curTokenIs(token.Comma) {
-		p.nextToken() // consume ','
+		p.nextToken()
 		nxt := p.parseExpression()
 		if nxt == nil {
 			return nil
@@ -147,7 +125,7 @@ func (p *Parser) parseAssignmentStatement(tok token.Token, first ast.Expression)
 			"syntax: `a, b, c = expr1, expr2, expr3`")
 		return nil
 	}
-	p.nextToken() // consume '='
+	p.nextToken()
 	values := p.parseExpressionList()
 	return &ast.AssignStatement{
 		BaseNode: baseAt(tok),
@@ -156,14 +134,6 @@ func (p *Parser) parseAssignmentStatement(tok token.Token, first ast.Expression)
 	}
 }
 
-// parseEnumStatement consumes
-//
-//	enum Name
-//	    VARIANT,
-//	    VARIANT,
-
-// isAssignTarget reports whether an expression is a valid LHS target. Lua
-// permits Name, prefixexp[exp], and prefixexp.Name.
 func isAssignTarget(e ast.Expression) bool {
 	switch e.(type) {
 	case *ast.Identifier, *ast.IndexExpression:

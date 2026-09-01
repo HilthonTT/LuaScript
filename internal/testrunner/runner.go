@@ -1,18 +1,3 @@
-// Package testrunner discovers and executes luascript test files — the engine
-// behind `luascript test`.
-//
-// Each file gets its own VM. That is the isolation boundary: a test file can
-// scribble on globals, install metatables, or leave a module in a strange
-// state without reaching the next file. Files run sequentially and so do the
-// tests within them, because Lua may only execute on one goroutine (the VM has
-// no locks — see internal/native/stdlib/queue for the full statement of that
-// rule). Separate VMs would in principle be safe to run in parallel, but
-// native modules hold process-level state (cache directories, sockets), so
-// v1 does not.
-//
-// The runner owns discovery, VM construction and reporting; declaring and
-// executing individual tests belongs to internal/native/stdlib/testx, which
-// this package drives through a testx.Registry.
 package testrunner
 
 import (
@@ -30,37 +15,19 @@ import (
 	"github.com/hilthontt/luascript/internal/vm"
 )
 
-// Suffix is the filename convention for test files, mirroring Go's _test.go.
 const Suffix = "_test.lsc"
 
-// Options configures one `luascript test` invocation.
 type Options struct {
-	// Paths are files and directories to search. Empty means ".".
-	// A file named explicitly is run whether or not it matches Suffix.
-	Paths []string
-	// Filter is a Lua pattern (or plain substring) matched against each
-	// test's slash-joined name; empty runs everything.
-	Filter string
-	// Verbose reports every test, not just failures.
-	Verbose bool
-	// FailFast stops a file after its first failure and skips the
-	// remaining files.
-	FailFast bool
-	// List reports the tests that would run without running them.
-	List bool
-	// Color enables ANSI colouring of the report.
-	Color bool
-	// Out receives the report. Defaults to os.Stdout.
-	Out io.Writer
-	// RegisterNatives installs the bundled native modules on each VM. The
-	// registrar list lives in package main, so the caller supplies it —
-	// the same seam repl.AddPostInit uses.
+	Paths           []string
+	Filter          string
+	Verbose         bool
+	FailFast        bool
+	List            bool
+	Color           bool
+	Out             io.Writer
 	RegisterNatives func(*vm.VM)
 }
 
-// FileResult is one test file's outcome. Err is set when the file failed to
-// compile, or when the chunk itself raised outside any test — in both cases
-// the tests that did run are still reported.
 type FileResult struct {
 	Path     string
 	Results  []testx.Result
@@ -69,7 +36,6 @@ type FileResult struct {
 	Duration time.Duration
 }
 
-// Summary tallies a whole run.
 type Summary struct {
 	Files      int
 	Passed     int
@@ -79,12 +45,8 @@ type Summary struct {
 	Duration   time.Duration
 }
 
-// OK reports whether the run should exit zero.
 func (s Summary) OK() bool { return s.Failed == 0 && s.FileErrors == 0 }
 
-// Run discovers, executes and reports. The returned error covers only
-// discovery problems; test failures are carried in the Summary so the caller
-// can pick an exit code without inspecting an error string.
 func Run(opts Options) (Summary, error) {
 	if opts.Out == nil {
 		opts.Out = os.Stdout
@@ -121,8 +83,6 @@ func Run(opts Options) (Summary, error) {
 			sum.FileErrors++
 		}
 		rep.file(fr)
-		// FailFast means the whole run stops, not just the file: the point
-		// is to get back to the editor as fast as possible.
 		if opts.FailFast && (fr.Err != nil || fr.Aborted) {
 			break
 		}
@@ -132,7 +92,6 @@ func Run(opts Options) (Summary, error) {
 	return sum, nil
 }
 
-// searchPaths normalizes Paths for messages.
 func searchPaths(paths []string) []string {
 	if len(paths) == 0 {
 		return []string{"."}
@@ -140,10 +99,6 @@ func searchPaths(paths []string) []string {
 	return paths
 }
 
-// Discover expands paths into a sorted, deduplicated list of test files.
-// Directories are walked recursively; an explicitly named file is taken as-is,
-// so a one-off file that does not follow the naming convention can still be
-// run.
 func Discover(paths []string) ([]string, error) {
 	seen := map[string]bool{}
 	var out []string
@@ -187,9 +142,6 @@ func Discover(paths []string) ([]string, error) {
 	return out, nil
 }
 
-// skipDir prunes directories that cannot hold first-party tests: VCS and tool
-// metadata, and the package manager's install root — a dependency's own test
-// suite is its problem, not this project's.
 func skipDir(path, root, name string) bool {
 	if path == root {
 		return false
@@ -200,8 +152,6 @@ func skipDir(path, root, name string) bool {
 	return strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_")
 }
 
-// runFile compiles and runs one test file in a fresh VM. The result is named
-// so the deferred timing lands on the value actually returned.
 func runFile(path string, opts Options) (fr FileResult) {
 	fr = FileResult{Path: path}
 	start := time.Now()
@@ -212,9 +162,6 @@ func runFile(path string, opts Options) (fr FileResult) {
 		fr.Err = err
 		return fr
 	}
-	// Same compile path as `luascript <file>`: an unchanged test file skips
-	// the whole front end on re-runs, which is most of what makes a
-	// re-run-on-save loop feel instant.
 	main, err := bccache.CompileCached(string(src))
 	if err != nil {
 		fr.Err = err
@@ -228,8 +175,6 @@ func runFile(path string, opts Options) (fr FileResult) {
 	}
 	opts.RegisterNatives(v)
 
-	// Installed after the standard registrars so this registry — with the
-	// run's filter and reporting attached — replaces the default one.
 	reg := testx.NewRegistry()
 	reg.Filter = opts.Filter
 	reg.FailFast = opts.FailFast

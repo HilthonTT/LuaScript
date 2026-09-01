@@ -1,20 +1,5 @@
 package compression
 
-// Standard-format codecs (gzip, zlib, raw deflate). These complement the
-// Huffman codebook API in compression.go for the case where users just
-// want a smaller byte string — they accept and return raw byte strings
-// rather than the {bits=, codes=} envelope Huffman uses.
-//
-// Each codec has the same shape:
-//
-//	compression.<fmt>_encode(s [, level]) -> string
-//	compression.<fmt>_decode(s)           -> string
-//
-// `level` accepts the standard flate range (-2 huffman-only, -1 default,
-// 0 store-only, 1..9 fastest..best). An out-of-range or non-numeric
-// level raises with the usual bad-argument message; the encoders never
-// silently fall back, so a typo doesn't quietly disable compression.
-
 import (
 	"bytes"
 	"compress/flate"
@@ -25,13 +10,8 @@ import (
 	"github.com/hilthontt/luascript/internal/vm"
 )
 
-// maxDecodeBytes bounds the inflated output of a single *_decode call. A
-// crafted ~kilobyte gzip/zlib/deflate stream can otherwise expand to many
-// gigabytes (a "decompression bomb") and OOM the process. Reaching the cap
-// raises rather than returning a silently-truncated result.
-const maxDecodeBytes = 256 << 20 // 256 MiB
+const maxDecodeBytes = 256 << 20
 
-// inflate reads the decompressed stream with a hard output cap.
 func inflate(site string, r io.Reader) (string, error) {
 	out, err := io.ReadAll(io.LimitReader(r, maxDecodeBytes+1))
 	if err != nil {
@@ -43,9 +23,6 @@ func inflate(site string, r io.Reader) (string, error) {
 	return string(out), nil
 }
 
-// addStdCodecs installs gzip/zlib/deflate encode+decode pairs on the
-// shared methods table. Kept separate from newCompression() so adding
-// or removing standard codecs doesn't tangle with the Huffman wiring.
 func addStdCodecs(methods *vm.Table) {
 	methods.Set("gzip_encode", &vm.GoFunc{Name: "compression:gzip_encode", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 		data := vm.StringArg("compression.gzip_encode", 1, args)
@@ -109,10 +86,6 @@ func addStdCodecs(methods *vm.Table) {
 		return []vm.Value{out}
 	}})
 
-	// deflate is the raw flate stream — no gzip headers, no zlib
-	// envelope. Useful when interoperating with protocols that wrap
-	// the deflate bits themselves (HTTP transfer-encoding, PNG IDAT
-	// before the zlib step, etc.).
 	methods.Set("deflate_encode", &vm.GoFunc{Name: "compression:deflate_encode", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 		data := vm.StringArg("compression.deflate_encode", 1, args)
 		level := optLevel("compression.deflate_encode", 2, args)
@@ -141,11 +114,6 @@ func addStdCodecs(methods *vm.Table) {
 		return []vm.Value{out}
 	}})
 
-	// rle is a byte-oriented run-length codec. Unlike the flate family it
-	// takes no level — the encoding is fully determined by the input. It uses
-	// the PackBits scheme so incompressible data grows by at most ~1/128
-	// rather than the 2x blowup a naive [count][byte] RLE would pay, while
-	// still collapsing long runs. Binary-safe: every byte value round-trips.
 	methods.Set("rle_encode", &vm.GoFunc{Name: "compression:rle_encode", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 		data := vm.StringArg("compression.rle_encode", 1, args)
 		return []vm.Value{string(rleEncode([]byte(data)))}
@@ -161,10 +129,6 @@ func addStdCodecs(methods *vm.Table) {
 	}})
 }
 
-// optLevel reads an optional compression-level argument. Absent or nil
-// yields the flate default; a present value must be in the documented
-// flate range so a wrong level fails loudly rather than picking a
-// silent fallback.
 func optLevel(site string, n int, args []vm.Value) int {
 	if n < 1 || n > len(args) || args[n-1] == nil {
 		return flate.DefaultCompression

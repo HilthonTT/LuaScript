@@ -5,8 +5,6 @@ import (
 	"testing"
 )
 
-// collectKeys walks the table with Next, optionally deleting each visited
-// key, and returns the visited keys in order.
 func collectKeys(t *Table, deleteAsWeGo bool) []Value {
 	var out []Value
 	var k Value
@@ -23,9 +21,6 @@ func collectKeys(t *Table, deleteAsWeGo bool) []Value {
 	}
 }
 
-// Deleting the current key during traversal is allowed in Lua; the walk
-// must still visit every entry. This regression-tests the tombstone
-// bookkeeping: compaction must never fire on delete, only on insert.
 func TestTableNextDeleteCurrentKeyDuringIteration(t *testing.T) {
 	tbl := NewTable(0, 0)
 	const n = 100
@@ -41,8 +36,6 @@ func TestTableNextDeleteCurrentKeyDuringIteration(t *testing.T) {
 	}
 }
 
-// Reinserting keys after heavy deletion must compact tombstones (on the
-// insert path) and keep iteration coherent: every live key visited once.
 func TestTableReinsertAfterDeleteCompacts(t *testing.T) {
 	tbl := NewTable(0, 0)
 	const n = 64
@@ -52,7 +45,6 @@ func TestTableReinsertAfterDeleteCompacts(t *testing.T) {
 	for i := 0; i < n; i += 2 {
 		tbl.Set(fmt.Sprintf("k%d", i), nil)
 	}
-	// Fresh inserts trigger compaction once tombstones dominate.
 	for i := 0; i < n; i++ {
 		tbl.Set(fmt.Sprintf("new%d", i), int64(i))
 	}
@@ -72,7 +64,6 @@ func TestTableReinsertAfterDeleteCompacts(t *testing.T) {
 	}
 }
 
-// A key deleted and re-added must surface exactly once with its new value.
 func TestTableDeleteThenReinsertSameKey(t *testing.T) {
 	tbl := NewTable(0, 0)
 	tbl.Set("a", int64(1))
@@ -93,7 +84,6 @@ func TestTableDeleteThenReinsertSameKey(t *testing.T) {
 	}
 }
 
-// firstHash must skip tombstones left by deleting the first-inserted key.
 func TestTableNextSkipsLeadingTombstone(t *testing.T) {
 	tbl := NewTable(0, 0)
 	tbl.Set("first", int64(1))

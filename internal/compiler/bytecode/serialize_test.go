@@ -9,9 +9,6 @@ import (
 	"github.com/hilthontt/luascript/internal/compiler/parser"
 )
 
-// generateFromSource parses src and runs the generator over it, returning
-// the main chunk. Bypasses typecheck/fold (not needed to exercise the
-// serializer) — the parser package is import-cycle-safe from here.
 func generateFromSource(t *testing.T, src string) *InstructionSet {
 	t.Helper()
 	p := parser.New(lexer.New(src))
@@ -28,7 +25,6 @@ func generateFromSource(t *testing.T, src string) *InstructionSet {
 	return g.GenerateInstructions(stmts)[0]
 }
 
-// assertSetsEqual deep-compares two instruction sets, recursing into protos.
 func assertSetsEqual(t *testing.T, path string, want, got *InstructionSet) {
 	t.Helper()
 	if want.Name() != got.Name() || want.Type() != got.Type() {
@@ -90,8 +86,6 @@ func roundTrip(t *testing.T, main *InstructionSet) *InstructionSet {
 }
 
 func TestSerializeRoundTrip(t *testing.T) {
-	// Exercises every BoxedAny type, jumps (loops, if, and/or), closures
-	// with upvalues, method calls, tables, varargs, and multi-return.
 	main := generateFromSource(t, `
 		local counter = 0
 		local function make(step)
@@ -122,11 +116,6 @@ func TestSerializeRoundTrip(t *testing.T) {
 	assertSetsEqual(t, "main", main, got)
 }
 
-// TestSerializeRoundTripTryCatch pins that the protected-region opcodes survive
-// the bytecode cache. Try/EndTry/Throw carry their operands in A only, so a
-// missed entry in rebuildParams would leave a cached chunk with an empty Params
-// slice — invisible to the VM (which reads the typed fields) but breaking the
-// disassembler, and silently mis-decoding if the encoding ever diverges.
 func TestSerializeRoundTripTryCatch(t *testing.T) {
 	main := generateFromSource(t, `
 		local function risky(n)
@@ -170,7 +159,6 @@ func TestSerializeRejectsTruncated(t *testing.T) {
 		t.Fatalf("serialize: %v", err)
 	}
 	full := buf.Bytes()
-	// Every strict prefix must fail cleanly, never panic.
 	for n := 0; n < len(full); n++ {
 		if _, err := DeserializeChunk(bytes.NewReader(full[:n])); err == nil {
 			t.Fatalf("truncated chunk of %d/%d bytes decoded without error", n, len(full))
@@ -185,7 +173,7 @@ func TestSerializeVersionMismatch(t *testing.T) {
 		t.Fatalf("serialize: %v", err)
 	}
 	raw := buf.Bytes()
-	raw[len(serialMagic)]++ // bump the version byte
+	raw[len(serialMagic)]++
 	if _, err := DeserializeChunk(bytes.NewReader(raw)); err == nil {
 		t.Fatal("expected a version-mismatch error")
 	}

@@ -1,12 +1,5 @@
 package docs
 
-// Auto-global namespaces — installed into _G by internal/vm/stdlib_modules.go
-// and internal/vm/coroutine.go, so they need no require.
-//
-// Note that `math` and `io` exist twice with different surfaces: the small
-// auto-global documented here, and a larger native module of the same name
-// reached through require. Where they differ the module page says so.
-
 var libraryTopics = []Topic{
 	{
 		Name:          "string",

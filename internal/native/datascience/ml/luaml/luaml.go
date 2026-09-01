@@ -1,36 +1,3 @@
-// Package luaml is the require()-able host module that exposes the ml neural-
-// network engine (native/ml + native/ml/training) to LuaScript as `ml`. It
-// lives in its own package — rather than alongside the engine — because it
-// imports both ml and ml/training, and training already imports ml; putting the
-// loader in package ml would create an import cycle.
-//
-// Lua surface:
-//
-//	local ml = require("ml")
-//
-//	local net = ml.new({
-//	  inputs     = 2,
-//	  layout     = { 4, 1 },        -- hidden(4) -> output(1)
-//	  activation = "tanh",          -- sigmoid | tanh | relu | linear
-//	  mode       = "binary",        -- default | binary | multiclass | regression | multilabel
-//	  bias       = true,
-//	  -- optional: loss, weight = { kind = "normal", stddev = 0.5 }
-//	})
-//
-//	net:train({
-//	  data       = {{ input = {0,0}, response = {0} }, ... },
-//	  iterations = 2000,
-//	  solver     = { kind = "adam", lr = 0.05 },   -- or { kind = "sgd", lr=.1, momentum=.9 }
-//	  verbosity  = 500,                            -- print every N epochs (0 = silent)
-//	  -- optional: validation = {...}, batch = { size = 16, parallelism = 4 }
-//	})
-//
-//	local out = net:predict({1, 0})   -- -> array of output values
-//	local blob = net:marshal()        -- JSON string; ml.load(blob) restores it
-//
-// Every network method is colon-called, so the receiver is args[0] and the
-// first real argument is at 1-based position 2 (matching the rest of the
-// native modules).
 package luaml
 
 import (
@@ -41,7 +8,6 @@ import (
 	"github.com/hilthontt/luascript/internal/vm"
 )
 
-// RegisterMLPreload installs the loader under package.preload as "ml".
 func RegisterMLPreload(v *vm.VM) {
 	vm.RegisterPreload(v, "ml", mlLoader)
 }
@@ -80,11 +46,6 @@ func mlLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
 	return []vm.Value{m}
 }
 
-// Network object
-
-// wrapNet exposes a *ml.Neural as a Lua object. Each method closes over n, so
-// it has direct access to the Go network without round-tripping through the
-// table — the same pattern the dataframe module uses.
 func wrapNet(n *ml.Neural) *vm.Table {
 	methods := vm.NewTable(0, 8)
 	set := func(name string, fn func(*vm.VM, []vm.Value) []vm.Value) {
@@ -101,7 +62,7 @@ func wrapNet(n *ml.Neural) *vm.Table {
 
 	set("train", func(_ *vm.VM, args []vm.Value) []vm.Value {
 		trainNet(n, vm.TableArg("net:train", 2, args))
-		return []vm.Value{args[0]} // return self, so calls can chain
+		return []vm.Value{args[0]}
 	})
 
 	set("num_weights", func(_ *vm.VM, _ []vm.Value) []vm.Value {
@@ -142,9 +103,6 @@ func wrapNet(n *ml.Neural) *vm.Table {
 	return t
 }
 
-// trainNet parses a training-options table and runs a full training session in
-// place. An online trainer is used by default; supplying a `batch` table
-// switches to the parallelized batch trainer.
 func trainNet(n *ml.Neural, opts *vm.Table) {
 	iterations := int(intField("net:train", opts, "iterations", 1000))
 	verbosity := int(intField("net:train", opts, "verbosity", 0))
@@ -160,10 +118,6 @@ func trainNet(n *ml.Neural, opts *vm.Table) {
 		validation = parseExamples("net:train.validation", vt)
 	}
 
-	// Validate example shapes against the network before training starts:
-	// a short response would otherwise index out of range deep inside the
-	// trainer — on a worker goroutine for the batch trainer, where the panic
-	// is unrecoverable and kills the whole process.
 	inSize := n.Config.Inputs
 	outSize := n.Config.Layout[len(n.Config.Layout)-1]
 	checkShapes := func(site string, ex training.Examples) {
@@ -201,8 +155,6 @@ func trainNet(n *ml.Neural, opts *vm.Table) {
 	trainer.Train(n, data, validation, iterations)
 }
 
-// Config / option parsing
-
 func parseConfig(site string, t *vm.Table) *ml.Config {
 	inputs := int(intField(site, t, "inputs", 0))
 	if inputs <= 0 {
@@ -236,7 +188,7 @@ func parseConfig(site string, t *vm.Table) *ml.Config {
 
 func parseSolver(v vm.Value) training.Solver {
 	if v == nil {
-		return training.NewAdam(0, 0, 0, 0) // library defaults
+		return training.NewAdam(0, 0, 0, 0)
 	}
 	t, ok := v.(*vm.Table)
 	if !ok {
@@ -322,10 +274,6 @@ func lossFromString(site, s string) ml.LossType {
 	}
 }
 
-// Lua marshalling helpers
-
-// parseExamples reads an array of { input = {...}, response = {...} } records
-// into training.Examples.
 func parseExamples(site string, t *vm.Table) training.Examples {
 	n := int(t.Len())
 	ex := make(training.Examples, n)
@@ -350,7 +298,6 @@ func parseExamples(site string, t *vm.Table) training.Examples {
 	return ex
 }
 
-// floatArray reads the 1..n array part of t into a []float64, promoting ints.
 func floatArray(site string, t *vm.Table) []float64 {
 	n := int(t.Len())
 	out := make([]float64, n)
@@ -364,7 +311,6 @@ func floatArray(site string, t *vm.Table) []float64 {
 	return out
 }
 
-// intArray reads the 1..n array part of t into a []int.
 func intArray(site string, t *vm.Table) []int {
 	n := int(t.Len())
 	out := make([]int, n)
@@ -386,8 +332,6 @@ func floatSliceToTable(xs []float64) *vm.Table {
 	return t
 }
 
-// weights3DToTable boxes the network's [layer][neuron][weight] slice into
-// nested Lua arrays.
 func weights3DToTable(w [][][]float64) *vm.Table {
 	layers := vm.NewTable(len(w), 0)
 	for i, layer := range w {
@@ -399,8 +343,6 @@ func weights3DToTable(w [][][]float64) *vm.Table {
 	}
 	return layers
 }
-
-// Table-field readers (config/option tables are keyed by string)
 
 func intField(site string, t *vm.Table, key string, dflt int64) int64 {
 	v := t.Get(key)

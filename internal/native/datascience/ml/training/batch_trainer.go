@@ -13,7 +13,6 @@ type internalb struct {
 	accumulatedDeltas [][][]float64
 }
 
-// BatchTrainer implements parallelized batch training
 type BatchTrainer struct {
 	*internalb
 	verbosity   int
@@ -58,7 +57,6 @@ func newBatchTraining(layers []*ml.Layer, parallelism int) *internalb {
 	}
 }
 
-// Train trains n
 func (t *BatchTrainer) Train(n *ml.Neural, examples, validation Examples, iterations int) {
 	t.internalb = newBatchTraining(n.Layers, t.parallelism)
 
@@ -68,10 +66,6 @@ func (t *BatchTrainer) Train(n *ml.Neural, examples, validation Examples, iterat
 	workCh := make(chan Example, t.parallelism)
 	nets := make([]*ml.Neural, t.parallelism)
 
-	// A panic on a worker goroutine is unrecoverable and would kill the
-	// whole process (and leave wg.Wait deadlocked). Capture the first one
-	// and re-raise it on the calling goroutine, where the VM's pcall
-	// machinery can handle it.
 	var panicMu sync.Mutex
 	var panicVal any
 	wg := sync.WaitGroup{}

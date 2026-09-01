@@ -1,24 +1,5 @@
 package bytecode
 
-// Binary serialization of a compiled chunk. Serialize/Deserialize round-trip
-// the main InstructionSet together with its nested function protos, so a
-// deserialized chunk is directly runnable by the VM (all consumers — RunFile,
-// require, loadfile — execute chunks[0] and reach nested functions through
-// its Protos table).
-//
-// The format captures exactly what the VM's dispatch loop reads: per
-// instruction the opcode, the typed fast-path fields (A, B, StrA, BoxedAny)
-// and the source line. The Params slice is *reconstructed* on load from
-// those fields (the mapping is the inverse of encodeParams), so the
-// disassembler keeps working on cached chunks. Forward-jump anchors are
-// already resolved to concrete lines by the time a chunk leaves
-// GenerateInstructions, so no anchor state is serialized.
-//
-// The format is a cache artifact, not a distribution format: it is
-// invalidated wholesale by SerialVersion (layout changes) and by the opcode
-// count embedded in the header (opcode renumbering), and the bccache layer
-// additionally keys files by interpreter version + source hash.
-
 import (
 	"bufio"
 	"encoding/binary"
@@ -28,23 +9,15 @@ import (
 	"math"
 )
 
-// serialMagic identifies a serialized luascript chunk.
 const serialMagic = "LSCB"
 
-// SerialVersion is the on-disk bytecode layout version. Bump on any change to
-// the encoding below — and on any change to what an existing opcode's operands
-// mean, since a cached chunk carries no other record of that. Version 2 moved
-// the numeric-for loop variable to baseSlot+3 (behind the hidden counter).
 const SerialVersion = 2
 
-// Sanity caps against corrupt/truncated input. Generous compared to any real
-// chunk, tiny compared to what a hostile length prefix could ask for.
 const (
-	maxSerialCount  = 1 << 24 // instructions / protos / upvalues per set
-	maxSerialString = 1 << 26 // bytes in one string
+	maxSerialCount  = 1 << 24
+	maxSerialString = 1 << 26
 )
 
-// boxed-value tags for Instruction.BoxedAny.
 const (
 	boxNil    byte = 0
 	boxInt    byte = 1
@@ -52,15 +25,11 @@ const (
 	boxString byte = 3
 )
 
-// SerializeChunk writes main (and, recursively, its nested protos) to w.
 func SerializeChunk(w io.Writer, main *InstructionSet) error {
 	bw := bufio.NewWriter(w)
 	if _, err := bw.WriteString(serialMagic); err != nil {
 		return err
 	}
-	// Header: layout version + opcode count. The opcode count catches cache
-	// files produced by a build whose opcode numbering differs even when the
-	// layout version didn't change.
 	if err := bw.WriteByte(SerialVersion); err != nil {
 		return err
 	}
@@ -71,7 +40,6 @@ func SerializeChunk(w io.Writer, main *InstructionSet) error {
 	return bw.Flush()
 }
 
-// DeserializeChunk reads a chunk previously written by SerializeChunk.
 func DeserializeChunk(r io.Reader) (*InstructionSet, error) {
 	br := bufio.NewReader(r)
 	magic := make([]byte, len(serialMagic))
@@ -125,17 +93,10 @@ func writeInstructionSet(w *bufio.Writer, is *InstructionSet) error {
 			return err
 		}
 	}
-	// Surface any buffered write error once per set rather than checking
-	// every helper call; bufio latches the first error.
 	_, err := w.Write(nil)
 	return err
 }
 
-// maxSerialDepth bounds proto nesting during deserialization. Legitimate
-// chunks nest one level per lexically nested function — nowhere near this —
-// while a crafted/corrupt stream of single-child nesting levels would
-// otherwise recurse to an unrecoverable Go stack overflow instead of the
-// graceful decode-error fallback the bccache contract relies on.
 const maxSerialDepth = 200
 
 func readInstructionSet(r *bufio.Reader, depth int) (*InstructionSet, error) {
@@ -293,9 +254,6 @@ func deserializeInstruction(r *bufio.Reader) (*Instruction, error) {
 	return ins, nil
 }
 
-// rebuildParams reconstructs the Params slice from the typed fast-path
-// fields — the inverse of encodeParams. Only the disassembler, Inspect, and
-// tests read Params; the VM dispatch loop uses the typed fields directly.
 func rebuildParams(ins *Instruction) []any {
 	switch ins.Opcode {
 	case LoadInt, LoadFloat, LoadString:
@@ -345,7 +303,6 @@ func readVarint(r *bufio.Reader) (int64, error) {
 	return binary.ReadVarint(r)
 }
 
-// readCount reads a uvarint bounded by maxSerialCount, as an int.
 func readCount(r *bufio.Reader) (int, error) {
 	v, err := readUvarint(r)
 	if err != nil {

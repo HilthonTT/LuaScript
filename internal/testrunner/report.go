@@ -9,8 +9,6 @@ import (
 	"github.com/hilthontt/luascript/internal/native/stdlib/testx"
 )
 
-// palette holds the ANSI sequences the report uses. Every field is empty when
-// colour is off, so the formatting code never branches on it.
 type palette struct {
 	reset, red, green, yellow, dim, bold string
 }
@@ -36,8 +34,6 @@ func (p palette) wrap(color, s string) string {
 	return color + s + p.reset
 }
 
-// ColorAuto decides whether to colour output for w: never when NO_COLOR is
-// set (https://no-color.org), otherwise only when w is a terminal.
 func ColorAuto(w io.Writer) bool {
 	if os.Getenv("NO_COLOR") != "" {
 		return false
@@ -53,8 +49,6 @@ func ColorAuto(w io.Writer) bool {
 	return info.Mode()&os.ModeCharDevice != 0
 }
 
-// nameColumn caps how far test names are padded before the timing column. A
-// single very long name should not push every other line off the right edge.
 const nameColumn = 52
 
 type reporter struct {
@@ -71,14 +65,7 @@ func (r *reporter) printf(format string, args ...any) {
 	fmt.Fprintf(r.out, format, args...)
 }
 
-// file reports one finished file. The three modes differ enough in shape that
-// they are separate methods rather than one function with flags threaded
-// through it.
 func (r *reporter) file(fr FileResult) {
-	// Under a filter, a file that matched nothing is noise — the user asked
-	// about a subset and every other file is beside the point. Without a
-	// filter, an empty file is still reported, so a test file that declares
-	// nothing does not vanish silently.
 	if r.opts.Filter != "" && len(fr.Results) == 0 && fr.Err == nil {
 		return
 	}
@@ -153,24 +140,16 @@ func (r *reporter) quietFile(fr FileResult) {
 	}
 }
 
-// fileError reports a file that never produced results — a compile error, or
-// an unreadable path.
 func (r *reporter) fileError(fr FileResult) {
 	r.printf("%s  %s\n", r.c.wrap(r.c.red, "ERR "), fr.Path)
 	r.indent(fr.Err.Error(), "        ")
 }
 
-// chunkError reports an error raised by the chunk itself after some tests had
-// already run — a top-level statement failing between describes, say.
 func (r *reporter) chunkError(fr FileResult, prefix string) {
 	r.printf("%s%s\n", prefix, r.c.wrap(r.c.red, "chunk error"))
 	r.indent(fr.Err.Error(), prefix+"  ")
 }
 
-// failureDetail prints a failed test's message and, when it adds anything, its
-// traceback. A single-frame traceback repeats what the message's own position
-// prefix already said, so it is suppressed — the same rule RuntimeError.Error
-// applies.
 func (r *reporter) failureDetail(res testx.Result, prefix string) {
 	r.indent(res.Message, prefix)
 	if res.Stack != "" && strings.Count(res.Stack, "\n") > 1 {
@@ -178,10 +157,6 @@ func (r *reporter) failureDetail(res testx.Result, prefix string) {
 	}
 }
 
-// indent writes a multi-line block with each line prefixed, dropping a
-// trailing blank line. Leading tabs — which is how FormatTraceback separates
-// its frames — become two spaces, so a nested block does not jump a full tab
-// stop away from the prefix it is nested under.
 func (r *reporter) indent(text, prefix string) {
 	for _, line := range strings.Split(strings.TrimRight(text, "\n"), "\n") {
 		line = strings.TrimRight(line, "\r")
@@ -192,7 +167,6 @@ func (r *reporter) indent(text, prefix string) {
 	}
 }
 
-// summary closes the run with the totals and a PASS/FAIL verdict.
 func (r *reporter) summary(s Summary) {
 	if r.opts.List {
 		r.printf("\n%d tests\n", s.Passed+s.Failed+s.Skipped)
@@ -219,7 +193,6 @@ func (r *reporter) summary(s Summary) {
 	r.printf("%s\n", r.c.wrap(r.c.red, "FAIL"))
 }
 
-// tally renders one file's per-status counts, omitting the zeroes.
 func tally(fr FileResult) string {
 	var pass, fail, skip int
 	for _, res := range fr.Results {
@@ -251,8 +224,6 @@ func anyFailed(results []testx.Result) bool {
 	return false
 }
 
-// nameWidth is the padding width for a file's test names, capped so one long
-// name doesn't stretch the timing column across the terminal.
 func nameWidth(results []testx.Result) int {
 	w := 0
 	for _, res := range results {

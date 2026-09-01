@@ -1,35 +1,4 @@
-// Package ndarray is a require()-able host module providing a dense,
-// N-dimensional numeric array — the NumPy-style primitive that most
-// data-science numerics build on. Unlike a Lua table (a boxed hash map),
-// an ndarray stores its elements in a single contiguous []float64 in
-// row-major (C) order, so vectorized arithmetic, reductions, and matrix
-// products run over flat Go slices instead of chasing pointers.
-//
-// Construction:
-//
-//	local nd = require("ndarray")
-//	a = nd.array({ {1, 2, 3}, {4, 5, 6} })   -- 2x3 from nested tables
-//	z = nd.zeros(2, 3)                        -- 2x3 of zeros
-//	r = nd.arange(0, 10)                      -- 0,1,..,9  (1-D)
-//	l = nd.linspace(0, 1, 5)                  -- 5 points in [0,1]
-//	i = nd.eye(3)                             -- 3x3 identity
-//
-// Arithmetic operators are overloaded and broadcast NumPy-style, so an
-// array and a scalar, or two arrays whose shapes align, combine elementwise:
-//
-//	b = a * 2 + 1
-//	c = a + nd.array({10, 20, 30})           -- row broadcast over a 2x3
-//
-// Reductions take an optional axis; with no axis they collapse to a scalar:
-//
-//	a:sum()          -- scalar
-//	a:mean(1)        -- per-row means (a 1-D array of length 2)
-//
-// Every arithmetic/transform method returns a NEW array; the receiver is
-// never mutated (only :set and the in-place-free API mutate, explicitly).
 package ndarray
-
-// The Lua bridge: wrapping arrays as tables, argument coercion, and constructors.
 
 import (
 	"sync"
@@ -37,21 +6,14 @@ import (
 	"github.com/hilthontt/luascript/internal/vm"
 )
 
-// Lua marshalling
-
-// ndKey is the (private) instance-table key under which the backing *ndarray
-// is stored. Prefixed with a control byte to avoid colliding with any field a
-// user would reasonably index.
 const ndKey = "\x00ndarray"
 
 var (
 	ndMeta    *vm.Table
 	metaOnce  sync.Once
-	ndMethods *vm.Table // shared __index method table
+	ndMethods *vm.Table
 )
 
-// wrap exposes an *ndarray as a Lua object sharing a single metatable; the
-// backing pointer rides on the instance table under ndKey.
 func wrap(a *ndarray) *vm.Table {
 	metaOnce.Do(buildMeta)
 	t := vm.NewTable(0, 1)
@@ -60,8 +22,6 @@ func wrap(a *ndarray) *vm.Table {
 	return t
 }
 
-// asND coerces a Lua value to an *ndarray: numbers become scalars, wrapped
-// arrays unwrap. ok is false for anything else.
 func asND(v vm.Value) (*ndarray, bool) {
 	switch x := v.(type) {
 	case int64:
@@ -83,7 +43,6 @@ func ndArg(site string, v vm.Value) *ndarray {
 	panic(vm.Errorf("%s: expected an ndarray or number, got %s", site, vm.TypeName(v)))
 }
 
-// selfND recovers the receiver of a colon method call (args[0]).
 func selfND(site string, args []vm.Value) *ndarray {
 	if len(args) == 0 {
 		panic(vm.Errorf("%s: called without a receiver (use a:method(), not a.method())", site))
@@ -106,8 +65,6 @@ func argAt(args []vm.Value, i int) vm.Value {
 	return args[i-1]
 }
 
-// Module loader
-
 func ndLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
 	m := vm.NewTable(0, 16)
 	set := func(name string, fn func(*vm.VM, []vm.Value) []vm.Value) {
@@ -128,7 +85,6 @@ func ndLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
 		return []vm.Value{wrap(a)}
 	})
 	set("full", func(_ *vm.VM, args []vm.Value) []vm.Value {
-		// full(value, dims...) — value first so dims stay variadic.
 		val := vm.FloatArg("ndarray.full", 1, args)
 		a := newND(shapeArgs("ndarray.full", args, 2))
 		for i := range a.data {
@@ -191,8 +147,6 @@ func ndLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
 	return []vm.Value{m}
 }
 
-// shapeArgs reads dimensions from args starting at position `from`. A single
-// table argument ({2, 3}) is accepted as well as varargs (2, 3).
 func shapeArgs(site string, args []vm.Value, from int) []int {
 	if t, ok := argAt(args, from).(*vm.Table); ok {
 		n := int(t.Len())
@@ -213,7 +167,6 @@ func shapeArgs(site string, args []vm.Value, from int) []int {
 }
 
 func arange(args []vm.Value) *ndarray {
-	// arange(stop) | arange(start, stop) | arange(start, stop, step)
 	var start, stop, step float64 = 0, 0, 1
 	switch len(args) {
 	case 1:
@@ -254,9 +207,6 @@ func concat1D(site string, a, b *ndarray) *ndarray {
 	return r
 }
 
-// fromNested builds an array from nested Lua arrays, inferring the shape from
-// the first element at each depth and validating that the structure is
-// rectangular.
 func fromNested(site string, t *vm.Table) *ndarray {
 	shape := inferShape(t)
 	a := newND(shape)
@@ -305,8 +255,6 @@ func inferShape(t *vm.Table) []int {
 	return shape
 }
 
-// result returns a 0-D array as a bare Lua number, and any higher-rank array
-// wrapped. This keeps scalar reductions/dot products ergonomic in Lua.
 func result(a *ndarray) vm.Value {
 	if a.ndim() == 0 {
 		return a.data[0]

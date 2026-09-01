@@ -1,29 +1,13 @@
 package typecheck
 
-// Mutation scanning: which names are assigned or captured-and-mutated anywhere in the program.
-
 import "github.com/hilthontt/luascript/internal/compiler/ast"
 
-//
-// scanMutations walks the program once and fills the checker's two
-// name sets. Matching is by name (not by binding identity), which
-// over-approximates in the presence of same-named distinct variables — the
-// conservative direction: at worst a valid narrowing is dropped.
-
-// scanMutations populates c.assignedSomewhere and c.upvalMutated from the
-// program body.
 func (c *checker) scanMutations(b *ast.Block) {
 	c.assignedSomewhere = map[string]bool{}
 	c.upvalMutated = map[string]bool{}
 	scanBlockMutations(b, c.assignedSomewhere, c.upvalMutated, false, nil)
 }
 
-// scanBlockMutations records every identifier assigned in the subtree into
-// `assigned`. When `insideFn` is true, an assigned name that is not among
-// the enclosing function literal's own declarations (`fnLocals`) is also an
-// upvalue mutation. fnLocals is a name set accumulated per function literal;
-// block scoping inside one function is deliberately ignored (name-based
-// approximation).
 func scanBlockMutations(b *ast.Block, assigned, upval map[string]bool, insideFn bool, fnLocals map[string]bool) {
 	if b == nil {
 		return
@@ -118,9 +102,6 @@ func scanStatementMutations(s ast.Statement, assigned, upval map[string]bool, in
 	}
 }
 
-// scanFnMutations enters a function literal: its body scans with a fresh
-// local-name set seeded with the parameters, and everything assigned there
-// that isn't function-local counts as an upvalue mutation.
 func scanFnMutations(fe *ast.FunctionExpression, assigned, upval map[string]bool) {
 	if fe == nil {
 		return
@@ -132,8 +113,6 @@ func scanFnMutations(fe *ast.FunctionExpression, assigned, upval map[string]bool
 	scanBlockMutations(fe.Body, assigned, upval, true, locals)
 }
 
-// scanExprMutations descends into expressions only to find nested function
-// literals (the one expression form that contains statements).
 func scanExprMutations(e ast.Expression, assigned, upval map[string]bool, insideFn bool, fnLocals map[string]bool) {
 	switch n := e.(type) {
 	case *ast.FunctionExpression:

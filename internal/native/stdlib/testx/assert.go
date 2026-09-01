@@ -8,21 +8,10 @@ import (
 	"github.com/hilthontt/luascript/internal/vm"
 )
 
-// Assertions raise vm.LuaError rather than returning a boolean. The VM stamps
-// a LuaError raised from a builtin with the position of the innermost Lua
-// frame — the line of the assertion call itself — so a failure message arrives
-// already reading "suite_test.lsc:14: assert_eq failed", with no cooperation
-// needed from the runner.
-
-// failf raises an assertion failure. The message is pre-formatted and handed
-// to Errorf as a literal so a value containing a percent sign cannot corrupt
-// the output.
 func failf(format string, args ...any) {
 	panic(vm.Errorf("%s", fmt.Sprintf(format, args...)))
 }
 
-// detail formats an assertion failure as a headline plus indented expectation
-// lines, which is what makes a diff readable in terminal output.
 func detail(head, msg string, lines ...string) string {
 	var b strings.Builder
 	b.WriteString(head)
@@ -37,7 +26,6 @@ func detail(head, msg string, lines ...string) string {
 	return b.String()
 }
 
-// optMsg reads the optional trailing message argument at 1-based position n.
 func optMsg(args []vm.Value, n int) string {
 	if len(args) < n || args[n-1] == nil {
 		return ""
@@ -45,11 +33,7 @@ func optMsg(args []vm.Value, n int) string {
 	return vm.ToString(args[n-1])
 }
 
-// registerAssertions installs the assertion surface. set is the module's
-// member installer, passed in so this file need not know how the table is
-// built.
 func registerAssertions(set func(string, func(*vm.VM, []vm.Value) []vm.Value)) {
-	// assert_eq(got, want [, msg]) — `==` semantics, __eq included.
 	set("assert_eq", func(v *vm.VM, args []vm.Value) []vm.Value {
 		got := vm.AnyArg("test.assert_eq", 1, args)
 		want := vm.AnyArg("test.assert_eq", 2, args)
@@ -61,7 +45,6 @@ func registerAssertions(set func(string, func(*vm.VM, []vm.Value) []vm.Value)) {
 		return nil
 	})
 
-	// assert_ne(got, unwanted [, msg])
 	set("assert_ne", func(v *vm.VM, args []vm.Value) []vm.Value {
 		got := vm.AnyArg("test.assert_ne", 1, args)
 		unwanted := vm.AnyArg("test.assert_ne", 2, args)
@@ -72,7 +55,6 @@ func registerAssertions(set func(string, func(*vm.VM, []vm.Value) []vm.Value)) {
 		return nil
 	})
 
-	// assert_deep_eq(got, want [, msg]) — structural table comparison.
 	set("assert_deep_eq", func(v *vm.VM, args []vm.Value) []vm.Value {
 		got := vm.AnyArg("test.assert_deep_eq", 1, args)
 		want := vm.AnyArg("test.assert_deep_eq", 2, args)
@@ -84,8 +66,6 @@ func registerAssertions(set func(string, func(*vm.VM, []vm.Value) []vm.Value)) {
 		return nil
 	})
 
-	// assert_true / assert_false use Lua truthiness: only nil and false are
-	// false, so assert_true(0) passes exactly as `if 0 then` would.
 	set("assert_true", func(v *vm.VM, args []vm.Value) []vm.Value {
 		got := vm.AnyArg("test.assert_true", 1, args)
 		if !vm.IsTruthy(got) {
@@ -118,9 +98,6 @@ func registerAssertions(set func(string, func(*vm.VM, []vm.Value) []vm.Value)) {
 		return nil
 	})
 
-	// assert_near(got, want [, eps] [, msg]) — float comparison with an
-	// absolute tolerance. The third argument doubles as the message when it
-	// is a string, so the common two-and-a-message form needs no placeholder.
 	set("assert_near", func(v *vm.VM, args []vm.Value) []vm.Value {
 		got := vm.FloatArg("test.assert_near", 1, args)
 		want := vm.FloatArg("test.assert_near", 2, args)
@@ -142,7 +119,6 @@ func registerAssertions(set func(string, func(*vm.VM, []vm.Value) []vm.Value)) {
 		return nil
 	})
 
-	// assert_type(value, typename [, msg]) — typename as `type()` reports it.
 	set("assert_type", func(v *vm.VM, args []vm.Value) []vm.Value {
 		got := vm.AnyArg("test.assert_type", 1, args)
 		want := vm.StringArg("test.assert_type", 2, args)
@@ -155,7 +131,6 @@ func registerAssertions(set func(string, func(*vm.VM, []vm.Value) []vm.Value)) {
 		return nil
 	})
 
-	// assert_len(value, n [, msg]) — length as `#` computes it.
 	set("assert_len", func(v *vm.VM, args []vm.Value) []vm.Value {
 		got := vm.AnyArg("test.assert_len", 1, args)
 		want := vm.IntArg("test.assert_len", 2, args)
@@ -177,8 +152,6 @@ func registerAssertions(set func(string, func(*vm.VM, []vm.Value) []vm.Value)) {
 		return nil
 	})
 
-	// assert_contains(haystack, needle [, msg]) — substring for strings,
-	// membership for tables (array part and hash values alike).
 	set("assert_contains", func(v *vm.VM, args []vm.Value) []vm.Value {
 		hay := vm.AnyArg("test.assert_contains", 1, args)
 		needle := vm.AnyArg("test.assert_contains", 2, args)
@@ -205,8 +178,6 @@ func registerAssertions(set func(string, func(*vm.VM, []vm.Value) []vm.Value)) {
 		return nil
 	})
 
-	// assert_match(s, pattern [, msg]) — Lua pattern, same engine as
-	// string.find.
 	set("assert_match", func(_ *vm.VM, args []vm.Value) []vm.Value {
 		s := vm.StringArg("test.assert_match", 1, args)
 		pat := vm.StringArg("test.assert_match", 2, args)
@@ -218,8 +189,6 @@ func registerAssertions(set func(string, func(*vm.VM, []vm.Value) []vm.Value)) {
 		return nil
 	})
 
-	// assert_error(fn [, pattern] [, msg]) — expects fn to raise, and
-	// returns the error value so a test can inspect it further.
 	set("assert_error", func(v *vm.VM, args []vm.Value) []vm.Value {
 		fn := vm.AnyArg("test.assert_error", 1, args)
 		pat, msg := "", ""
@@ -243,7 +212,6 @@ func registerAssertions(set func(string, func(*vm.VM, []vm.Value) []vm.Value)) {
 		return []vm.Value{errVal}
 	})
 
-	// assert_no_error(fn [, msg]) — the inverse; forwards fn's results.
 	set("assert_no_error", func(v *vm.VM, args []vm.Value) []vm.Value {
 		fn := vm.AnyArg("test.assert_no_error", 1, args)
 		res, errVal, failed := v.SafeCall(fn, nil)
@@ -254,8 +222,6 @@ func registerAssertions(set func(string, func(*vm.VM, []vm.Value) []vm.Value)) {
 		return res
 	})
 
-	// fail([msg]) — unconditional failure, for a branch that should be
-	// unreachable.
 	set("fail", func(_ *vm.VM, args []vm.Value) []vm.Value {
 		msg := optMsg(args, 1)
 		if msg == "" {
@@ -273,15 +239,11 @@ func abs(f float64) float64 {
 	return f
 }
 
-// patternMatches reports whether pat matches anywhere in s, using the same
-// pattern engine string.find uses.
 func patternMatches(s, pat string) bool {
 	_, _, _, ok := vm.PatternFind(s, pat, 1)
 	return ok
 }
 
-// tableContains reports whether any value in t equals needle, scanning the
-// array part and then the hash part.
 func tableContains(v *vm.VM, t *vm.Table, needle vm.Value) bool {
 	var key vm.Value
 	for {
@@ -296,16 +258,8 @@ func tableContains(v *vm.VM, t *vm.Table, needle vm.Value) bool {
 	}
 }
 
-// pair identifies a table comparison already in progress, so a cyclic
-// structure terminates instead of recursing forever.
 type pair struct{ a, b *vm.Table }
 
-// deepEqual compares structurally: equal under `==` short-circuits, two tables
-// compare key-by-key, everything else is unequal.
-//
-// A table carrying an __eq metamethod is compared with it rather than
-// structurally — the script has said what equality means for that type, and
-// overruling it would make deep comparison disagree with `==`.
 func deepEqual(v *vm.VM, a, b vm.Value, seen map[pair]bool) bool {
 	if v.EqualMM(a, b) {
 		return true
@@ -316,11 +270,11 @@ func deepEqual(v *vm.VM, a, b vm.Value, seen map[pair]bool) bool {
 		return false
 	}
 	if hasMeta(ta, "__eq") || hasMeta(tb, "__eq") {
-		return false // EqualMM already consulted it and said no.
+		return false
 	}
 	p := pair{ta, tb}
 	if seen[p] {
-		return true // Already being compared further up; assume equal.
+		return true
 	}
 	seen[p] = true
 	defer delete(seen, p)
@@ -341,15 +295,11 @@ func deepEqual(v *vm.VM, a, b vm.Value, seen map[pair]bool) bool {
 	}
 }
 
-// hasMeta reports whether t's metatable defines the named metamethod.
 func hasMeta(t *vm.Table, name string) bool {
 	mt := t.Metatable()
 	return mt != nil && mt.Get(name) != nil
 }
 
-// render formats a value for a failure message. Strings are quoted so an
-// expected "3" is distinguishable from an expected 3, and plain tables get a
-// shallow structural preview rather than an address nobody can act on.
 func render(v *vm.VM, val vm.Value) string {
 	switch x := val.(type) {
 	case nil, bool, int64, float64:
@@ -366,11 +316,8 @@ func render(v *vm.VM, val vm.Value) string {
 	}
 }
 
-// previewEntries caps how much of a table a failure message reproduces:
-// enough to see what differs, not so much that the message buries the test.
 const previewEntries = 8
 
-// previewTable renders a table as a Lua-ish constructor, array part first.
 func previewTable(v *vm.VM, t *vm.Table, depth int) string {
 	if depth > 2 {
 		return "{...}"
@@ -394,7 +341,6 @@ func previewTable(v *vm.VM, t *vm.Table, depth int) string {
 			break
 		}
 		key = k
-		// Skip the array part, already rendered positionally above.
 		if i, ok := k.(int64); ok && i >= 1 && i <= n {
 			continue
 		}
@@ -411,7 +357,6 @@ func previewTable(v *vm.VM, t *vm.Table, depth int) string {
 	return "{" + strings.Join(parts, ", ") + "}"
 }
 
-// renderNested is render one level down, so nested tables preview too.
 func renderNested(v *vm.VM, val vm.Value, depth int) string {
 	if t, ok := val.(*vm.Table); ok && !hasMeta(t, "__tostring") {
 		return previewTable(v, t, depth)
@@ -419,8 +364,6 @@ func renderNested(v *vm.VM, val vm.Value, depth int) string {
 	return render(v, val)
 }
 
-// renderKey formats a table key in constructor position: an identifier-shaped
-// string key is bare, anything else is bracketed.
 func renderKey(v *vm.VM, k vm.Value) string {
 	if s, ok := k.(string); ok && isIdentifier(s) {
 		return s

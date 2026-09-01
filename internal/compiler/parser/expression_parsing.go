@@ -9,17 +9,6 @@ import (
 	"github.com/hilthontt/luascript/internal/compiler/token"
 )
 
-// Pratt-style expression parser.
-//
-// parseExpression(minPrec) reads the prefix (atom or unary) and then keeps
-// folding infix operators of strictly higher precedence than `minPrec`.
-// Right-associative operators (.. and ^) recurse on the RHS with `prec - 1`
-// so an equal-precedence `^` will be absorbed instead of stopping the loop.
-//
-// Postfix forms — calls, method-calls, indexes, and table/string-call args —
-// are folded by the same loop because they sit at the highest level (Call).
-
-// parseExpression is the public entrypoint with the lowest precedence floor.
 func (p *Parser) parseExpression() ast.Expression {
 	return p.parseExpressionPrec(precedence.Lowest)
 }
@@ -34,17 +23,10 @@ func (p *Parser) parseExpressionPrec(minPrec int) ast.Expression {
 		return nil
 	}
 	for {
-		// Postfix call forms `f"str"` and `f{tbl}` start with a token that
-		// has no infix entry but should still attach as a call at Call prec.
 		if precedence.Call > minPrec && (p.curTokenIs(token.LBrace) || p.curTokenIs(token.String) || p.curTokenIs(token.InterpString)) {
 			left = p.parseCallWithSingleArg(left)
 			continue
 		}
-		// `::` overlaps with goto-label statements (`::name::`). Peek
-		// two tokens past the `::` — if the shape is `:: Ident ::` we're
-		// at the head of a label statement, not a type assertion, so
-		// stop expression parsing and let the statement dispatcher claim
-		// the tokens.
 		if p.curTokenIs(token.Label) && p.peekTokenIs(token.Ident) && p.peek2Token().Type == token.Label {
 			break
 		}
@@ -60,7 +42,6 @@ func (p *Parser) parseExpressionPrec(minPrec int) ast.Expression {
 	return left
 }
 
-// parsePrefix parses an atom or unary prefix expression.
 func (p *Parser) parsePrefix() ast.Expression {
 	switch p.curToken.Type {
 	case token.Nil:
@@ -112,9 +93,6 @@ func (p *Parser) parsePrefix() ast.Expression {
 	return nil
 }
 
-// parseInfix dispatches on the *current* token (which is the operator) and
-// returns the folded expression. The caller has already consulted precedence
-// and decided to fold, so this routine just reads the operator and the RHS.
 func (p *Parser) parseInfix(left ast.Expression, opPrec int) ast.Expression {
 	switch p.curToken.Type {
 	case token.LParen:
@@ -126,19 +104,14 @@ func (p *Parser) parseInfix(left ast.Expression, opPrec int) ast.Expression {
 	case token.Colon:
 		return p.parseMethodCall(left)
 	case token.Label:
-		// Type assertion `expr :: T` — postfix at Call precedence so it
-		// binds tightly enough to leave surrounding operators alone.
 		return p.parseTypeAssertion(left)
 	}
 	return p.parseBinaryExpression(left, opPrec)
 }
 
-// parseTypeAssertion folds `:: T` onto an already-parsed expression. The
-// runtime is unaffected; the type checker treats the result as T. Cursor
-// is on `::` on entry.
 func (p *Parser) parseTypeAssertion(left ast.Expression) ast.Expression {
 	tok := p.curToken
-	p.nextToken() // consume '::'
+	p.nextToken()
 	t := p.parseType()
 	if t == nil {
 		return nil
@@ -150,17 +123,9 @@ func (p *Parser) parseTypeAssertion(left ast.Expression) ast.Expression {
 	}
 }
 
-// parseIfExpression handles the Luau-style conditional expression
-//
-//	if <cond> then <expr> [elseif <cond> then <expr>]... else <expr>
-//
-// The cursor is on `if` on entry. There is no terminating `end` — the
-// expression ends after the (mandatory) else-value. `if` can only start an
-// expression in expression position; at statement position the statement
-// dispatcher claims it first, so `if` statements are unaffected.
 func (p *Parser) parseIfExpression() ast.Expression {
 	tok := p.curToken
-	p.nextToken() // consume 'if'
+	p.nextToken()
 
 	expr := &ast.IfExpression{BaseNode: baseAt(tok)}
 	for {
@@ -174,7 +139,7 @@ func (p *Parser) parseIfExpression() ast.Expression {
 				"syntax: `if <cond> then <value> else <value>` (no `end`)")
 			return nil
 		}
-		p.nextToken() // consume 'then'
+		p.nextToken()
 		val := p.parseExpression()
 		if val == nil {
 			return nil
@@ -182,7 +147,7 @@ func (p *Parser) parseIfExpression() ast.Expression {
 		expr.Clauses = append(expr.Clauses, ast.IfExprClause{Condition: cond, Value: val})
 
 		if p.curTokenIs(token.ElseIf) {
-			p.nextToken() // consume 'elseif'
+			p.nextToken()
 			continue
 		}
 		break
@@ -193,7 +158,7 @@ func (p *Parser) parseIfExpression() ast.Expression {
 			"an if expression must always produce a value, so the `else` arm is mandatory")
 		return nil
 	}
-	p.nextToken() // consume 'else'
+	p.nextToken()
 	expr.Else = p.parseExpression()
 	if expr.Else == nil {
 		return nil
@@ -201,17 +166,14 @@ func (p *Parser) parseIfExpression() ast.Expression {
 	return expr
 }
 
-// parseParenExpression handles `( exp )`. Lua uses parentheses to *adjust*
-// a multi-value expression down to exactly one result, so the wrapper node
-// is preserved (see ast.ParenExpression).
 func (p *Parser) parseParenExpression() ast.Expression {
 	openTok := p.curToken
-	p.nextToken() // consume '('
+	p.nextToken()
 	inner := p.parseExpression()
 	if !p.expectCur(token.RParen) {
 		return nil
 	}
-	p.nextToken() // consume ')'
+	p.nextToken()
 	return &ast.ParenExpression{BaseNode: baseAt(openTok), Inner: inner}
 }
 
@@ -219,9 +181,6 @@ func (p *Parser) parseUnaryExpression() ast.Expression {
 	tok := p.curToken
 	op := unaryOpString(tok.Type)
 	p.nextToken()
-	// Lua unary precedence binds tighter than every binary except ^,
-	// which is right-associative and binds tighter still. Recursing at
-	// `Unary` precedence handles both correctly.
 	operand := p.parseExpressionPrec(precedence.Unary)
 	if operand == nil {
 		return nil
@@ -247,15 +206,12 @@ func (p *Parser) parseBinaryExpression(left ast.Expression, opPrec int) ast.Expr
 	tok := p.curToken
 	op := binaryOpString(tok.Type)
 	if op == "" {
-		// Internal-shape error: parsePrecedence reached a non-operator token
-		// when it expected an infix op. Surface enough context that the
-		// user can find where their expression went off the rails.
 		p.errorAt(tok, errors.SyntaxError, "",
 			describeToken(tok)+" is not a binary operator",
 			"this token can't combine two expressions; check for a missing operator or stray punctuation before it")
 		return nil
 	}
-	p.nextToken() // consume operator
+	p.nextToken()
 	rhsPrec := opPrec
 	if precedence.IsRightAssoc(tok.Type) {
 		rhsPrec = opPrec - 1
@@ -322,7 +278,7 @@ func binaryOpString(t token.Type) string {
 
 func (p *Parser) parseCall(callee ast.Expression) ast.Expression {
 	openTok := p.curToken
-	p.nextToken() // consume '('
+	p.nextToken()
 	args := []ast.Expression{}
 	if !p.curTokenIs(token.RParen) {
 		args = p.parseExpressionList()
@@ -330,12 +286,10 @@ func (p *Parser) parseCall(callee ast.Expression) ast.Expression {
 	if !p.expectCur(token.RParen) {
 		return nil
 	}
-	p.nextToken() // consume ')'
+	p.nextToken()
 	return &ast.CallExpression{BaseNode: baseAt(openTok), Func: callee, Args: args}
 }
 
-// parseCallWithSingleArg handles the sugar `f"str"` and `f{tbl}`. The current
-// token is either `String` or `LBrace`.
 func (p *Parser) parseCallWithSingleArg(callee ast.Expression) ast.Expression {
 	tok := p.curToken
 	var arg ast.Expression
@@ -353,12 +307,12 @@ func (p *Parser) parseCallWithSingleArg(callee ast.Expression) ast.Expression {
 
 func (p *Parser) parseIndexBracket(obj ast.Expression) ast.Expression {
 	tok := p.curToken
-	p.nextToken() // consume '['
+	p.nextToken()
 	idx := p.parseExpression()
 	if !p.expectCur(token.RBracket) {
 		return nil
 	}
-	p.nextToken() // consume ']'
+	p.nextToken()
 	return &ast.IndexExpression{
 		BaseNode: baseAt(tok),
 		Object:   obj,
@@ -369,9 +323,7 @@ func (p *Parser) parseIndexBracket(obj ast.Expression) ast.Expression {
 
 func (p *Parser) parseIndexDot(obj ast.Expression) ast.Expression {
 	tok := p.curToken
-	p.nextToken() // consume '.'
-	// Field names may use any identifier OR a soft/contextual keyword
-	// (`match`). Hard keywords like `if`/`end` are still rejected.
+	p.nextToken()
 	if !p.curTokenIsFieldName() {
 		p.errorAt(p.curToken, errors.UnexpectedTokenError, "",
 			"expected field name after '.', got "+describeToken(p.curToken),
@@ -380,7 +332,7 @@ func (p *Parser) parseIndexDot(obj ast.Expression) ast.Expression {
 	}
 	name := p.curToken.Literal
 	nameTok := p.curToken
-	p.nextToken() // consume Name
+	p.nextToken()
 	return &ast.IndexExpression{
 		BaseNode: baseAt(tok),
 		Object:   obj,
@@ -389,20 +341,13 @@ func (p *Parser) parseIndexDot(obj ast.Expression) ast.Expression {
 	}
 }
 
-// curTokenIsFieldName reports whether the current token is acceptable as
-// a field/method name (i.e. after '.' or ':'). Plain identifiers always
-// qualify; contextual keywords (`match`) qualify because they are not
-// reserved in expression positions.
 func (p *Parser) curTokenIsFieldName() bool {
 	return p.curTokenIs(token.Ident) || p.curTokenIs(token.Match)
 }
 
-// parseMethodCall handles `obj:method(args)` (and `obj:method"str"`,
-// `obj:method{tbl}`). Lua's grammar requires `:` to be immediately followed
-// by Name and then a call-args group.
 func (p *Parser) parseMethodCall(obj ast.Expression) ast.Expression {
 	tok := p.curToken
-	p.nextToken() // consume ':'
+	p.nextToken()
 	if !p.curTokenIsFieldName() {
 		p.errorAt(p.curToken, errors.UnexpectedTokenError, "",
 			"expected method name after ':', got "+describeToken(p.curToken),
@@ -410,7 +355,7 @@ func (p *Parser) parseMethodCall(obj ast.Expression) ast.Expression {
 		return nil
 	}
 	method := p.curToken.Literal
-	p.nextToken() // consume method name
+	p.nextToken()
 
 	args := []ast.Expression{}
 	switch p.curToken.Type {
@@ -455,20 +400,13 @@ func (p *Parser) parseExpressionList() []ast.Expression {
 	return exprs
 }
 
-// parseFunctionExpression parses `function ( parlist ) block end`. The
-// leading `function` keyword is the current token on entry.
 func (p *Parser) parseFunctionExpression() ast.Expression {
-	tok := p.curToken // 'function'
-	p.nextToken()     // consume 'function'
+	tok := p.curToken
+	p.nextToken()
 	return p.parseFunctionBody(tok)
 }
 
-// parseFunctionBody handles `(parlist) block end`. `headerTok` is the
-// position the resulting node should report (typically the `function`
-// keyword, or for `local function f` the keyword `function` of the
-// rewritten form).
 func (p *Parser) parseFunctionBody(headerTok token.Token) *ast.FunctionExpression {
-	// Optional generic parameter list `<T, U>` between the name and `(`.
 	var typeParams []string
 	if p.curTokenIs(token.LT) {
 		typeParams = p.parseTypeParams()
@@ -480,7 +418,7 @@ func (p *Parser) parseFunctionBody(headerTok token.Token) *ast.FunctionExpressio
 	if !p.expectCur(token.LParen) {
 		return nil
 	}
-	p.nextToken() // consume '('
+	p.nextToken()
 
 	params, isVararg, varargType := p.parseParamList()
 	if p.error != nil {
@@ -490,20 +428,17 @@ func (p *Parser) parseFunctionBody(headerTok token.Token) *ast.FunctionExpressio
 	if !p.expectCur(token.RParen) {
 		return nil
 	}
-	p.nextToken() // consume ')'
+	p.nextToken()
 
-	// Optional Luau-style return-type annotation: `: T` or `: (T1, T2)`.
 	var returnTypes []ast.TypeNode
 	if p.curTokenIs(token.Colon) {
-		p.nextToken() // consume ':'
+		p.nextToken()
 		returnTypes = p.parseReturnTypeList()
 		if p.error != nil {
 			return nil
 		}
 	}
 
-	// A function body opens a fresh loop scope: `break` inside the body
-	// must NOT escape into a loop that encloses the function definition.
 	savedLoopDepth := p.loopDepth
 	p.loopDepth = 0
 	body := p.parseBlock()
@@ -514,7 +449,7 @@ func (p *Parser) parseFunctionBody(headerTok token.Token) *ast.FunctionExpressio
 	if !p.expectCur(token.End) {
 		return nil
 	}
-	p.nextToken() // consume 'end'
+	p.nextToken()
 
 	return &ast.FunctionExpression{
 		BaseNode:    baseAt(headerTok),
@@ -527,13 +462,6 @@ func (p *Parser) parseFunctionBody(headerTok token.Token) *ast.FunctionExpressio
 	}
 }
 
-// parseParamList reads `[ Param {, Param} [, Vararg] | Vararg ]` where
-// Param = Name [: Type] and Vararg = '...' [: Type]. The current token on
-// entry is the first parameter (or `)` for the empty list, which the caller
-// short-circuits before calling here).
-//
-// Returns the param list, an IsVararg flag, and (for the typed-vararg case)
-// the vararg's annotated type — nil when absent or unannotated.
 func (p *Parser) parseParamList() ([]ast.TypedParam, bool, ast.TypeNode) {
 	if p.curTokenIs(token.RParen) {
 		return nil, false, nil
@@ -559,11 +487,9 @@ func (p *Parser) parseParamList() ([]ast.TypedParam, bool, ast.TypeNode) {
 		if p.error != nil {
 			return nil, false, nil
 		}
-		// Optional default value: `name [: Type] = expr`. The default is
-		// applied by the function prologue when the caller passes nil.
 		var def ast.Expression
 		if p.curTokenIs(token.Assign) {
-			p.nextToken() // consume '='
+			p.nextToken()
 			def = p.parseExpression()
 			if def == nil {
 				return nil, false, nil
@@ -573,7 +499,7 @@ func (p *Parser) parseParamList() ([]ast.TypedParam, bool, ast.TypeNode) {
 		if !p.curTokenIs(token.Comma) {
 			break
 		}
-		p.nextToken() // consume ','
+		p.nextToken()
 		if p.curTokenIs(token.Vararg) {
 			p.nextToken()
 			return params, true, p.maybeParseColonType()
@@ -582,21 +508,17 @@ func (p *Parser) parseParamList() ([]ast.TypedParam, bool, ast.TypeNode) {
 	return params, false, nil
 }
 
-// maybeParseColonType consumes `: T` if the cursor sits on `:`. Returns nil
-// if there's no annotation, or on parser error.
 func (p *Parser) maybeParseColonType() ast.TypeNode {
 	if !p.curTokenIs(token.Colon) {
 		return nil
 	}
-	p.nextToken() // consume ':'
+	p.nextToken()
 	return p.parseType()
 }
 
-// parseTableConstructor reads `{ [field {fieldsep field} [fieldsep]] }`.
-// The current token on entry is `{`.
 func (p *Parser) parseTableConstructor() ast.Expression {
 	tok := p.curToken
-	p.nextToken() // consume '{'
+	p.nextToken()
 
 	tc := &ast.TableConstructor{BaseNode: baseAt(tok)}
 	if p.curTokenIs(token.RBrace) {
@@ -611,7 +533,6 @@ func (p *Parser) parseTableConstructor() ast.Expression {
 		}
 		tc.Fields = append(tc.Fields, field)
 
-		// fieldsep: ',' or ';'. Trailing one is allowed.
 		if p.curTokenIs(token.Comma) || p.curTokenIs(token.Semicolon) {
 			p.nextToken()
 			if p.curTokenIs(token.RBrace) {
@@ -624,36 +545,33 @@ func (p *Parser) parseTableConstructor() ast.Expression {
 	if !p.expectCur(token.RBrace) {
 		return nil
 	}
-	p.nextToken() // consume '}'
+	p.nextToken()
 	return tc
 }
 
 func (p *Parser) parseTableField() (ast.TableField, bool) {
-	// `[exp] = exp` form
 	if p.curTokenIs(token.LBracket) {
-		p.nextToken() // consume '['
+		p.nextToken()
 		key := p.parseExpression()
 		if !p.expectCur(token.RBracket) {
 			return ast.TableField{}, false
 		}
-		p.nextToken() // consume ']'
+		p.nextToken()
 		if !p.expectCur(token.Assign) {
 			return ast.TableField{}, false
 		}
-		p.nextToken() // consume '='
+		p.nextToken()
 		val := p.parseExpression()
 		return ast.TableField{Key: key, Value: val, IsBracketed: true}, true
 	}
-	// `Name = exp` form — only when curToken is Ident AND peek is '='.
 	if p.curTokenIs(token.Ident) && p.peekTokenIs(token.Assign) {
 		nameTok := p.curToken
 		key := &ast.Identifier{BaseNode: baseAt(nameTok), Name: nameTok.Literal}
-		p.nextToken() // consume Name
-		p.nextToken() // consume '='
+		p.nextToken()
+		p.nextToken()
 		val := p.parseExpression()
 		return ast.TableField{Key: key, Value: val}, true
 	}
-	// Otherwise positional: `exp`.
 	val := p.parseExpression()
 	if val == nil {
 		return ast.TableField{}, false

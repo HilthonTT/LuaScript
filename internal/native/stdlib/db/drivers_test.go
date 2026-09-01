@@ -8,13 +8,7 @@ import (
 	"time"
 )
 
-// These are the parts of multi-driver support that need no database: name
-// resolution, bind-parameter syntax, and the value coercion that makes one
-// driver's results look like another's.
-
 func TestResolveDriverPrefersAnExactMatch(t *testing.T) {
-	// Every driver this binary ships must resolve to itself, whatever else
-	// the alias table says.
 	for _, name := range sql.Drivers() {
 		got, err := resolveDriver(name)
 		if err != nil {
@@ -36,10 +30,6 @@ func TestResolveDriverAliases(t *testing.T) {
 		{"postgresql", "postgres"},
 		{"POSTGRES", "postgres"},
 		{"mariadb", "mysql"},
-		// go-mssqldb registers BOTH "sqlserver" and "mssql", and they are
-		// not interchangeable: "sqlserver" parses URL-style DSNs, "mssql"
-		// the legacy ADO-style ones. Exact match therefore wins here, which
-		// is what a caller who typed the legacy name wants.
 		{"mssql", "mssql"},
 		{"MSSQL", "sqlserver"},
 	}
@@ -55,9 +45,6 @@ func TestResolveDriverAliases(t *testing.T) {
 	}
 }
 
-// TestResolveDriverPicksWhicheverSQLiteIsBuiltIn is the point of the
-// candidate list: "sqlite" and "sqlite3" both work regardless of which
-// backend the build tag selected.
 func TestResolveDriverPicksWhicheverSQLiteIsBuiltIn(t *testing.T) {
 	for _, name := range []string{"sqlite", "sqlite3"} {
 		got, err := resolveDriver(name)
@@ -78,8 +65,6 @@ func TestResolveDriverRejectsUnknownAndNamesAlternatives(t *testing.T) {
 	if err == nil {
 		t.Fatal("resolveDriver accepted an unregistered driver")
 	}
-	// The message has to be actionable: a user who guessed wrong needs to
-	// see what this binary does have.
 	for _, want := range []string{"oracle", "postgres"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error = %q, want it to mention %q", err, want)
@@ -102,8 +87,6 @@ func TestPlaceholderStylePerDriver(t *testing.T) {
 		{"sqlite3", 2, "?"},
 		{"sqlserver", 1, "@p1"},
 		{"mssql", 4, "@p4"},
-		// An unknown driver gets the commonest style rather than an error:
-		// the caller is building SQL, not opening a connection.
 		{"somethingelse", 1, "?"},
 	}
 	for _, tc := range cases {
@@ -128,9 +111,6 @@ func TestIsMemoryDSN(t *testing.T) {
 	}
 }
 
-// TestCoerceColumnRestoresNumbersFromBytes covers the MySQL shape: the driver
-// returns wire bytes for every column, and without the declared type a number
-// column would reach Lua as a string.
 func TestCoerceColumnRestoresNumbersFromBytes(t *testing.T) {
 	cases := []struct {
 		dbType string
@@ -145,17 +125,11 @@ func TestCoerceColumnRestoresNumbersFromBytes(t *testing.T) {
 		{"FLOAT", []byte("-0.25"), -0.25},
 		{"BOOL", []byte("1"), true},
 		{"BOOLEAN", []byte("f"), false},
-		// Text stays text.
 		{"VARCHAR", []byte("42"), "42"},
 		{"TEXT", []byte("hello"), "hello"},
-		// Exact types keep full precision as strings rather than losing
-		// digits to float64.
 		{"DECIMAL", []byte("12345678901234567890.123"), "12345678901234567890.123"},
 		{"NUMERIC", []byte("0.10"), "0.10"},
-		// A declared type whose bytes don't parse falls back rather than
-		// inventing a value.
 		{"INT", []byte("not a number"), "not a number"},
-		// No type information: the untyped mapping.
 		{"", []byte("42"), "42"},
 	}
 	for _, tc := range cases {
@@ -166,8 +140,6 @@ func TestCoerceColumnRestoresNumbersFromBytes(t *testing.T) {
 	}
 }
 
-// TestCoerceColumnLeavesTypedValuesAlone: drivers that already return proper
-// Go types (lib/pq, the SQLite drivers) must pass through untouched.
 func TestCoerceColumnLeavesTypedValuesAlone(t *testing.T) {
 	when := time.Date(2026, 8, 10, 12, 0, 0, 0, time.UTC)
 	cases := []struct {
@@ -199,8 +171,6 @@ func TestAvailableDriversIsSorted(t *testing.T) {
 	}
 }
 
-// TestExpectedDriversAreCompiledIn guards the point of this whole change: the
-// bundled interpreter must actually be able to reach these databases.
 func TestExpectedDriversAreCompiledIn(t *testing.T) {
 	for _, name := range []string{"postgres", "mysql", "sqlserver", "sqlite"} {
 		if _, err := resolveDriver(name); err != nil {

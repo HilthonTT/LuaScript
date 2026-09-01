@@ -8,7 +8,6 @@ import (
 )
 
 func TestComputeDiagnostics_SyntaxError(t *testing.T) {
-	// Unterminated function parameter list — a parse error with a column.
 	src := "local function f(\n"
 	diags := computeDiagnostics(src)
 	if len(diags) == 0 {
@@ -24,8 +23,6 @@ func TestComputeDiagnostics_SyntaxError(t *testing.T) {
 }
 
 func TestComputeDiagnostics_TypeError(t *testing.T) {
-	// Assigning a string to a number-typed local is a type error, and the
-	// file parses cleanly so the type checker runs.
 	src := "local x: number = \"hello\"\n"
 	diags := computeDiagnostics(src)
 	found := false
@@ -49,7 +46,6 @@ func TestComputeDiagnostics_Clean(t *testing.T) {
 }
 
 func TestComputeDiagnostics_NoCheckDirective(t *testing.T) {
-	// --!nocheck must suppress type errors, matching the compiler pipeline.
 	src := "--!nocheck\nlocal x: number = \"hello\"\n"
 	for _, d := range computeDiagnostics(src) {
 		if d.Source == "luascript-types" {
@@ -76,11 +72,10 @@ func TestDocumentSymbols(t *testing.T) {
 
 func TestWordAt(t *testing.T) {
 	src := "print(x)"
-	w, start, end := wordAt(src, 2) // inside "print"
+	w, start, end := wordAt(src, 2)
 	if w != "print" || start != 0 || end != 5 {
 		t.Errorf("wordAt = %q [%d,%d], want print [0,5]", w, start, end)
 	}
-	// A digit run is not an identifier.
 	if w, _, _ := wordAt("123", 1); w != "" {
 		t.Errorf("wordAt on number = %q, want empty", w)
 	}
@@ -116,12 +111,12 @@ func TestNamespaceBefore(t *testing.T) {
 		at   int
 		want string
 	}{
-		{"math.", 5, "math"},   // cursor right after the dot
-		{"math.fl", 5, "math"}, // member start (before the partial word)
-		{"str:", 4, "str"},     // colon (method) access
-		{"print", 0, ""},       // no separator
-		{"a.b.c", 4, ""},       // chained access: qualifier is dotted
-		{"1.5", 2, ""},         // numeric, not an identifier
+		{"math.", 5, "math"},
+		{"math.fl", 5, "math"},
+		{"str:", 4, "str"},
+		{"print", 0, ""},
+		{"a.b.c", 4, ""},
+		{"1.5", 2, ""},
 	}
 	for _, c := range cases {
 		if got := namespaceBefore(c.src, c.at); got != c.want {
@@ -141,7 +136,6 @@ func TestMemberCompletion(t *testing.T) {
 			t.Errorf("math member completion missing %q", want)
 		}
 	}
-	// A bare global is not a member namespace.
 	if memberCompletionItems("print") != nil {
 		t.Error("expected nil member completion for non-namespace 'print'")
 	}

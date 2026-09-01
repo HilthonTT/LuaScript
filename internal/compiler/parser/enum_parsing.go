@@ -1,7 +1,5 @@
 package parser
 
-// Parsing for enum declarations and tagged-variant payloads.
-
 import (
 	"fmt"
 
@@ -10,15 +8,6 @@ import (
 	"github.com/hilthontt/luascript/internal/compiler/token"
 )
 
-//	end
-//
-// and returns an *ast.EnumStatement. v1 is integer auto-increment, so
-// the AST only carries variant names; values are assigned at lowering
-// time (RED → 1, GREEN → 2, …). The trailing comma after the last
-// variant is optional. Duplicate variant names are reported at parse
-// time — they would either silently clobber or produce conflicting
-// table fields downstream, and the error here is much clearer than
-// either downstream symptom.
 func (p *Parser) parseEnumStatement() *ast.EnumStatement {
 	enumTok := p.curToken
 	stmt := &ast.EnumStatement{BaseNode: baseAt(enumTok)}
@@ -32,10 +21,6 @@ func (p *Parser) parseEnumStatement() *ast.EnumStatement {
 
 	stmt.Name = &ast.Identifier{BaseNode: baseAt(p.curToken), Name: p.curToken.Literal}
 
-	// Move past the name. From here we accept a sequence of
-	// `Ident [,]` until we see `end`. A leading newline / comma between
-	// the name and the first variant is fine; the loop tolerates
-	// stray commas implicitly (a comma alone advances and re-enters).
 	p.nextToken()
 
 	seen := map[string]bool{}
@@ -48,9 +33,6 @@ func (p *Parser) parseEnumStatement() *ast.EnumStatement {
 		}
 
 		if p.curTokenIs(token.Comma) {
-			// A comma between variants is fine; a leading or duplicate
-			// comma is harmless and skipping it keeps the error
-			// reporting focused on actual structural problems.
 			p.nextToken()
 			continue
 		}
@@ -70,20 +52,15 @@ func (p *Parser) parseEnumStatement() *ast.EnumStatement {
 			return nil
 		}
 		seen[name] = true
-		p.nextToken() // consume variant name
+		p.nextToken()
 
 		variant := &ast.EnumVariantDef{Name: name}
-		// Optional payload: `Circle(number)`, `Rect(number, number)`. A
-		// variant with a payload makes the whole enum a tagged sum type.
 		if p.curTokenIs(token.LParen) {
 			payload, ok := p.parseEnumVariantPayload(name)
 			if !ok {
 				return nil
 			}
 			variant.Payload = payload
-			// Register the variant so match patterns can tell positional
-			// destructures (`Circle(r)`) apart from call-shaped value
-			// patterns (`f(x)`).
 			if p.enumVariants == nil {
 				p.enumVariants = make(map[string]bool)
 			}
@@ -99,15 +76,12 @@ func (p *Parser) parseEnumStatement() *ast.EnumStatement {
 		return nil
 	}
 
-	p.nextToken() // consume 'end'
+	p.nextToken()
 	return stmt
 }
 
-// parseEnumVariantPayload reads a tagged variant's `(Type {, Type})` payload.
-// The cursor is on `(` at entry. An empty `()` is rejected — a variant with
-// no payload should just be written bare (`Unit`, not `Unit()`).
 func (p *Parser) parseEnumVariantPayload(variant string) ([]ast.TypeNode, bool) {
-	p.nextToken() // consume '('
+	p.nextToken()
 	if p.curTokenIs(token.RParen) {
 		p.errorAt(p.curToken, errors.SyntaxError, "enum",
 			fmt.Sprintf("variant '%s' has an empty payload '()'", variant),
@@ -124,7 +98,7 @@ func (p *Parser) parseEnumVariantPayload(variant string) ([]ast.TypeNode, bool) 
 		if !p.curTokenIs(token.Comma) {
 			break
 		}
-		p.nextToken() // consume ','
+		p.nextToken()
 	}
 	if !p.curTokenIs(token.RParen) {
 		p.errorAt(p.curToken, errors.UnexpectedTokenError, "enum",
@@ -132,6 +106,6 @@ func (p *Parser) parseEnumVariantPayload(variant string) ([]ast.TypeNode, bool) 
 			"payloads look like `Circle(number)` or `Rect(number, number)`")
 		return nil, false
 	}
-	p.nextToken() // consume ')'
+	p.nextToken()
 	return payload, true
 }

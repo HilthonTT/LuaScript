@@ -31,8 +31,6 @@ func eq(t *testing.T, v *vm.VM, name string, want vm.Value) {
 	}
 }
 
-// The headline gap: without this, storing a password meant reaching for
-// crypto.sha256, which is brute-forced trivially.
 func TestPasswordHashRoundTrip(t *testing.T) {
 	v := runCrypto(t, `
 		local crypto = require("crypto")
@@ -48,14 +46,11 @@ func TestPasswordHashRoundTrip(t *testing.T) {
 	if !strings.HasPrefix(enc, "$argon2id$v=19$") {
 		t.Errorf("encoded hash = %q, want the argon2id PHC format", enc)
 	}
-	// Self-describing: cost parameters and salt travel with the digest.
 	if n := strings.Count(enc, "$"); n != 5 {
 		t.Errorf("encoded hash has %d '$' separators, want 5: %q", n, enc)
 	}
 }
 
-// A fresh salt per call means the same password never hashes to the same
-// string — which is the whole point of salting.
 func TestPasswordHashIsSalted(t *testing.T) {
 	v := runCrypto(t, `
 		local crypto = require("crypto")
@@ -68,7 +63,6 @@ func TestPasswordHashIsSalted(t *testing.T) {
 	eq(t, v, "bothVerify", true)
 }
 
-// A corrupt stored hash must fail the login, not the request.
 func TestPasswordVerifyRejectsMalformed(t *testing.T) {
 	v := runCrypto(t, `
 		local crypto = require("crypto")
@@ -82,7 +76,6 @@ func TestPasswordVerifyRejectsMalformed(t *testing.T) {
 	}
 }
 
-// Costs must be overridable without restating the ones left alone.
 func TestPasswordHashHonoursOptions(t *testing.T) {
 	v := runCrypto(t, `
 		local crypto = require("crypto")
@@ -110,8 +103,8 @@ func TestHmacByAlgorithm(t *testing.T) {
 	if !vm.Equal(generic, v.Globals.Get("viaNamed")) {
 		t.Errorf("hmac(\"sha256\", ...) = %v, want the same as hmac_sha256", generic)
 	}
-	eq(t, v, "sha512len", int64(128)) // 64 bytes hex-encoded
-	eq(t, v, "sha1len", int64(40))    // 20 bytes hex-encoded
+	eq(t, v, "sha512len", int64(128))
+	eq(t, v, "sha1len", int64(40))
 }
 
 func TestHmacRejectsUnknownAlgorithm(t *testing.T) {
@@ -133,8 +126,6 @@ func TestHmacRejectsUnknownAlgorithm(t *testing.T) {
 	}
 }
 
-// The URL-safe alphabet is what JWTs and URL parameters need; the standard
-// one's '+' and '/' have to be percent-encoded.
 func TestBase64URLRoundTrip(t *testing.T) {
 	v := runCrypto(t, `
 		local crypto = require("crypto")
@@ -186,7 +177,6 @@ func TestRandomIntStaysInRange(t *testing.T) {
 	`)
 	eq(t, v, "inRange", true)
 	eq(t, v, "alwaysZero", int64(0))
-	// 200 draws from 10 values hitting fewer than 5 would mean it is not random.
 	if got, _ := v.Globals.Get("variety").(int64); got < 5 {
 		t.Errorf("random_int(10) produced only %d distinct values over 200 draws", got)
 	}

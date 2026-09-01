@@ -5,7 +5,6 @@ import (
 	"testing"
 )
 
-// twoBlobs returns two well-separated clusters of three points each.
 func twoBlobs() []Point {
 	return []Point{
 		{Entry: []float64{1, 1}},
@@ -17,8 +16,6 @@ func twoBlobs() []Point {
 	}
 }
 
-// sameCluster asserts that all indices in group share a label, and that
-// the two groups have different labels.
 func sameCluster(t *testing.T, labels []int, groupA, groupB []int) {
 	t.Helper()
 	a := labels[groupA[0]]
@@ -80,7 +77,6 @@ func TestMeanShiftDiscoversTwoModes(t *testing.T) {
 }
 
 func TestKMeansEmptyClusterDoesNotNaN(t *testing.T) {
-	// Identical points with k=2 forces an empty cluster; centers must stay finite.
 	data := []Point{
 		{Entry: []float64{1, 1}},
 		{Entry: []float64{1, 1}},
@@ -89,7 +85,7 @@ func TestKMeansEmptyClusterDoesNotNaN(t *testing.T) {
 	res := KMeans(data, 2, 50, 1e-6, rand.New(rand.NewSource(2)))
 	for _, c := range res.Centers {
 		for _, v := range c.Entry {
-			if v != v { // NaN check
+			if v != v {
 				t.Fatalf("center contains NaN: %v", res.Centers)
 			}
 		}

@@ -1,8 +1,5 @@
 package docs
 
-// The data-science stack: internal/native/datascience/*. These modules are
-// registered alongside the rest in cmd/luascript/natives.go.
-
 var datascienceTopics = []Topic{
 	{
 		Name: "ndarray", Kind: KindModule, RuntimeModule: "ndarray",

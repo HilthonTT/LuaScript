@@ -13,9 +13,6 @@ import (
 	"github.com/hilthontt/luascript/internal/vm"
 )
 
-// RegisterHttpPreload installs the `http` module under package.preload.
-// Mirrors the pattern of native/json and native/os — `require("http")`
-// triggers httpLoader on first use.
 func RegisterHttpPreload(v *vm.VM) {
 	vm.RegisterPreload(v, "http", httpLoader)
 }
@@ -24,7 +21,6 @@ func httpLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
 	mod := newHttp()
 	mod.Set("VERSION", "0.1.0")
 
-	// HTTP method constants.
 	mod.Set("MethodGet", http.MethodGet)
 	mod.Set("MethodPost", http.MethodPost)
 	mod.Set("MethodPut", http.MethodPut)
@@ -41,9 +37,6 @@ func newHttp() *vm.Table {
 	o := vm.NewTable(0, 31)
 	methods := vm.NewTable(0, 10)
 
-	// Module-level shortcuts use `.` call style: http.get(url[, opts]).
-	// Arg index 1 = url; no implicit self. Body-bearing methods take
-	// the body string at index 2 and opts at index 3.
 	addShortcut(methods, "get", http.MethodGet, false)
 	addShortcut(methods, "delete", http.MethodDelete, false)
 	addShortcut(methods, "head", http.MethodHead, false)
@@ -52,8 +45,6 @@ func newHttp() *vm.Table {
 	addShortcut(methods, "put", http.MethodPut, true)
 	addShortcut(methods, "patch", http.MethodPatch, true)
 
-	// http.request{ method=, url=, body=, headers=, query=, timeout= }
-	// Full-surface entry point. `timeout` is seconds (int or float).
 	methods.Set("request", &vm.GoFunc{Name: "http:request", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 		opts := vm.TableArg("http.request", 1, args)
 		method, _ := opts.Get("method").(string)
@@ -69,8 +60,6 @@ func newHttp() *vm.Table {
 		return []vm.Value{doRequest(client, method, u, body, opts)}
 	}})
 
-	// http.new_client{ timeout=, base_url=, headers= } -> client object.
-	// Headers passed here are sent on every request unless overridden.
 	methods.Set("new_client", &vm.GoFunc{Name: "http:new_client", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 		var clientOpts *vm.Table
 		if len(args) >= 1 && args[0] != nil {
@@ -79,8 +68,6 @@ func newHttp() *vm.Table {
 		return []vm.Value{newClient(clientOpts)}
 	}})
 
-	// http.encode_url(table) -> "k=v&k=v" with proper percent-encoding.
-	// Repeats values when a key maps to an array-style table.
 	methods.Set("encode_url", &vm.GoFunc{Name: "http:encode_url", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 		t := vm.TableArg("http.encode_url", 1, args)
 		return []vm.Value{encodeQuery(t)}
@@ -92,9 +79,6 @@ func newHttp() *vm.Table {
 	return o
 }
 
-// addShortcut wires one of get/post/put/etc. onto the module's methods
-// table. hasBody controls whether arg #2 is a body string (post/put/patch)
-// or the opts table (get/delete/head/options).
 func addShortcut(methods *vm.Table, name, method string, hasBody bool) {
 	site := "http." + name
 	methods.Set(name, &vm.GoFunc{Name: "http:" + name, Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
@@ -102,8 +86,6 @@ func addShortcut(methods *vm.Table, name, method string, hasBody bool) {
 		var body string
 		optsIdx := 2
 		if hasBody {
-			// Body slot is optional-but-typed: nil/absent -> "", string -> body,
-			// anything else -> bad-arg panic with the standard shape.
 			if len(args) >= 2 && args[1] != nil {
 				s, ok := args[1].(string)
 				if !ok {
@@ -122,12 +104,7 @@ func addShortcut(methods *vm.Table, name, method string, hasBody bool) {
 	}})
 }
 
-// newClient builds a stateful client table. base_url + default headers
-// are captured in the closure so each method invocation merges them with
-// per-request opts.
 func newClient(opts *vm.Table) *vm.Table {
-	// Same default as clientFromTimeout — without it a client built with no
-	// explicit timeout would wait forever on an unresponsive server.
 	hc := &http.Client{Timeout: defaultTimeout}
 	var baseURL string
 	var defaultHeaders *vm.Table
@@ -148,7 +125,6 @@ func newClient(opts *vm.Table) *vm.Table {
 	addClientMethod := func(name, method string, hasBody bool) {
 		site := "client:" + name
 		methods.Set(name, &vm.GoFunc{Name: site, Fn: func(_ *vm.VM, a []vm.Value) []vm.Value {
-			// `:` call style — arg 1 = self, arg 2 = path, then body/opts.
 			_ = vm.TableArg(site, 1, a)
 			path := vm.StringArg(site, 2, a)
 			var body string
@@ -180,8 +156,6 @@ func newClient(opts *vm.Table) *vm.Table {
 	addClientMethod("put", http.MethodPut, true)
 	addClientMethod("patch", http.MethodPatch, true)
 
-	// client:request{ ... } — same shape as http.request but with the
-	// client's base_url/headers merged in.
 	methods.Set("request", &vm.GoFunc{Name: "client:request", Fn: func(_ *vm.VM, a []vm.Value) []vm.Value {
 		_ = vm.TableArg("client:request", 1, a)
 		opts := vm.TableArg("client:request", 2, a)
@@ -205,9 +179,6 @@ func newClient(opts *vm.Table) *vm.Table {
 	return c
 }
 
-// doRequest is the single execution path for every method on the module
-// and on client objects. It builds the request, applies headers/query,
-// reads the response fully, and returns the response table.
 func doRequest(client *http.Client, method, rawURL, body string, opts *vm.Table) *vm.Table {
 	site := "http." + strings.ToLower(method)
 
@@ -222,9 +193,6 @@ func doRequest(client *http.Client, method, rawURL, body string, opts *vm.Table)
 				}
 			}
 		}
-		// `body` on opts is a fallback for shortcut methods that took no
-		// body arg (get/delete/head). For post/put/patch the positional
-		// body arg has already been threaded through.
 		if body == "" {
 			if b, ok := opts.Get("body").(string); ok {
 				body = b
@@ -232,10 +200,6 @@ func doRequest(client *http.Client, method, rawURL, body string, opts *vm.Table)
 		}
 	}
 
-	// opts.json / opts.form serialize a table into the body and set the
-	// matching Content-Type. Sending JSON previously meant encoding it by hand
-	// and remembering the header — and a request with a body but no
-	// Content-Type is rejected outright by many servers.
 	autoType := ""
 	if opts != nil && body == "" {
 		if j := opts.Get("json"); j != nil {
@@ -265,14 +229,11 @@ func doRequest(client *http.Client, method, rawURL, body string, opts *vm.Table)
 		if h, ok := opts.Get("headers").(*vm.Table); ok && h != nil {
 			applyHeaders(req, h)
 		}
-		// Basic auth, so callers don't have to base64 the credentials and
-		// build the header themselves.
 		if u, ok := opts.Get("username").(string); ok && u != "" {
 			pw, _ := opts.Get("password").(string)
 			req.SetBasicAuth(u, pw)
 		}
 	}
-	// Explicit headers win; this only fills a gap.
 	if autoType != "" && req.Header.Get("Content-Type") == "" {
 		req.Header.Set("Content-Type", autoType)
 	}
@@ -300,13 +261,7 @@ func doRequest(client *http.Client, method, rawURL, body string, opts *vm.Table)
 	headers := vm.NewTable(0, len(resp.Header))
 	rawHeaders := vm.NewTable(0, len(resp.Header))
 	for k, vs := range resp.Header {
-		// `headers` keeps the flat one-string-per-name shape almost all
-		// callers want.
 		headers.Set(k, strings.Join(vs, ", "))
-		// `headers_raw` keeps every value separately. Comma-joining is
-		// actively wrong for Set-Cookie — RFC 6265 forbids folding it, and a
-		// response setting two cookies produced one unparseable string — so
-		// without this there was no way to read them at all.
 		list := vm.NewTable(len(vs), 0)
 		for _, one := range vs {
 			list.Append(one)
@@ -316,8 +271,6 @@ func doRequest(client *http.Client, method, rawURL, body string, opts *vm.Table)
 	r.Set("headers", headers)
 	r.Set("headers_raw", rawHeaders)
 
-	// The URL the response actually came from, which differs from the request
-	// URL when redirects were followed.
 	if resp.Request != nil && resp.Request.URL != nil {
 		r.Set("url", resp.Request.URL.String())
 	} else {
@@ -327,13 +280,7 @@ func doRequest(client *http.Client, method, rawURL, body string, opts *vm.Table)
 	return r
 }
 
-// vmToJSON converts a runtime value into something encoding/json accepts,
-// mirroring the json module's rules: array-like tables become arrays, other
-// tables become objects with stringified keys, and anything with no JSON form
-// raises rather than being rendered as a pointer.
 func vmToJSON(v vm.Value, depth int) any {
-	// Same ceiling as the json module, for the same reason: a cyclic table
-	// would otherwise overflow the Go stack, which is fatal and uncatchable.
 	if depth > 1000 {
 		panic(vm.Errorf("http: request body nesting too deep (cyclic reference?)"))
 	}
@@ -376,8 +323,6 @@ func vmToJSON(v vm.Value, depth int) any {
 	panic(vm.Errorf("http: cannot encode a %s value as JSON", vm.TypeName(v)))
 }
 
-// isPureArray reports whether t holds exactly the keys 1..n, so encoding it as
-// a JSON array cannot drop anything.
 func isPureArray(t *vm.Table, n int64) bool {
 	for i := int64(1); i <= n; i++ {
 		if t.Get(i) == nil {
@@ -399,9 +344,6 @@ func isPureArray(t *vm.Table, n int64) bool {
 	return count == n
 }
 
-// applyHeaders copies string→string entries from a Lua table into req.Header.
-// Non-string keys/values are silently skipped — mirrors json.encode's
-// approach to non-string keys for compatibility with dynamic Lua tables.
 func applyHeaders(req *http.Request, h *vm.Table) {
 	var k vm.Value
 	for {
@@ -422,8 +364,6 @@ func applyHeaders(req *http.Request, h *vm.Table) {
 	}
 }
 
-// encodeQuery turns a Lua table into a URL-encoded query string. Array-
-// style table values become repeated query params (?tag=a&tag=b).
 func encodeQuery(t *vm.Table) string {
 	values := url.Values{}
 	var k vm.Value
@@ -468,20 +408,11 @@ func encodeQuery(t *vm.Table) string {
 }
 
 const (
-	// defaultTimeout bounds a request when the caller sets none. Without it a
-	// request to a slow or black-hole server hangs the VM goroutine forever.
-	// A caller can raise it by passing a larger opts.timeout.
 	defaultTimeout = 30 * time.Second
 
-	// maxResponseBytes caps how much of a response body is read into memory,
-	// so a hostile or oversized response can't OOM the process. Exceeding it
-	// raises rather than truncating silently.
-	maxResponseBytes = 64 << 20 // 64 MiB
+	maxResponseBytes = 64 << 20
 )
 
-// clientFromTimeout returns an *http.Client carrying a timeout: the caller's
-// opts.timeout when positive, otherwise defaultTimeout. The Transport is left
-// nil so the default connection pool is reused.
 func clientFromTimeout(opts *vm.Table) *http.Client {
 	hc := &http.Client{Timeout: defaultTimeout}
 	if opts != nil {
@@ -491,10 +422,6 @@ func clientFromTimeout(opts *vm.Table) *http.Client {
 	return hc
 }
 
-// applyRedirectPolicy honours opts.follow_redirects. Redirects are followed by
-// default, as they were before this existed; setting it false makes the 3xx
-// itself the response, which is the only way to read a Location header or to
-// avoid following a redirect to somewhere you did not intend to talk to.
 func applyRedirectPolicy(opts *vm.Table, hc *http.Client) {
 	follow, isBool := opts.Get("follow_redirects").(bool)
 	if !isBool || follow {
@@ -505,8 +432,6 @@ func applyRedirectPolicy(opts *vm.Table, hc *http.Client) {
 	}
 }
 
-// applyTimeout reads opts.timeout (seconds, int or float) onto hc.
-// Returns true if a positive timeout was applied.
 func applyTimeout(opts *vm.Table, hc *http.Client) bool {
 	switch t := opts.Get("timeout").(type) {
 	case int64:
@@ -523,10 +448,6 @@ func applyTimeout(opts *vm.Table, hc *http.Client) bool {
 	return false
 }
 
-// joinURL stitches a base_url to a per-request path. Absolute URLs in the
-// path slot bypass the base entirely so callers can override on a case-
-// by-case basis. Trailing-slash / leading-slash collisions are normalized
-// to a single `/`.
 func joinURL(base, path string) string {
 	if base == "" {
 		return path
@@ -544,11 +465,6 @@ func joinURL(base, path string) string {
 	}
 }
 
-// mergeRequestOpts overlays per-request opts on top of the client's
-// default headers. Per-request headers win on conflict; non-header keys
-// (body/query/timeout/method/url) come straight from perReq. If there
-// are no defaultHeaders, perReq is returned as-is to avoid a needless
-// allocation.
 func mergeRequestOpts(defaultHeaders *vm.Table, perReq *vm.Table) *vm.Table {
 	if defaultHeaders == nil {
 		return perReq
@@ -557,7 +473,6 @@ func mergeRequestOpts(defaultHeaders *vm.Table, perReq *vm.Table) *vm.Table {
 	merged := vm.NewTable(0, 4)
 	headers := vm.NewTable(0, 8)
 
-	// Seed with defaults.
 	var dk vm.Value
 	for {
 		var dv vm.Value
@@ -568,10 +483,6 @@ func mergeRequestOpts(defaultHeaders *vm.Table, perReq *vm.Table) *vm.Table {
 		headers.Set(dk, dv)
 	}
 
-	// Overlay per-request options. The "headers" key is special-cased:
-	// rather than replacing the table wholesale, individual entries
-	// overlay onto the seeded defaults so callers can add a single
-	// auth header without redeclaring the rest.
 	if perReq != nil {
 		var k vm.Value
 		for {

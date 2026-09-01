@@ -1,35 +1,4 @@
-// Package ndarray is a require()-able host module providing a dense,
-// N-dimensional numeric array — the NumPy-style primitive that most
-// data-science numerics build on. Unlike a Lua table (a boxed hash map),
-// an ndarray stores its elements in a single contiguous []float64 in
-// row-major (C) order, so vectorized arithmetic, reductions, and matrix
-// products run over flat Go slices instead of chasing pointers.
-//
-// Construction:
-//
-//	local nd = require("ndarray")
-//	a = nd.array({ {1, 2, 3}, {4, 5, 6} })   -- 2x3 from nested tables
-//	z = nd.zeros(2, 3)                        -- 2x3 of zeros
-//	r = nd.arange(0, 10)                      -- 0,1,..,9  (1-D)
-//	l = nd.linspace(0, 1, 5)                  -- 5 points in [0,1]
-//	i = nd.eye(3)                             -- 3x3 identity
-//
-// Arithmetic operators are overloaded and broadcast NumPy-style, so an
-// array and a scalar, or two arrays whose shapes align, combine elementwise:
-//
-//	b = a * 2 + 1
-//	c = a + nd.array({10, 20, 30})           -- row broadcast over a 2x3
-//
-// Reductions take an optional axis; with no axis they collapse to a scalar:
-//
-//	a:sum()          -- scalar
-//	a:mean(1)        -- per-row means (a 1-D array of length 2)
-//
-// Every arithmetic/transform method returns a NEW array; the receiver is
-// never mutated (only :set and the in-place-free API mutate, explicitly).
 package ndarray
-
-// The shared instance metatable and its methods.
 
 import (
 	"fmt"
@@ -39,15 +8,12 @@ import (
 	"github.com/hilthontt/luascript/internal/vm"
 )
 
-// Metatable (shared across all instances)
-
 func buildMeta() {
 	ndMethods = vm.NewTable(0, 32)
 	set := func(name string, fn func(*vm.VM, []vm.Value) []vm.Value) {
 		ndMethods.Set(name, &vm.GoFunc{Name: "ndarray:" + name, Fn: fn})
 	}
 
-	// --- shape / introspection -------------------------------------------
 	set("shape", func(_ *vm.VM, args []vm.Value) []vm.Value {
 		a := selfND("ndarray:shape", args)
 		t := vm.NewTable(len(a.shape), 0)
@@ -63,20 +29,17 @@ func buildMeta() {
 		return []vm.Value{int64(selfND("ndarray:size", args).size())}
 	})
 
-	// --- element access ---------------------------------------------------
 	set("get", func(_ *vm.VM, args []vm.Value) []vm.Value {
 		a := selfND("ndarray:get", args)
 		return []vm.Value{a.data[a.flatIndex("ndarray:get", args[1:])]}
 	})
 	set("set", func(_ *vm.VM, args []vm.Value) []vm.Value {
-		// set(value, i, j, ...) — value first, then the (1-based) indices.
 		a := selfND("ndarray:set", args)
 		val := vm.FloatArg("ndarray:set", 2, args)
 		a.data[a.flatIndex("ndarray:set", args[2:])] = val
 		return nil
 	})
 
-	// --- structural transforms -------------------------------------------
 	set("reshape", func(_ *vm.VM, args []vm.Value) []vm.Value {
 		a := selfND("ndarray:reshape", args)
 		return []vm.Value{wrap(a.reshape("ndarray:reshape", shapeArgs("ndarray:reshape", args, 2)))}
@@ -98,7 +61,6 @@ func buildMeta() {
 		return []vm.Value{wrap(&ndarray{data: append([]float64(nil), a.data...), shape: append([]int(nil), a.shape...)})}
 	})
 
-	// --- reductions -------------------------------------------------------
 	reduction := func(name string, all func([]float64) float64) {
 		set(name, func(_ *vm.VM, args []vm.Value) []vm.Value {
 			a := selfND("ndarray:"+name, args)
@@ -126,7 +88,6 @@ func buildMeta() {
 		return []vm.Value{int64(argExtreme(a.data, false) + 1)}
 	})
 
-	// --- elementwise math -------------------------------------------------
 	unary := func(name string, f func(float64) float64) {
 		set(name, func(_ *vm.VM, args []vm.Value) []vm.Value {
 			return []vm.Value{wrap(selfND("ndarray:"+name, args).unary(f))}
@@ -151,7 +112,7 @@ func buildMeta() {
 		case x < 0:
 			return -1
 		default:
-			return 0 // and preserves NaN's own sign through the default branch
+			return 0
 		}
 	})
 	unary("round", math.Round)
@@ -161,15 +122,6 @@ func buildMeta() {
 	unary("acos", math.Acos)
 	unary("atan", math.Atan)
 
-	// --- ordering and selection ------------------------------------------
-	//
-	// Without these, sorting or filtering an ndarray meant converting to a
-	// plain table, doing the work there, and converting back — losing the
-	// shape in the process.
-
-	// sort() -> a new array with the elements in ascending order. Flattened:
-	// sorting along an axis of a multi-dimensional array is a separate
-	// operation, and silently picking one axis would be a trap.
 	set("sort", func(_ *vm.VM, args []vm.Value) []vm.Value {
 		a := selfND("ndarray:sort", args)
 		out := append([]float64(nil), a.data...)
@@ -177,17 +129,12 @@ func buildMeta() {
 		return []vm.Value{wrap(&ndarray{data: out, shape: []int{len(out)}})}
 	})
 
-	// argsort() -> the 1-based indices that would sort the array. The
-	// companion to sort: it is what reorders a second array in step with the
-	// first.
 	set("argsort", func(_ *vm.VM, args []vm.Value) []vm.Value {
 		a := selfND("ndarray:argsort", args)
 		idx := make([]int, len(a.data))
 		for i := range idx {
 			idx[i] = i
 		}
-		// Stable so equal elements keep their original relative order, which
-		// makes a sort by one key then another behave as expected.
 		sort.SliceStable(idx, func(i, j int) bool { return a.data[idx[i]] < a.data[idx[j]] })
 		out := make([]float64, len(idx))
 		for i, v := range idx {
@@ -196,8 +143,6 @@ func buildMeta() {
 		return []vm.Value{wrap(&ndarray{data: out, shape: []int{len(out)}})}
 	})
 
-	// median() -> the middle value, on a sorted copy so the receiver is
-	// untouched.
 	set("median", func(_ *vm.VM, args []vm.Value) []vm.Value {
 		a := selfND("ndarray:median", args)
 		if len(a.data) == 0 {
@@ -212,8 +157,6 @@ func buildMeta() {
 		return []vm.Value{(s[mid-1] + s[mid]) / 2}
 	})
 
-	// cumsum() / diff() — running totals and successive differences, the two
-	// sequence transforms that cannot be written as an elementwise map.
 	set("cumsum", func(_ *vm.VM, args []vm.Value) []vm.Value {
 		a := selfND("ndarray:cumsum", args)
 		out := make([]float64, len(a.data))
@@ -236,9 +179,6 @@ func buildMeta() {
 		return []vm.Value{wrap(&ndarray{data: out, shape: []int{len(out)}})}
 	})
 
-	// any() / all() — whether any or every element is non-zero. The reduction
-	// that answers a yes/no question, which sum and max cannot do without the
-	// caller re-deriving the comparison.
 	set("any", func(_ *vm.VM, args []vm.Value) []vm.Value {
 		a := selfND("ndarray:any", args)
 		for _, x := range a.data {
@@ -258,8 +198,6 @@ func buildMeta() {
 		return []vm.Value{true}
 	})
 
-	// nonzero() -> the 1-based flat indices of the non-zero elements. Paired
-	// with a comparison this is how you find where a condition holds.
 	set("nonzero", func(_ *vm.VM, args []vm.Value) []vm.Value {
 		a := selfND("ndarray:nonzero", args)
 		var out []float64
@@ -271,8 +209,6 @@ func buildMeta() {
 		return []vm.Value{wrap(&ndarray{data: out, shape: []int{len(out)}})}
 	})
 
-	// count_nonzero() -> how many elements are non-zero. With a comparison
-	// producing 1s and 0s, this counts the matches.
 	set("count_nonzero", func(_ *vm.VM, args []vm.Value) []vm.Value {
 		a := selfND("ndarray:count_nonzero", args)
 		n := int64(0)
@@ -305,7 +241,6 @@ func buildMeta() {
 		}))}
 	})
 
-	// --- binary / linear algebra -----------------------------------------
 	binary := func(name string, op func(x, y float64) float64) {
 		set(name, func(_ *vm.VM, args []vm.Value) []vm.Value {
 			a := selfND("ndarray:"+name, args)
@@ -329,7 +264,6 @@ func buildMeta() {
 		return []vm.Value{result(matmul(a, b))}
 	})
 
-	// --- higher order & conversion ---------------------------------------
 	set("map", func(v *vm.VM, args []vm.Value) []vm.Value {
 		a := selfND("ndarray:map", args)
 		fn := argAt(args, 2)
@@ -415,7 +349,6 @@ func argExtreme(xs []float64, wantMax bool) int {
 	return best
 }
 
-// flatIndex converts 1-based per-axis Lua indices to a flat offset.
 func (a *ndarray) flatIndex(site string, idxArgs []vm.Value) int {
 	if len(idxArgs) != len(a.shape) {
 		panic(vm.Errorf("%s: expected %d indices for a %d-D array, got %d",
@@ -454,7 +387,6 @@ func (a *ndarray) equal(b *ndarray) bool {
 	return true
 }
 
-// toTable materializes the array as nested Lua tables.
 func (a *ndarray) toTable() vm.Value {
 	if a.ndim() == 0 {
 		return a.data[0]

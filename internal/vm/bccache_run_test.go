@@ -1,9 +1,5 @@
 package vm
 
-// Executes a chunk loaded from the bytecode cache and checks it behaves
-// identically to a fresh compile — the end-to-end guarantee the serializer's
-// structural round-trip test can't give.
-
 import (
 	"testing"
 
@@ -14,8 +10,6 @@ func TestCachedChunkRunsIdentically(t *testing.T) {
 	t.Setenv("LUASCRIPT_CACHE_DIR", t.TempDir())
 	t.Setenv("LUASCRIPT_NOCACHE", "")
 
-	// Closures + upvalues + loops + continue + if-expr + defaults + strings:
-	// a reasonable cross-section of codegen surface.
 	src := `
 		local function make(step = 1)
 			local n = 0
@@ -46,8 +40,8 @@ func TestCachedChunkRunsIdentically(t *testing.T) {
 		return v.Globals.Get("result")
 	}
 
-	fresh := runChunk()  // miss: compiles and stores
-	cached := runChunk() // hit: deserialized from disk
+	fresh := runChunk()
+	cached := runChunk()
 	if !Equal(fresh, cached) {
 		t.Fatalf("cached run produced %v, fresh run produced %v", cached, fresh)
 	}

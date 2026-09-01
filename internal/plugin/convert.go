@@ -9,31 +9,10 @@ import (
 	"github.com/hilthontt/luascript/internal/vm"
 )
 
-// Value marshalling between the VM and reflected Go code.
-//
-// This file deliberately does not import Go's `plugin` package, so it
-// compiles — and its tests run — on every platform, including the ones where
-// dynamic loading itself is unavailable.
-//
-// The direction that matters is Lua -> Go: conversion is driven by the
-// *target* type taken from the reflected function signature, never by
-// guessing from the Lua value. That is what lets a plain Lua integer satisfy
-// a Go `int`, a `time.Duration`, or a `float64` parameter without the script
-// having to know which.
-//
-// Go -> Lua obeys the FFI rule in CLAUDE.md: only nil, bool, int64, float64,
-// string, *Table, *Closure and *GoFunc may enter the runtime. Every integer
-// kind therefore widens to int64 and every float to float64. Anything with no
-// Lua counterpart at all — a struct, a pointer, an interface such as *sql.DB —
-// is wrapped as a GoValue (see below) rather than leaked in raw.
-
 var errType = reflect.TypeFor[error]()
 
 var byteSliceType = reflect.TypeFor[[]byte]()
 
-// goValueKey is the private instance-table key holding the backing Go value.
-// The control-byte prefix keeps it out of the way of any field a script would
-// reasonably index — the same trick ndarray uses for its backing array.
 const goValueKey = "\x00govalue"
 
 var (
@@ -41,12 +20,6 @@ var (
 	goValueOnce sync.Once
 )
 
-// wrapGo exposes an arbitrary Go value to Lua as a table sharing one
-// metatable, with the value itself riding under goValueKey. Exported methods
-// and struct fields are resolved on demand by __index, so a *sql.DB handed
-// back from a plugin stays callable:
-//
-//	local rows = db:Query("select 1")
 func wrapGo(x any) *vm.Table {
 	goValueOnce.Do(buildGoValueMeta)
 	t := vm.NewTable(0, 1)
@@ -55,7 +28,6 @@ func wrapGo(x any) *vm.Table {
 	return t
 }
 
-// unwrapGo recovers the Go value behind a GoValue table.
 func unwrapGo(v vm.Value) (any, bool) {
 	t, ok := v.(*vm.Table)
 	if !ok {
@@ -96,25 +68,16 @@ func buildGoValueMeta() {
 	}})
 }
 
-// goValueMember resolves obj.key: an exported method (returned as a bound
-// callable) or an exported struct field (converted to a Lua value). Returns
-// nil when the name matches neither, which surfaces to the script as the
-// usual "attempt to call a nil value".
 func goValueMember(self *vm.Table, obj any, key string) vm.Value {
 	rv := reflect.ValueOf(obj)
 	if !rv.IsValid() {
 		return nil
 	}
 
-	// Methods are looked up on the value as handed to us. A method with a
-	// pointer receiver is only in the method set of the pointer, which is
-	// exactly what a plugin returning *sql.DB gives us, so no addressing
-	// dance is needed here.
 	if m := rv.MethodByName(key); m.IsValid() {
 		return bindMethod(self, m, key)
 	}
 
-	// Exported fields, following one pointer hop.
 	sv := rv
 	if sv.Kind() == reflect.Ptr {
 		if sv.IsNil() {
@@ -130,10 +93,6 @@ func goValueMember(self *vm.Table, obj any, key string) vm.Value {
 	return nil
 }
 
-// bindMethod wraps a reflected method as a Lua callable. Lua's `obj:m(x)`
-// desugars to `obj.m(obj, x)`, so the receiver arrives as the first argument
-// and has to be dropped — but only when it really is this object, so that a
-// dot-call (`obj.m(x)`) keeps working too.
 func bindMethod(self *vm.Table, m reflect.Value, name string) *vm.GoFunc {
 	return &vm.GoFunc{Name: "govalue:" + name, Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 		if len(args) > 0 {
@@ -145,9 +104,6 @@ func bindMethod(self *vm.Table, m reflect.Value, name string) *vm.GoFunc {
 	}}
 }
 
-// callReflected converts args to the function's parameter types, calls it, and
-// converts the results back. Errors are raised as Lua errors, matching every
-// other native module.
 func callReflected(fn reflect.Value, name string, args []vm.Value) []vm.Value {
 	ft := fn.Type()
 
@@ -173,9 +129,6 @@ func callReflected(fn reflect.Value, name string, args []vm.Value) []vm.Value {
 
 	res := make([]vm.Value, len(out))
 	for i, o := range out {
-		// A returned error is the one Go type with a natural Lua spelling:
-		// nil when there is no error, its message otherwise. It keeps its
-		// position, so `local v, err = p.Open(...)` reads as it does in Lua.
 		if o.Type() == errType {
 			if o.IsNil() {
 				res[i] = nil
@@ -189,8 +142,6 @@ func callReflected(fn reflect.Value, name string, args []vm.Value) []vm.Value {
 	return res
 }
 
-// paramType is the declared type of parameter i, accounting for the variadic
-// tail (where every argument from NumIn()-1 on has the slice's element type).
 func paramType(ft reflect.Type, i int) reflect.Type {
 	last := ft.NumIn() - 1
 	if ft.IsVariadic() && i >= last {
@@ -199,15 +150,11 @@ func paramType(ft reflect.Type, i int) reflect.Type {
 	return ft.In(i)
 }
 
-// toGo converts a Lua value to a reflect.Value of type `want`.
 func toGo(v vm.Value, want reflect.Type) (reflect.Value, error) {
-	// nil fills in the zero value, which is the closest Go has to Lua's nil
-	// for any parameter type (nil pointer, empty string, 0, ...).
 	if v == nil {
 		return reflect.Zero(want), nil
 	}
 
-	// A GoValue passing straight back into Go: hand over the value it wraps.
 	if raw, ok := unwrapGo(v); ok {
 		rv := reflect.ValueOf(raw)
 		switch {
@@ -219,7 +166,6 @@ func toGo(v vm.Value, want reflect.Type) (reflect.Value, error) {
 		return reflect.Value{}, fmt.Errorf("cannot use govalue<%s> as %s", rv.Type(), want)
 	}
 
-	// An empty interface parameter takes whatever we have, unconverted.
 	if want.Kind() == reflect.Interface && want.NumMethod() == 0 {
 		return reflect.ValueOf(plainGo(v)), nil
 	}
@@ -248,10 +194,6 @@ func toGo(v vm.Value, want reflect.Type) (reflect.Value, error) {
 	return reflect.Value{}, fmt.Errorf("cannot convert %s to %s", vm.TypeName(v), want)
 }
 
-// numberToGo converts a Lua number to any Go numeric type. A float with a
-// fractional part is rejected for an integer parameter rather than silently
-// truncated — Lua 5.4 raises "number has no integer representation" for the
-// same mistake.
 func numberToGo(f float64, i int64, isInt bool, want reflect.Type) (reflect.Value, bool) {
 	switch want.Kind() {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
@@ -273,8 +215,6 @@ func numberToGo(f float64, i int64, isInt bool, want reflect.Type) (reflect.Valu
 	return reflect.Value{}, false
 }
 
-// tableToGo converts a Lua table to a Go slice or map. Slices are read from
-// the table's 1-based array part; maps take every entry.
 func tableToGo(t *vm.Table, want reflect.Type) (reflect.Value, error) {
 	switch want.Kind() {
 	case reflect.Slice:
@@ -310,9 +250,6 @@ func tableToGo(t *vm.Table, want reflect.Type) (reflect.Value, error) {
 	return reflect.Value{}, fmt.Errorf("cannot convert table to %s", want)
 }
 
-// plainGo renders a Lua value as the Go value an interface{} parameter should
-// receive. Tables become []any when they look like sequences and map[string]any
-// otherwise — the same shape the json module produces.
 func plainGo(v vm.Value) any {
 	t, ok := v.(*vm.Table)
 	if !ok {
@@ -336,14 +273,11 @@ func plainGo(v vm.Value) any {
 	return out
 }
 
-// fromGo converts a reflected Go value into a runtime-tracked Lua value,
-// wrapping anything without a Lua counterpart as a GoValue.
 func fromGo(rv reflect.Value) vm.Value {
 	if !rv.IsValid() {
 		return nil
 	}
 
-	// Unwrap interface cells so we dispatch on the dynamic type.
 	if rv.Kind() == reflect.Interface {
 		if rv.IsNil() {
 			return nil
@@ -367,7 +301,6 @@ func fromGo(rv reflect.Value) vm.Value {
 		return rv.String()
 
 	case reflect.Slice, reflect.Array:
-		// []byte is a Lua string, not a table of numbers.
 		if rv.Kind() == reflect.Slice && rv.Type() == byteSliceType {
 			return string(rv.Bytes())
 		}
@@ -388,8 +321,6 @@ func fromGo(rv reflect.Value) vm.Value {
 		iter := rv.MapRange()
 		for iter.Next() {
 			k := fromGo(iter.Key())
-			// Only Lua-hashable keys can index a table; anything else
-			// (a struct key, say) has nowhere to go.
 			switch k.(type) {
 			case string, int64, float64, bool:
 				t.Set(k, fromGo(iter.Value()))
@@ -404,8 +335,6 @@ func fromGo(rv reflect.Value) vm.Value {
 		return wrapGo(rv.Interface())
 	}
 
-	// Structs, funcs, channels, and anything else: keep the Go value alive
-	// behind a GoValue so its methods stay reachable.
 	if !rv.CanInterface() {
 		return nil
 	}

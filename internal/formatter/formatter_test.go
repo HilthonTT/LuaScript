@@ -10,10 +10,6 @@ import (
 	"github.com/hilthontt/luascript/internal/compiler/parser"
 )
 
-// TestFormat_Idempotence asserts that running Format twice produces the
-// same output as running it once. This is the strongest single property:
-// if it fails on a file, the formatter is unstable and the output cannot
-// be trusted as a canonical form.
 func TestFormat_Idempotence(t *testing.T) {
 	for _, src := range goldenExamples(t) {
 		t.Run(src.name, func(t *testing.T) {
@@ -32,12 +28,6 @@ func TestFormat_Idempotence(t *testing.T) {
 	}
 }
 
-// TestFormat_KnownSnippets covers the handful of constructs we care most
-// about — golden output that must not regress as the emitter evolves.
-//
-// Each entry is (name, input, expected). Inputs are intentionally messy
-// to prove the formatter normalizes them; outputs are what the formatter
-// currently produces and were eyeballed for correctness.
 func TestFormat_KnownSnippets(t *testing.T) {
 	cases := []struct {
 		name, in, want string
@@ -87,8 +77,6 @@ func TestFormat_KnownSnippets(t *testing.T) {
 			in:   "--!strict\nlocal x: number = 1\n",
 			want: "--!strict\nlocal x: number = 1\n",
 		},
-		// The cases below all round-tripped through code that dropped
-		// information, producing output that no longer compiled.
 		{
 			name: "generic_function_type_params",
 			in:   "local function identity<T>(x: T): T return x end\n",
@@ -128,10 +116,6 @@ func TestFormat_KnownSnippets(t *testing.T) {
 	}
 }
 
-// TestFormat_ExamplesParseUnchanged walks every example file and asserts
-// that the formatted output still parses. This is the cheap stand-in for
-// full parse-tree equivalence (a structural comparator would require
-// excluding token-position fields and is out of scope for v1).
 func TestFormat_ExamplesParseUnchanged(t *testing.T) {
 	for _, ex := range goldenExamples(t) {
 		t.Run(ex.name, func(t *testing.T) {
@@ -139,8 +123,6 @@ func TestFormat_ExamplesParseUnchanged(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Format: %v", err)
 			}
-			// Re-running Format internally re-parses; any parse error
-			// surfaces here.
 			if _, err := Format(out, Options{}); err != nil {
 				t.Fatalf("formatted output failed to re-parse: %v\n%s", err, out)
 			}
@@ -148,11 +130,6 @@ func TestFormat_ExamplesParseUnchanged(t *testing.T) {
 	}
 }
 
-// TestFormat_ExamplesStillCompile is the stronger sibling of the test above:
-// it runs the formatted output through the whole front end, typecheck
-// included. Parsing alone is too weak a check — dropping a generic parameter
-// list or a tagged enum's payload types yields output that parses perfectly
-// and then fails to typecheck, which is exactly how those bugs shipped.
 func TestFormat_ExamplesStillCompile(t *testing.T) {
 	for _, ex := range goldenExamples(t) {
 		t.Run(ex.name, func(t *testing.T) {
@@ -175,12 +152,8 @@ type goldenFile struct {
 	text string
 }
 
-// goldenExamples loads every *.lsc file in ../examples/ as a test
-// corpus. Skipped (with no failure) if the directory is missing so the
-// package is testable in isolation.
 func goldenExamples(t *testing.T) []goldenFile {
 	t.Helper()
-	// examples/ lives at the repo root, two levels up from internal/formatter.
 	dir := filepath.Join("..", "..", "examples")
 	entries, err := os.ReadDir(dir)
 	if err != nil {

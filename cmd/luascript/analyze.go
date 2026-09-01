@@ -10,11 +10,6 @@ import (
 	"github.com/hilthontt/luascript/internal/compiler/analyze"
 )
 
-// runAnalyze implements .lsc analyze <file>` — it runs the static analyzer
-// over one source file and prints a human-readable report.
-//
-// Exit codes: 0 = no findings, 1 = findings reported / I/O / parse error,
-// 2 = usage error.
 func runAnalyze(argv []string) int {
 	fs := flag.NewFlagSet("analyze", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)

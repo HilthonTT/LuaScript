@@ -1,14 +1,3 @@
-// Package logx implements the `log` native module: a leveled, timestamped
-// logger usable from LuaScript. Defaults: level=INFO, output=stderr, no
-// prefix. Output format mirrors most CLI tools:
-//
-//	2026-06-04T12:34:56 [INFO] msg parts joined with tabs
-//
-// State (level / output writer / prefix) is per-module — one shared logger
-// per `require("log")`. A second require returns the same cached table from
-// package.loaded, so the configuration persists for the rest of the
-// program. This matches how every other native here behaves and keeps the
-// Lua-side API a flat, free-function shape.
 package logx
 
 import (
@@ -22,8 +11,6 @@ import (
 	"github.com/hilthontt/luascript/internal/vm"
 )
 
-// Level orders messages from most to least severe. The constants are kept
-// in this order so a single `>=` comparison gates emission.
 type Level int
 
 const (
@@ -35,8 +22,6 @@ const (
 	LevelFatal
 )
 
-// levelName / levelByName form the bidirectional map between the integer
-// and the strings users see on both the input and output side.
 var levelName = [...]string{
 	LevelTrace: "TRACE",
 	LevelDebug: "DEBUG",
@@ -55,20 +40,15 @@ var levelByName = map[string]Level{
 	"fatal": LevelFatal, "FATAL": LevelFatal,
 }
 
-// state holds the live logger configuration. Guarded by mu so concurrent
-// httpserver handlers (which run on the VM goroutine, but `set_output`
-// callers from `pcall`-protected paths may race with emit) don't tear the
-// writer mid-write.
 type state struct {
 	mu      sync.Mutex
 	level   Level
 	prefix  string
 	out     io.Writer
-	owned   io.Closer // non-nil only when out is a file we opened
-	outName string    // "stderr"/"stdout"/path — for set_output round-trip
+	owned   io.Closer
+	outName string
 }
 
-// RegisterLogPreload installs the `log` module under package.preload.
 func RegisterLogPreload(v *vm.VM) {
 	vm.RegisterPreload(v, "log", logLoader)
 }
@@ -89,27 +69,18 @@ func newLog() *vm.Table {
 	m := vm.NewTable(0, 4)
 	methods := vm.NewTable(0, 16)
 
-	// Per-level emit functions. Each is a thin wrapper that picks the
-	// level and forwards to s.emit; the level constants stay private to
-	// this package so the Lua side never sees raw integers.
 	methods.Set("trace", emitFunc(s, LevelTrace))
 	methods.Set("debug", emitFunc(s, LevelDebug))
 	methods.Set("info", emitFunc(s, LevelInfo))
 	methods.Set("warn", emitFunc(s, LevelWarn))
 	methods.Set("error", emitFunc(s, LevelError))
 
-	// fatal logs and then exits the process with status 1. We honour the
-	// level threshold like every other emit — a logger configured to
-	// suppress fatals still exits, matching Go's log.Fatal semantics.
 	methods.Set("fatal", &vm.GoFunc{Name: "log:fatal", Fn: func(v *vm.VM, args []vm.Value) []vm.Value {
 		s.emit(v, LevelFatal, args)
 		os.Exit(1)
 		return nil
 	}})
 
-	// log.log(level, ...) — explicit-level escape hatch for cases where
-	// the level is computed at runtime. Accepts either a string ("info")
-	// or integer (the same constants exposed below).
 	methods.Set("log", &vm.GoFunc{Name: "log:log", Fn: func(v *vm.VM, args []vm.Value) []vm.Value {
 		if len(args) < 1 {
 			panic(vm.Errorf("bad argument #1 to 'log.log' (level expected)"))
@@ -151,10 +122,6 @@ func newLog() *vm.Table {
 		return nil
 	}})
 
-	// log.set_output("stderr" | "stdout" | path). Opening a file replaces
-	// the previous destination and closes any file we had previously
-	// opened (we never close stderr/stdout). Returns nothing on success;
-	// raises on a failed file open so the caller can pcall it.
 	methods.Set("set_output", &vm.GoFunc{Name: "log:set_output", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 		dest := vm.StringArg("log.set_output", 1, args)
 		var w io.Writer
@@ -191,9 +158,6 @@ func newLog() *vm.Table {
 		return []vm.Value{name}
 	}})
 
-	// log.close — flush + close any file we own. Subsequent emits revert
-	// to stderr so the module stays usable. No-op if the current output
-	// is stderr/stdout.
 	methods.Set("close", &vm.GoFunc{Name: "log:close", Fn: func(_ *vm.VM, _ []vm.Value) []vm.Value {
 		s.mu.Lock()
 		old := s.owned
@@ -209,9 +173,6 @@ func newLog() *vm.Table {
 		return nil
 	}})
 
-	// Constants exposed for symmetric set_level / log.log calls. Strings
-	// are the canonical form; integers are provided for callers that
-	// prefer numeric comparisons.
 	levels := vm.NewTable(0, 6)
 	for i := LevelTrace; i <= LevelFatal; i++ {
 		levels.Set(strings.ToLower(levelName[i]), int64(i))
@@ -224,8 +185,6 @@ func newLog() *vm.Table {
 	return m
 }
 
-// emitFunc builds a GoFunc that emits at a fixed level. Factoring it out
-// keeps newLog's bindings compact and centralizes the panic/return shape.
 func emitFunc(s *state, lvl Level) *vm.GoFunc {
 	return &vm.GoFunc{Name: "log:" + strings.ToLower(levelName[lvl]), Fn: func(v *vm.VM, args []vm.Value) []vm.Value {
 		s.emit(v, lvl, args)
@@ -233,13 +192,6 @@ func emitFunc(s *state, lvl Level) *vm.GoFunc {
 	}}
 }
 
-// emit renders one record. Below-threshold calls are dropped before any
-// formatting work so a noisy log.debug loop in production is cheap. The
-// record is rendered fully BEFORE taking the mutex: renderArg can run a
-// user __tostring metamethod, and if that metamethod logs, a lock held
-// across it would deadlock the non-reentrant mutex on this goroutine. The
-// mutex only guards the final Write so concurrent emits don't interleave
-// partial lines.
 func (s *state) emit(vmRef *vm.VM, lvl Level, args []vm.Value) {
 	s.mu.Lock()
 	level, prefix, out := s.level, s.prefix, s.out
@@ -270,22 +222,13 @@ func (s *state) emit(vmRef *vm.VM, lvl Level, args []vm.Value) {
 	_, _ = io.WriteString(out, b.String())
 }
 
-// renderArg renders one log argument. Strings pass through verbatim;
-// other types route through the standard Lua tostring machinery so a
-// custom `__tostring` metamethod on a table behaves the same way it does
-// in print().
 func renderArg(vmRef *vm.VM, v vm.Value) string {
 	if s, ok := v.(string); ok {
 		return s
 	}
-	// vm.ToStringMM handles nil/bool/number/table/__tostring uniformly.
-	// Passing the live VM lets a table's __tostring fire — without it the
-	// helper falls back to the type-tag string, breaking parity with print.
 	return vm.ToStringMM(vmRef, v)
 }
 
-// coerceLevel accepts a string name ("info", "WARN", "warning", ...) or an
-// integer 0..5. Anything else is a programmer error and raises.
 func coerceLevel(v vm.Value) (Level, error) {
 	switch x := v.(type) {
 	case string:

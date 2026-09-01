@@ -2,9 +2,6 @@ package optimize
 
 import "github.com/hilthontt/luascript/internal/compiler/ast"
 
-// Fold rewrites prog in place, replacing constant expressions with literals.
-// It is safe to call unconditionally; on a program with no foldable
-// expressions it leaves the tree unchanged.
 func Fold(prog *ast.Program) {
 	if prog == nil {
 		return
@@ -27,8 +24,6 @@ func foldBlock(b *ast.Block) {
 func foldStmt(s ast.Statement) {
 	switch n := s.(type) {
 	case *ast.AssignStatement:
-		// Targets are Identifiers / IndexExpressions; folding only rewrites
-		// their sub-expressions (e.g. the index of t[1+1]), never the target.
 		foldExprSlice(n.Targets)
 		foldExprSlice(n.Values)
 	case *ast.LocalStatement:
@@ -75,8 +70,6 @@ func foldStmt(s ast.Statement) {
 		n.Subject = foldExpr(n.Subject)
 		for i := range n.Arms {
 			arm := &n.Arms[i]
-			// Only value patterns hold expressions; the other kinds carry
-			// names and type nodes, which fold to themselves.
 			foldExprSlice(arm.Pattern.Values)
 			if arm.Guard != nil {
 				arm.Guard = foldExpr(arm.Guard)
@@ -93,11 +86,8 @@ func foldStmt(s ast.Statement) {
 	case *ast.Block:
 		foldBlock(n)
 	}
-	// BreakStatement, ContinueStatement, GotoStatement, LabelStatement,
-	// TypeAliasStatement carry no foldable expressions.
 }
 
-// foldFunc folds a function literal's parameter defaults and body.
 func foldFunc(fe *ast.FunctionExpression) {
 	if fe == nil {
 		return
@@ -116,8 +106,6 @@ func foldExprSlice(es []ast.Expression) {
 	}
 }
 
-// foldExpr folds e bottom-up and returns the (possibly new) node. Callers
-// MUST reassign the slot they passed in.
 func foldExpr(e ast.Expression) ast.Expression {
 	switch n := e.(type) {
 	case *ast.BinaryExpression:
@@ -135,8 +123,6 @@ func foldExpr(e ast.Expression) ast.Expression {
 		return n
 	case *ast.ParenExpression:
 		n.Inner = foldExpr(n.Inner)
-		// A literal is already single-valued, so the parens' multi-value
-		// truncation is a no-op and can be dropped.
 		if isLiteral(n.Inner) {
 			return n.Inner
 		}
@@ -170,7 +156,6 @@ func foldExpr(e ast.Expression) ast.Expression {
 		n.Expr = foldExpr(n.Expr)
 		return n
 	default:
-		// Literals, Identifier, VarargExpression: nothing to fold.
 		return e
 	}
 }
@@ -191,6 +176,5 @@ func isTruthy(e ast.Expression) bool {
 	case *ast.BooleanLiteral:
 		return n.Value
 	}
-	// Every other literal (numbers, strings) is truthy in Lua.
 	return true
 }

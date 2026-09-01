@@ -1,7 +1,5 @@
 package parser
 
-// Parsing for if, while, repeat, do, and both for forms.
-
 import (
 	"fmt"
 
@@ -12,7 +10,7 @@ import (
 
 func (p *Parser) parseIfStatement() ast.Statement {
 	tok := p.curToken
-	p.nextToken() // consume 'if'
+	p.nextToken()
 
 	stmt := &ast.IfStatement{BaseNode: baseAt(tok)}
 
@@ -23,13 +21,13 @@ func (p *Parser) parseIfStatement() ast.Statement {
 			"syntax: `if <cond> then <body> [elseif ...] [else ...] end`")
 		return nil
 	}
-	p.nextToken() // consume 'then'
+	p.nextToken()
 	body := p.parseBlock()
 	stmt.Clauses = append(stmt.Clauses, ast.IfClause{Condition: cond, Body: body})
 
 	for p.curTokenIs(token.ElseIf) {
 		elseifTok := p.curToken
-		p.nextToken() // consume 'elseif'
+		p.nextToken()
 		c := p.parseExpression()
 		if !p.curTokenIs(token.Then) {
 			p.errorAt(p.curToken, errors.UnexpectedTokenError, "if",
@@ -37,13 +35,13 @@ func (p *Parser) parseIfStatement() ast.Statement {
 				fmt.Sprintf("the 'elseif' on line %d needs a 'then' before its body", elseifTok.Line))
 			return nil
 		}
-		p.nextToken() // consume 'then'
+		p.nextToken()
 		b := p.parseBlock()
 		stmt.Clauses = append(stmt.Clauses, ast.IfClause{Condition: c, Body: b})
 	}
 
 	if p.curTokenIs(token.Else) {
-		p.nextToken() // consume 'else'
+		p.nextToken()
 		stmt.Else = p.parseBlock()
 	}
 
@@ -53,13 +51,13 @@ func (p *Parser) parseIfStatement() ast.Statement {
 			"")
 		return nil
 	}
-	p.nextToken() // consume 'end'
+	p.nextToken()
 	return stmt
 }
 
 func (p *Parser) parseWhileStatement() ast.Statement {
 	tok := p.curToken
-	p.nextToken() // consume 'while'
+	p.nextToken()
 
 	cond := p.parseExpression()
 	if !p.curTokenIs(token.Do) {
@@ -68,7 +66,7 @@ func (p *Parser) parseWhileStatement() ast.Statement {
 			"syntax: `while <cond> do <body> end`")
 		return nil
 	}
-	p.nextToken() // consume 'do'
+	p.nextToken()
 	p.loopDepth++
 	body := p.parseBlock()
 	p.loopDepth--
@@ -78,13 +76,13 @@ func (p *Parser) parseWhileStatement() ast.Statement {
 			"")
 		return nil
 	}
-	p.nextToken() // consume 'end'
+	p.nextToken()
 	return &ast.WhileStatement{BaseNode: baseAt(tok), Condition: cond, Body: body}
 }
 
 func (p *Parser) parseRepeatStatement() ast.Statement {
 	tok := p.curToken
-	p.nextToken() // consume 'repeat'
+	p.nextToken()
 
 	p.loopDepth++
 	body := p.parseBlock()
@@ -96,14 +94,14 @@ func (p *Parser) parseRepeatStatement() ast.Statement {
 			"syntax: `repeat <body> until <cond>` — the loop condition is checked AFTER the body")
 		return nil
 	}
-	p.nextToken() // consume 'until'
+	p.nextToken()
 	cond := p.parseExpression()
 	return &ast.RepeatStatement{BaseNode: baseAt(tok), Body: body, Condition: cond}
 }
 
 func (p *Parser) parseDoStatement() ast.Statement {
 	tok := p.curToken
-	p.nextToken() // consume 'do'
+	p.nextToken()
 	body := p.parseBlock()
 	if !p.curTokenIs(token.End) {
 		p.errorAt(tok, errors.UnexpectedTokenError, "do",
@@ -111,15 +109,13 @@ func (p *Parser) parseDoStatement() ast.Statement {
 			"")
 		return nil
 	}
-	p.nextToken() // consume 'end'
+	p.nextToken()
 	return &ast.DoStatement{BaseNode: baseAt(tok), Body: body}
 }
 
-// parseForStatement disambiguates numeric vs generic for by looking at the
-// token after the first Name: `=` → numeric; `,` or `in` → generic.
 func (p *Parser) parseForStatement() ast.Statement {
 	tok := p.curToken
-	p.nextToken() // consume 'for'
+	p.nextToken()
 
 	if !p.curTokenIs(token.Ident) {
 		p.errorAt(p.curToken, errors.UnexpectedTokenError, "for",
@@ -144,7 +140,7 @@ func (p *Parser) parseForStatement() ast.Statement {
 }
 
 func (p *Parser) parseNumericFor(tok token.Token, name string) ast.Statement {
-	p.nextToken() // consume '='
+	p.nextToken()
 	start := p.parseExpression()
 	if !p.curTokenIs(token.Comma) {
 		p.errorAt(p.curToken, errors.UnexpectedTokenError, "for",
@@ -152,11 +148,11 @@ func (p *Parser) parseNumericFor(tok token.Token, name string) ast.Statement {
 			"syntax: `for "+name+" = <start>, <stop>[, <step>] do ... end`")
 		return nil
 	}
-	p.nextToken() // consume ','
+	p.nextToken()
 	limit := p.parseExpression()
 	var step ast.Expression
 	if p.curTokenIs(token.Comma) {
-		p.nextToken() // consume ','
+		p.nextToken()
 		step = p.parseExpression()
 	}
 	if !p.curTokenIs(token.Do) {
@@ -165,7 +161,7 @@ func (p *Parser) parseNumericFor(tok token.Token, name string) ast.Statement {
 			"syntax: `for "+name+" = <start>, <stop>[, <step>] do ... end`")
 		return nil
 	}
-	p.nextToken() // consume 'do'
+	p.nextToken()
 	p.loopDepth++
 	body := p.parseBlock()
 	p.loopDepth--
@@ -175,7 +171,7 @@ func (p *Parser) parseNumericFor(tok token.Token, name string) ast.Statement {
 			"")
 		return nil
 	}
-	p.nextToken() // consume 'end'
+	p.nextToken()
 	return &ast.NumericForStatement{
 		BaseNode: baseAt(tok),
 		Name:     name,
@@ -189,7 +185,7 @@ func (p *Parser) parseNumericFor(tok token.Token, name string) ast.Statement {
 func (p *Parser) parseGenericFor(tok token.Token, firstName string) ast.Statement {
 	names := []string{firstName}
 	for p.curTokenIs(token.Comma) {
-		p.nextToken() // consume ','
+		p.nextToken()
 		if !p.curTokenIs(token.Ident) {
 			p.errorAt(p.curToken, errors.UnexpectedTokenError, "for",
 				"expected another loop-variable name after ',', got "+describeToken(p.curToken),
@@ -205,7 +201,7 @@ func (p *Parser) parseGenericFor(tok token.Token, firstName string) ast.Statemen
 			"syntax: `for k, v in pairs(t) do ... end`")
 		return nil
 	}
-	p.nextToken() // consume 'in'
+	p.nextToken()
 	exprs := p.parseExpressionList()
 	if !p.curTokenIs(token.Do) {
 		p.errorAt(p.curToken, errors.UnexpectedTokenError, "for",
@@ -213,7 +209,7 @@ func (p *Parser) parseGenericFor(tok token.Token, firstName string) ast.Statemen
 			"syntax: `for k, v in pairs(t) do ... end`")
 		return nil
 	}
-	p.nextToken() // consume 'do'
+	p.nextToken()
 	p.loopDepth++
 	body := p.parseBlock()
 	p.loopDepth--
@@ -223,7 +219,7 @@ func (p *Parser) parseGenericFor(tok token.Token, firstName string) ast.Statemen
 			"")
 		return nil
 	}
-	p.nextToken() // consume 'end'
+	p.nextToken()
 	return &ast.GenericForStatement{
 		BaseNode: baseAt(tok),
 		Names:    names,

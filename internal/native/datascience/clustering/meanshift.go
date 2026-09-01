@@ -2,22 +2,12 @@ package clustering
 
 import "math"
 
-// MeanShiftResult bundles the discovered modes (cluster centers) with the
-// per-point assignment. Like DBSCAN, mean shift discovers the number of
-// clusters on its own — here it is governed by the bandwidth.
 type MeanShiftResult struct {
 	Centers     []Point
 	Assignments []int
 	Iterations  int
 }
 
-// MeanShift is a centroid-seeking, non-parametric clusterer. Every point
-// is iteratively shifted toward the weighted mean of its neighbourhood
-// (using a Gaussian kernel parameterised by bandwidth) until convergence;
-// points that settle on the same mode form a cluster.
-//
-// Smaller bandwidths yield more, tighter clusters. Returned assignments
-// are 1-based cluster ids.
 func MeanShift(data []Point, bandwidth float64, maxIter int) MeanShiftResult {
 	n := len(data)
 	dims := len(data[0].Entry)
@@ -60,8 +50,6 @@ func MeanShift(data []Point, bandwidth float64, maxIter int) MeanShiftResult {
 		}
 	}
 
-	// Collapse converged points into modes: a point joins an existing mode
-	// if it lies within half a bandwidth of it, otherwise it founds a new one.
 	mergeRadius := bandwidth / 2
 	var centers []Point
 	labels := make([]int, n)

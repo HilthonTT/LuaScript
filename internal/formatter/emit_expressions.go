@@ -1,7 +1,5 @@
 package formatter
 
-// Doc emission for expressions.
-
 import (
 	"strconv"
 
@@ -18,7 +16,6 @@ func (e *emitter) expr(x ast.Expression, opts Options) Doc {
 		}
 		return text("false")
 	case *ast.IntegerLiteral:
-		// Preserve the original literal (e.g. hex `0xFF`) when available.
 		if v.Token.Literal != "" {
 			return text(v.Token.Literal)
 		}
@@ -61,8 +58,6 @@ func (e *emitter) expr(x ast.Expression, opts Options) Doc {
 	return text(x.String())
 }
 
-// ifExpr renders the Luau-style conditional expression, breaking before
-// `elseif`/`else` when the whole expression overflows the line.
 func (e *emitter) ifExpr(ie *ast.IfExpression, opts Options) Doc {
 	var parts []Doc
 	for i, c := range ie.Clauses {
@@ -87,25 +82,6 @@ func (e *emitter) unary(u *ast.UnaryExpression, opts Options) Doc {
 	return concat(text(u.Op), e.expr(u.Operand, opts))
 }
 
-// binary emits a left-flat / right-break chain. Repeated same-precedence
-// operators get grouped so a long `a + b + c + d` breaks before each
-// operator at the same indent rather than nesting.
-// binary renders `a op b`, flattening a run of the SAME operator into a
-// single group.
-//
-// Flattening is what makes the output stable. Emitted one node at a time,
-// `a .. b .. c .. d` nests a group inside a group inside a group, each
-// adding its own indent; when the outermost breaks, the inner ones make
-// their own fit decisions and the result is a staircase. Re-formatting that
-// staircase produces different decisions again — i.e. formatting was not
-// idempotent, so its output was not a canonical form.
-//
-// With the chain flat, every operand breaks together at one indent level.
-//
-// Only children with the *same* operator are absorbed, and explicit
-// parentheses survive parsing as ParenExpression nodes rather than
-// BinaryExpression ones — so `a - (b - c)` is never flattened into
-// `a - b - c`, which would change what it means.
 func (e *emitter) binary(b *ast.BinaryExpression, opts Options) Doc {
 	operands := e.binaryChain(b, b.Op, opts)
 	rest := make([]Doc, 0, len(operands)-1)
@@ -118,7 +94,6 @@ func (e *emitter) binary(b *ast.BinaryExpression, opts Options) Doc {
 	))
 }
 
-// binaryChain collects the operands of a maximal run of `op`, left to right.
 func (e *emitter) binaryChain(x ast.Expression, op string, opts Options) []Doc {
 	if b, ok := x.(*ast.BinaryExpression); ok && b.Op == op {
 		return append(
@@ -148,10 +123,6 @@ func (e *emitter) methodCall(m *ast.MethodCallExpression, opts Options) Doc {
 	return concat(e.expr(m.Object, opts), text(":"), text(m.Method), args)
 }
 
-// callArgs renders `(a, b, c)` with break-on-overflow behavior. Single
-// table-constructor or string args still use parens for v1 (Lua's
-// paren-free call syntax is preserved by the parser as a one-element Args
-// slice — we always render explicit parens for clarity).
 func (e *emitter) callArgs(args []ast.Expression, opts Options) Doc {
 	if len(args) == 0 {
 		return text("()")
@@ -168,8 +139,6 @@ func (e *emitter) callArgs(args []ast.Expression, opts Options) Doc {
 	))
 }
 
-// table renders `{}` either flat (`{ a, b }`) or broken with one field per
-// line and a trailing comma. Empty tables stay as `{}`.
 func (e *emitter) table(t *ast.TableConstructor, opts Options) Doc {
 	if len(t.Fields) == 0 {
 		return text("{}")
@@ -182,7 +151,6 @@ func (e *emitter) table(t *ast.TableConstructor, opts Options) Doc {
 		case f.IsBracketed:
 			fields[i] = concat(text("["), e.expr(f.Key, opts), text("] = "), e.expr(f.Value, opts))
 		default:
-			// Record entry: Key is *Identifier or rendered as a name.
 			var key Doc
 			if id, ok := f.Key.(*ast.Identifier); ok {
 				key = text(id.Name)
@@ -192,7 +160,6 @@ func (e *emitter) table(t *ast.TableConstructor, opts Options) Doc {
 			fields[i] = concat(key, text(" = "), e.expr(f.Value, opts))
 		}
 	}
-	// Flat: `{ a, b, c }`. Broken: each field on its own line + trailing comma.
 	flatSep := concat(text(","), line())
 	body := join(flatSep, fields...)
 	return group(concat(
@@ -203,8 +170,4 @@ func (e *emitter) table(t *ast.TableConstructor, opts Options) Doc {
 	))
 }
 
-// trailingCommaIfBreak is a tiny custom Doc that emits "," only when the
-// enclosing group is in break mode. Approximated for v1 by emitting an
-// always-present softLine — we don't yet have a real `ifBreak` primitive.
-// For now, omit the trailing comma; it can be added when ifBreak lands.
 func trailingCommaIfBreak() Doc { return nilDoc() }

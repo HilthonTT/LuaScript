@@ -14,15 +14,6 @@ import (
 	"github.com/hilthontt/luascript/internal/vm"
 )
 
-// runProfile implements `luascript profile`. It runs a script with CPU
-// and/or heap profiling enabled and writes the profile(s) to disk. The
-// output is consumable by `go tool pprof` and by `go build -pgo=…`.
-//
-// Usage:
-//
-//	luascript profile [-cpu cpu.prof] [-mem mem.prof] [-count N] [-mem-stats] script.lsc
-//
-// Exit codes: 0 success, 1 runtime/I-O error, 2 usage error.
 func runProfile(argv []string) int {
 	fs := flag.NewFlagSet("profile", flag.ContinueOnError)
 	cpuOut := fs.String("cpu", "cpu.prof", "write CPU profile to this path ('' to disable)")
@@ -64,8 +55,6 @@ func runProfile(argv []string) int {
 	prof, err := debug.Start(*cpuOut, *memOut)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "luascript profile:", err)
-		// Stop is a no-op on a half-initialised handle; call it to release
-		// whichever file did open.
 		_ = prof.Stop()
 		return 1
 	}
@@ -100,10 +89,6 @@ func runProfile(argv []string) int {
 	return 0
 }
 
-// runProfileIterations runs the chunk `count` times against a fresh VM
-// per iteration. A fresh VM matches the benchmark methodology in
-// vm/vm_bench_test.go (no cross-iter global pollution) and keeps the PGO
-// profile representative of cold-start cost too.
 func runProfileIterations(chunk *bytecode.InstructionSet, path string, count int) error {
 	scriptDir := ""
 	if abs, err := filepath.Abs(path); err == nil {

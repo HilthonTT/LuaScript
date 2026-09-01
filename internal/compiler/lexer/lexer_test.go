@@ -207,7 +207,6 @@ func TestComparisonOperators(t *testing.T) {
 	testLex(t, input, expected)
 }
 
-// Tilde alone vs ~= must be disambiguated correctly
 func TestTildeDisambiguation(t *testing.T) {
 	input := `~ ~=`
 	expected := []expectedToken{
@@ -285,9 +284,9 @@ func TestLineNumberAfterLongString(t *testing.T) {
 	input := "x\n[[line1\nline2]]\ny"
 	l := New(input)
 
-	l.NextToken()        // x     (line 1)
-	l.NextToken()        // [[..] (line 2)
-	tok := l.NextToken() // y     (line 4)
+	l.NextToken()
+	l.NextToken()
+	tok := l.NextToken()
 	if tok.Line != 4 {
 		t.Fatalf("want line 4, got %d", tok.Line)
 	}
@@ -317,7 +316,7 @@ func TestIntToFloatLexing(t *testing.T) {
 
 func TestLongCommentAbsorbed(t *testing.T) {
 	l := New("--[[ comment ]] x")
-	tok := l.NextToken() // absorbs the comment, should return 'x'
+	tok := l.NextToken()
 	if tok.Type != token.Ident || tok.Literal != "x" {
 		t.Fatalf("expected Ident 'x' after long comment, got %q %q", tok.Type, tok.Literal)
 	}

@@ -12,14 +12,6 @@ func newWithSource(src string) *Parser {
 	return New(lexer.New(src))
 }
 
-// Type-syntax parsing — Phase 1 of the Luau-style type system.
-//
-// These tests cover the parser surface only: type annotations on locals,
-// parameters, return types, type aliases, type assertions, and the type
-// expression grammar (primitives, named, optional, union, function, table).
-// They do not exercise the type checker (Phase 2+).
-
-// firstLocalType plucks the parsed type of the only `local` in src.
 func firstLocalType(t *testing.T, src string) ast.TypeNode {
 	t.Helper()
 	ls := parseExpect1(t, src).(*ast.LocalStatement)
@@ -32,7 +24,7 @@ func firstLocalType(t *testing.T, src string) ast.TypeNode {
 func TestLocalAnnotationPrimitive(t *testing.T) {
 	cases := []struct {
 		src      string
-		wantKind string // expected reflect-y "kind name" via String()
+		wantKind string
 		wantStr  string
 	}{
 		{"local x: number = 1", "primitive", "number"},
@@ -106,8 +98,6 @@ func TestLocalAnnotationUnionThreeWay(t *testing.T) {
 }
 
 func TestLocalAnnotationOptionalUnionInteraction(t *testing.T) {
-	// `T?` is right-associated as a postfix on the *atom*, not the whole
-	// union, matching Luau. So `number | string?` ≡ `number | (string?)`.
 	tn := firstLocalType(t, "local x: number | string? = nil")
 	uni, ok := tn.(*ast.TypeUnion)
 	if !ok {
@@ -202,7 +192,6 @@ func TestLocalAnnotationTableTypeIndexer(t *testing.T) {
 }
 
 func TestLocalAnnotationTableTypeArrayShorthand(t *testing.T) {
-	// `{T}` desugars to `{[number]: T}`.
 	tn := firstLocalType(t, "local xs: {string} = nil")
 	tt := tn.(*ast.TypeTable)
 	if tt.Indexer == nil {
@@ -281,8 +270,6 @@ func TestLocalFunctionTypedSignature(t *testing.T) {
 }
 
 func TestUnannotatedParamsHaveNilType(t *testing.T) {
-	// Existing Lua code without annotations must still parse, with each
-	// TypedParam.Type left nil.
 	src := "function f(a, b) end"
 	fd := parseExpect1(t, src).(*ast.FunctionDeclaration)
 	for i, p := range fd.Func.Params {
@@ -326,8 +313,6 @@ func TestTypeAliasUnion(t *testing.T) {
 }
 
 func TestTypeAsIdentifierStillWorks(t *testing.T) {
-	// `type` is intentionally not a reserved keyword. Existing code that
-	// uses it as a regular identifier must still compile.
 	src := "local type = 1"
 	ls := parseExpect1(t, src).(*ast.LocalStatement)
 	if ls.Names[0].Name != "type" {
@@ -336,8 +321,6 @@ func TestTypeAsIdentifierStillWorks(t *testing.T) {
 }
 
 func TestTypeFunctionCallStillWorks(t *testing.T) {
-	// `type(x)` is the global `type()` builtin call. Must not be confused
-	// with a type-alias statement (which requires `type Ident =`).
 	src := "type(x)"
 	stmt := parseExpect1(t, src).(*ast.ExpressionStatement)
 	if _, ok := stmt.Expression.(*ast.CallExpression); !ok {
@@ -358,7 +341,6 @@ func TestTypeAssertionBasic(t *testing.T) {
 }
 
 func TestTypeAssertionBindsTighterThanBinaryOp(t *testing.T) {
-	// `a + b :: number` should parse as `a + (b :: number)`, matching Luau.
 	src := "local n = a + b :: number"
 	ls := parseExpect1(t, src).(*ast.LocalStatement)
 	bin, ok := ls.Values[0].(*ast.BinaryExpression)
@@ -371,8 +353,6 @@ func TestTypeAssertionBindsTighterThanBinaryOp(t *testing.T) {
 }
 
 func TestLabelStatementStillWorks(t *testing.T) {
-	// Regression: the `::done::` label must not be consumed as a type
-	// assertion when it follows a complete expression statement.
 	src := "x = 0; goto done; ::done::"
 	prog := parse(t, src)
 	if len(prog.Block.Statements) != 3 {
@@ -384,9 +364,6 @@ func TestLabelStatementStillWorks(t *testing.T) {
 }
 
 func TestTypeAnnotationRoundTrip(t *testing.T) {
-	// Each case lists distinguishing substrings the rendered output must
-	// contain. The assertion is "the annotation didn't disappear silently",
-	// not "exact whitespace match".
 	cases := []struct {
 		src   string
 		needs []string
@@ -412,9 +389,6 @@ func TestTypeAnnotationRoundTrip(t *testing.T) {
 }
 
 func TestLexerModeDirectiveStrict(t *testing.T) {
-	// Compile-time integration: the lexer is consumed by the parser; the
-	// parser doesn't read ModeDirective itself yet — this test asserts the
-	// lexer captured the directive correctly.
 	src := "--!strict\nlocal x = 1"
 	p := newWithSource(src)
 	_, err := p.ParseProgram()
@@ -438,8 +412,6 @@ func TestLexerModeDirectiveNocheck(t *testing.T) {
 }
 
 func TestLexerModeDirectiveOnlyAtHead(t *testing.T) {
-	// Directives in mid-file comments are NOT recognised — only leading
-	// comments before any non-comment token has been emitted.
 	src := "local x = 1\n--!strict\nlocal y = 2"
 	p := newWithSource(src)
 	if _, err := p.ParseProgram(); err != nil {
@@ -449,8 +421,6 @@ func TestLexerModeDirectiveOnlyAtHead(t *testing.T) {
 		t.Errorf("ModeDirective = %q, want empty (mid-file directive ignored)", got)
 	}
 }
-
-// Literal (singleton) types in type position.
 
 func TestLocalAnnotationLiteral(t *testing.T) {
 	cases := []struct {
@@ -500,7 +470,6 @@ func TestLocalAnnotationLiteral(t *testing.T) {
 		if !ok {
 			t.Fatalf("%q: expected *ast.TypeLiteral, got %T", c.src, ty)
 		}
-		// Raw preserves the source spelling, so the node round-trips.
 		if lit.String() != c.wantStr {
 			t.Errorf("%q: String() = %q, want %q", c.src, lit.String(), c.wantStr)
 		}

@@ -1,39 +1,5 @@
 package parser
 
-// `match` is a first-class statement: the parser produces an
-// `ast.MatchStatement` and the bytecode generator lowers it directly to a
-// jump chain (see bytecode/statement_generation.go::compileMatch).
-//
-//	match <expr> do
-//	  <pattern> [if <guard>] -> <stmt>
-//	  ...
-//	  _ -> <stmt>
-//	end
-//
-// It used to desugar here into a `do` block driven by a `__matched` flag.
-// Keeping it as a real node means the type checker can bind and narrow the
-// arm binders, the formatter can round-trip `match` source, the analyzer can
-// see arms as arms, and codegen emits one test-and-branch per arm instead of
-// re-reading a flag before every one.
-//
-// Pattern forms (classified here, evaluated by codegen):
-//
-//	<expr>                 value / literal — matches when `scrutinee == expr`.
-//	                       Comma-separated alternatives allowed: `1, 2, 3`.
-//	_                      wildcard — matches anything, binds nothing.
-//	name : Type            typed binding — matches when the runtime type
-//	                       matches, binds `name` to the scrutinee. `_ : Type`
-//	                       tests without binding; `x : any` binds anything.
-//	Path(a, b, _)          positional destructure of a tagged-enum variant:
-//	                       matches when `scrutinee.__tag == "Path-last-seg"`,
-//	                       binds each named position from `scrutinee[i]`.
-//	Path{ f = a, g = _ }   named destructure of a struct: matches when
-//	                       `typeof(scrutinee) == "Path-last-seg"`, binds each
-//	                       `a` from `scrutinee.f`.
-//
-// The scrutinee is evaluated exactly once. Arms are tried in order and the
-// statement is NOT exhaustive: when nothing matches it is a no-op.
-
 import (
 	"fmt"
 
@@ -42,14 +8,11 @@ import (
 	"github.com/hilthontt/luascript/internal/compiler/token"
 )
 
-// matchSyntax is the canonical `match` syntax shown in user-facing error
-// hints. Kept in one place so we don't drift if the form changes.
 const matchSyntax = "match <expr> do <pattern> [if <guard>] -> <stmt> ... [_ -> <stmt>] end"
 
-// parseMatchStatement consumes a `match ... end` block.
 func (p *Parser) parseMatchStatement() ast.Statement {
 	matchTok := p.curToken
-	p.nextToken() // consume 'match'
+	p.nextToken()
 
 	if p.curTokenIs(token.Do) || p.curTokenIs(token.End) || p.curTokenIs(token.EOF) {
 		p.errorAt(p.curToken, errors.SyntaxError, "match",
@@ -69,7 +32,7 @@ func (p *Parser) parseMatchStatement() ast.Statement {
 			"syntax: "+matchSyntax)
 		return nil
 	}
-	p.nextToken() // consume 'do'
+	p.nextToken()
 
 	stmt := &ast.MatchStatement{BaseNode: baseAt(matchTok), Subject: subject}
 	sawWildcard := false
@@ -89,10 +52,9 @@ func (p *Parser) parseMatchStatement() ast.Statement {
 			return nil
 		}
 
-		// Optional guard: `if <expr>` between the pattern and `->`.
 		var guard ast.Expression
 		if p.curTokenIs(token.If) {
-			p.nextToken() // consume 'if'
+			p.nextToken()
 			guard = p.parseExpression()
 			if guard == nil {
 				return nil
@@ -103,7 +65,7 @@ func (p *Parser) parseMatchStatement() ast.Statement {
 			p.reportArrowError()
 			return nil
 		}
-		p.nextToken() // consume '->'
+		p.nextToken()
 
 		if p.curTokenIs(token.End) || p.curTokenIs(token.EOF) {
 			p.errorAt(p.curToken, errors.SyntaxError, "match",
@@ -112,10 +74,6 @@ func (p *Parser) parseMatchStatement() ast.Statement {
 			return nil
 		}
 
-		// `return` is normally a block terminator (Block.Return), but a match
-		// arm body is a single statement — and returning from an arm is a
-		// very common pattern. The bytecode generator already compiles a
-		// ReturnStatement wherever it appears, so accept it here directly.
 		var body ast.Statement
 		if p.curTokenIs(token.Return) {
 			body = p.parseReturnStatement()
@@ -158,22 +116,17 @@ func (p *Parser) parseMatchStatement() ast.Statement {
 			"")
 		return nil
 	}
-	p.nextToken() // consume 'end'
+	p.nextToken()
 
 	return stmt
 }
 
-// parseArmPattern reads the pattern portion of an arm: either a single
-// binding/destructure/wildcard pattern, or a comma-separated list of value
-// patterns (which become the alternatives of one MatchValue pattern).
 func (p *Parser) parseArmPattern() (ast.MatchPattern, bool) {
 	first, ok := p.parseOnePattern()
 	if !ok {
 		return ast.MatchPattern{}, false
 	}
 
-	// Only value patterns may be joined with commas: alternatives with
-	// bindings would leave the body unsure which binder is live.
 	for p.curTokenIs(token.Comma) {
 		if first.Kind != ast.MatchValue {
 			p.errorAt(p.curToken, errors.SyntaxError, "match",
@@ -181,7 +134,7 @@ func (p *Parser) parseArmPattern() (ast.MatchPattern, bool) {
 				"binding, typed, and destructuring patterns must stand alone")
 			return ast.MatchPattern{}, false
 		}
-		p.nextToken() // consume ','
+		p.nextToken()
 		next, ok := p.parseOnePattern()
 		if !ok {
 			return ast.MatchPattern{}, false
@@ -197,26 +150,20 @@ func (p *Parser) parseArmPattern() (ast.MatchPattern, bool) {
 	return first, true
 }
 
-// parseOnePattern parses a single pattern, dispatching on the leading tokens.
 func (p *Parser) parseOnePattern() (ast.MatchPattern, bool) {
-	// `_` — wildcard or typed no-bind (`_ : T`).
 	if p.curTokenIs(token.Ident) && p.curToken.Literal == "_" {
 		if p.peekTokenIs(token.Colon) {
 			return p.parseTypedPattern("_")
 		}
-		p.nextToken() // consume '_'
+		p.nextToken()
 		return ast.MatchPattern{Kind: ast.MatchWildcard}, true
 	}
 
-	// `name : Type` — typed binding.
 	if p.curTokenIs(token.Ident) && p.peekTokenIs(token.Colon) {
 		name := p.curToken.Literal
 		return p.parseTypedPattern(name)
 	}
 
-	// Otherwise parse a full expression and classify it. A call-shaped
-	// expression naming a declared struct whose arguments are plain binders
-	// is a destructure; anything else is a value pattern compared with `==`.
 	expr := p.parseExpression()
 	if expr == nil {
 		return ast.MatchPattern{}, false
@@ -224,18 +171,13 @@ func (p *Parser) parseOnePattern() (ast.MatchPattern, bool) {
 	return p.classifyPattern(expr), true
 }
 
-// parseTypedPattern reads the `Type` half of a `name : Type` pattern. The
-// cursor is on `name` at entry.
 func (p *Parser) parseTypedPattern(name string) (ast.MatchPattern, bool) {
-	p.nextToken() // consume name/underscore
-	p.nextToken() // consume ':'
+	p.nextToken()
+	p.nextToken()
 	ty := p.parseType()
 	if ty == nil {
 		return ast.MatchPattern{}, false
 	}
-	// Only a primitive or a named type makes a usable runtime test; unions,
-	// tables, and function types would need structural probing we don't do
-	// in a pattern. Reject them with a clear message.
 	switch ty.(type) {
 	case *ast.TypePrimitive, *ast.TypeName:
 	default:
@@ -247,17 +189,6 @@ func (p *Parser) parseTypedPattern(name string) (ast.MatchPattern, bool) {
 	return ast.MatchPattern{Kind: ast.MatchTyped, Bind: name, Type: ty}, true
 }
 
-// classifyPattern decides whether an already-parsed expression is a
-// destructure pattern (call-shaped with binder arguments) or a plain value
-// pattern. Destructuring requires the callee to name a declaration from
-// this chunk — a payload-carrying tagged-enum variant for the positional
-// form (`Circle(r)` reads __tag + payload slots) or a struct for the named
-// form (`Point{ x = a }` reads typeof + named fields). Without that gate,
-// an ordinary value pattern like `double(a)` (call double, compare the
-// result) would silently flip into a never-matching `__tag` probe the
-// moment its argument is an identifier instead of a literal. Variants and
-// structs imported from other modules therefore match as value patterns;
-// use a guard for those.
 func (p *Parser) classifyPattern(expr ast.Expression) ast.MatchPattern {
 	valuePattern := ast.MatchPattern{Kind: ast.MatchValue, Values: []ast.Expression{expr}}
 
@@ -270,8 +201,6 @@ func (p *Parser) classifyPattern(expr ast.Expression) ast.MatchPattern {
 		return valuePattern
 	}
 
-	// Named form: `Name{ field = binder, ... }` (folded to a single
-	// table-constructor argument).
 	if len(call.Args) == 1 {
 		if tc, ok := call.Args[0].(*ast.TableConstructor); ok {
 			if binders, ok := namedBinders(tc); ok && p.structNames[seg] {
@@ -285,8 +214,6 @@ func (p *Parser) classifyPattern(expr ast.Expression) ast.MatchPattern {
 		return valuePattern
 	}
 
-	// Positional form: `Name(a, b, _)` — every argument must be a plain
-	// identifier (a binder) or `_`.
 	binders := make([]string, 0, len(call.Args))
 	for _, a := range call.Args {
 		id, ok := a.(*ast.Identifier)
@@ -298,8 +225,6 @@ func (p *Parser) classifyPattern(expr ast.Expression) ast.MatchPattern {
 	return ast.MatchPattern{Kind: ast.MatchDestructurePos, Tag: seg, PosBinds: binders}
 }
 
-// dottedTail returns the final identifier of a `A.B.C` path expression (or a
-// bare identifier), and whether the expression is such a path.
 func dottedTail(e ast.Expression) (string, bool) {
 	switch n := e.(type) {
 	case *ast.Identifier:
@@ -314,10 +239,6 @@ func dottedTail(e ast.Expression) (string, bool) {
 	return "", false
 }
 
-// namedBinders extracts `field = binder` pairs from a table constructor,
-// requiring every entry to be a record field whose value is a plain
-// identifier (or `_`). Returns false if any entry doesn't fit, so the caller
-// can fall back to treating the whole thing as a value pattern.
 func namedBinders(tc *ast.TableConstructor) ([]ast.MatchFieldBind, bool) {
 	if len(tc.Fields) == 0 {
 		return nil, false
@@ -340,8 +261,6 @@ func namedBinders(tc *ast.TableConstructor) ([]ast.MatchFieldBind, bool) {
 	return out, true
 }
 
-// reportArrowError emits a precise message for the common arm-separator
-// mistakes (`then`, `=>`, `:`) before the generic "expected ->".
 func (p *Parser) reportArrowError() {
 	switch {
 	case p.curTokenIs(token.Then):

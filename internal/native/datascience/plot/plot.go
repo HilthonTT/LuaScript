@@ -1,25 +1,3 @@
-// Package plot is a require()-able host module that turns numeric data into
-// standalone SVG charts — the "see your data" half of a data-science loop.
-// It has no external dependencies: charts are rendered by hand to an SVG
-// string that any browser or image viewer can open, and can be written
-// straight to a .svg file.
-//
-// The central object is a Figure, which accumulates one or more series and
-// renders them onto shared, auto-ranged axes:
-//
-//	local plot = require("plot")
-//	local fig = plot.figure({ title = "demo", xlabel = "x", ylabel = "y" })
-//	fig:line({1,2,3,4}, {1,4,9,16}, { label = "sq", color = "#e15759" })
-//	fig:scatter({1,2,3,4}, {2,3,5,7}, { label = "obs" })
-//	fig:save("demo.svg")
-//
-// Convenience one-liners build a single-series figure directly:
-//
-//	plot.line({1,2,3}, {2,4,6}):save("line.svg")
-//	plot.histogram({1,1,2,3,3,3,4}, 4):save("hist.svg")
-//
-// Charts render on an explicit white background with dark axes so they read
-// correctly regardless of the viewer's theme.
 package plot
 
 import (
@@ -33,19 +11,17 @@ import (
 	"github.com/hilthontt/luascript/internal/vm"
 )
 
-// RegisterPlotPreload installs the loader under package.preload.
 func RegisterPlotPreload(v *vm.VM) {
 	vm.RegisterPreload(v, "plot", plotLoader)
 }
 
-// palette is a categorical, reasonably colorblind-aware series color cycle.
 var palette = []string{
 	"#4e79a7", "#f28e2b", "#e15759", "#76b7b2",
 	"#59a14f", "#edc948", "#b07aa1", "#ff9da7",
 }
 
 type series struct {
-	kind  string // "line" | "scatter" | "bar"
+	kind  string
 	xs    []float64
 	ys    []float64
 	label string
@@ -56,14 +32,12 @@ type figure struct {
 	title, xlabel, ylabel string
 	width, height         int
 	series                []*series
-	xcats                 []string // categorical x tick labels (bar charts)
+	xcats                 []string
 }
 
 func newFigure() *figure { return &figure{width: 640, height: 400} }
 
 func (f *figure) nextColor() string { return palette[len(f.series)%len(palette)] }
-
-// Loader + Figure wrapping
 
 const figKey = "\x00plotfig"
 
@@ -87,8 +61,6 @@ func plotLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
 		return []vm.Value{wrap(f)}
 	})
 
-	// One-liner constructors: build a single-series figure and return it so
-	// callers can immediately :save() or :to_svg().
 	oneShot := func(name, kind string) {
 		set(name, func(_ *vm.VM, args []vm.Value) []vm.Value {
 			f := newFigure()
@@ -142,7 +114,6 @@ func buildMeta() {
 		figMethods.Set(name, &vm.GoFunc{Name: "figure:" + name, Fn: fn})
 	}
 
-	// Series builders return the receiver so calls chain: fig:line(...):scatter(...).
 	set("line", func(_ *vm.VM, args []vm.Value) []vm.Value {
 		f := selfFig("figure:line", args)
 		addXYSeries(f, "figure:line", "line", args, 2)
@@ -164,7 +135,6 @@ func buildMeta() {
 		return []vm.Value{args[0]}
 	})
 
-	// Chainable setters.
 	setter := func(name string, apply func(*figure, vm.Value)) {
 		set(name, func(_ *vm.VM, args []vm.Value) []vm.Value {
 			apply(selfFig("figure:"+name, args), argAt(args, 2))
@@ -201,8 +171,6 @@ func buildMeta() {
 	}})
 }
 
-// Argument parsing / series construction
-
 func argAt(args []vm.Value, i int) vm.Value {
 	if i < 1 || i > len(args) {
 		return nil
@@ -228,7 +196,6 @@ func applyFigureOpts(f *figure, opts *vm.Table) {
 	}
 }
 
-// numsFromTable reads the 1..n numeric portion of a Lua array.
 func numsFromTable(site string, t *vm.Table) []float64 {
 	n := int(t.Len())
 	out := make([]float64, n)
@@ -242,8 +209,6 @@ func numsFromTable(site string, t *vm.Table) []float64 {
 	return out
 }
 
-// seriesOpts pulls the label/color from an optional opts table at the given
-// position and returns them (color defaulting to the figure's next color).
 func seriesOpts(f *figure, args []vm.Value, pos int) (label, color string) {
 	color = f.nextColor()
 	if opts, ok := argAt(args, pos).(*vm.Table); ok {
@@ -257,9 +222,6 @@ func seriesOpts(f *figure, args []vm.Value, pos int) (label, color string) {
 	return
 }
 
-// addXYSeries handles line/scatter. Accepts (xs, ys[, opts]) or (ys[, opts]),
-// where a lone array becomes ys plotted against 1..n. `base` is the 1-based
-// position of the first data argument (2 for methods, 1 for module funcs).
 func addXYSeries(f *figure, site, kind string, args []vm.Value, base int) {
 	first := vm.TableArg(site, base, args)
 	var xs, ys []float64
@@ -282,16 +244,12 @@ func addXYSeries(f *figure, site, kind string, args []vm.Value, base int) {
 	f.series = append(f.series, &series{kind: kind, xs: xs, ys: ys, label: label, color: color})
 }
 
-// addBarSeries handles bars. The first argument may be an array of category
-// strings (categorical x) or numbers (positional x); the second is the
-// heights.
 func addBarSeries(f *figure, site string, args []vm.Value, base int) {
 	first := vm.TableArg(site, base, args)
 	var ys []float64
 	var xs []float64
 	optPos := base + 1
 	if second, ok := argAt(args, base+1).(*vm.Table); ok {
-		// (labels_or_x, heights)
 		ys = numsFromTable(site, second)
 		if cats, ok := stringsFromTable(first); ok {
 			f.xcats = cats
@@ -301,7 +259,6 @@ func addBarSeries(f *figure, site string, args []vm.Value, base int) {
 		}
 		optPos = base + 2
 	} else {
-		// (heights) only
 		ys = numsFromTable(site, first)
 		xs = positions(len(ys))
 	}
@@ -312,8 +269,6 @@ func addBarSeries(f *figure, site string, args []vm.Value, base int) {
 	f.series = append(f.series, &series{kind: "bar", xs: xs, ys: ys, label: label, color: color})
 }
 
-// addHistogram bins raw values into `bins` equal-width buckets and adds a bar
-// series of counts positioned at bin centers.
 func addHistogram(f *figure, site string, args []vm.Value, base int) {
 	vals := numsFromTable(site, vm.TableArg(site, base, args))
 	bins := 10
@@ -345,7 +300,7 @@ func addHistogram(f *figure, site string, args []vm.Value, base int) {
 	for _, v := range vals {
 		idx := int((v - lo) / w)
 		if idx >= bins {
-			idx = bins - 1 // include the right edge in the last bin
+			idx = bins - 1
 		}
 		if idx < 0 {
 			idx = 0
@@ -387,8 +342,6 @@ func asString(v vm.Value) string {
 	return vm.ToString(v)
 }
 
-// SVG rendering
-
 func (f *figure) dataBounds() (xlo, xhi, ylo, yhi float64) {
 	xlo, ylo = math.Inf(1), math.Inf(1)
 	xhi, yhi = math.Inf(-1), math.Inf(-1)
@@ -403,7 +356,6 @@ func (f *figure) dataBounds() (xlo, xhi, ylo, yhi float64) {
 	if !any {
 		return 0, 1, 0, 1
 	}
-	// Bars are drawn from the y baseline, so always include 0.
 	if f.hasBars() {
 		ylo = math.Min(ylo, 0)
 		yhi = math.Max(yhi, 0)
@@ -438,7 +390,6 @@ func (f *figure) barSeriesCount() int {
 
 func (f *figure) renderSVG() string {
 	W, H := f.width, f.height
-	// Margins: leave room for title, axis labels, and tick labels.
 	mL, mR, mT, mB := 60, 20, 20, 44
 	if f.title != "" {
 		mT = 44
@@ -446,7 +397,6 @@ func (f *figure) renderSVG() string {
 	if f.ylabel != "" {
 		mL = 72
 	}
-	// Room for a legend on the right if any series is labeled.
 	legend := f.legendEntries()
 	if len(legend) > 0 {
 		mR = 130
@@ -462,7 +412,6 @@ func (f *figure) renderSVG() string {
 	fmt.Fprintf(&b, `<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d" font-family="sans-serif">`, W, H, W, H)
 	fmt.Fprintf(&b, `<rect width="%d" height="%d" fill="#ffffff"/>`, W, H)
 
-	// Gridlines + tick labels.
 	xticks := niceTicks(xlo, xhi, 6)
 	yticks := niceTicks(ylo, yhi, 6)
 	for _, ty := range yticks {
@@ -472,7 +421,6 @@ func (f *figure) renderSVG() string {
 		fmt.Fprintf(&b, `<text x="%.1f" y="%.1f" font-size="11" fill="#333" text-anchor="end" dominant-baseline="middle">%s</text>`,
 			float64(mL-6), py, fmtTick(ty))
 	}
-	// X ticks: categorical labels for bar-only figures, else numeric.
 	if f.xcats != nil {
 		for i, lbl := range f.xcats {
 			px := sx(float64(i + 1))
@@ -489,17 +437,14 @@ func (f *figure) renderSVG() string {
 		}
 	}
 
-	// Axes frame.
 	fmt.Fprintf(&b, `<rect x="%d" y="%d" width="%d" height="%d" fill="none" stroke="#333" stroke-width="1"/>`,
 		mL, mT, plotW, plotH)
-	// Zero line, if 0 is within the y range and not on the frame.
 	if ylo < 0 && yhi > 0 {
 		p0 := sy(0)
 		fmt.Fprintf(&b, `<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="#999" stroke-width="1"/>`,
 			float64(mL), p0, float64(mL+plotW), p0)
 	}
 
-	// Series.
 	barIdx := 0
 	barTotal := f.barSeriesCount()
 	baseline := sy(math.Max(0, ylo))
@@ -522,7 +467,6 @@ func (f *figure) renderSVG() string {
 				fmt.Fprintf(&b, `<circle cx="%.2f" cy="%.2f" r="3.5" fill="%s"/>`, sx(s.xs[i]), sy(s.ys[i]), s.color)
 			}
 		case "bar":
-			// Group bars from different series side by side within each slot.
 			slot := f.slotWidth(plotW)
 			groupW := slot * 0.8
 			barW := groupW / math.Max(1, float64(barTotal))
@@ -541,7 +485,6 @@ func (f *figure) renderSVG() string {
 		}
 	}
 
-	// Title & axis labels.
 	if f.title != "" {
 		fmt.Fprintf(&b, `<text x="%.1f" y="24" font-size="15" font-weight="bold" fill="#111" text-anchor="middle">%s</text>`,
 			float64(mL+plotW)/2+float64(mL)/2, xmlEscape(f.title))
@@ -556,7 +499,6 @@ func (f *figure) renderSVG() string {
 			cy, cy, xmlEscape(f.ylabel))
 	}
 
-	// Legend.
 	if len(legend) > 0 {
 		lx := mL + plotW + 14
 		ly := mT + 4
@@ -572,9 +514,7 @@ func (f *figure) renderSVG() string {
 	return b.String()
 }
 
-// slotWidth is the horizontal pixel span allotted to one bar category.
 func (f *figure) slotWidth(plotW int) float64 {
-	// Count distinct bar x positions (assume all bar series share them).
 	n := 0
 	for _, s := range f.series {
 		if s.kind == "bar" && len(s.xs) > n {
@@ -599,8 +539,6 @@ func (f *figure) legendEntries() []legendEntry {
 	return out
 }
 
-// niceTicks returns rounded tick positions spanning [lo, hi] with about
-// `want` intervals, using the 1-2-5 step progression.
 func niceTicks(lo, hi float64, want int) []float64 {
 	if hi <= lo || want < 1 {
 		return []float64{lo}

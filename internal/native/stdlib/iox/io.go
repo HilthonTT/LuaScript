@@ -1,13 +1,3 @@
-// Package iox implements Lua 5.4's `io` library — file handles with
-// :read/:write/:lines/:seek/:flush/:close methods, plus the module-level
-// helpers io.open / io.lines / io.read / io.write / io.close / io.type /
-// io.tmpfile. The package directory is `iox` (not `io`) so it does not
-// clash with Go's standard library; the module is exposed to Lua as `io`.
-//
-// `io.write` is also installed by the core stdlib's `io` library
-// (vm/stdlib_modules.go) for the convenience of `print`-style usage on
-// stdout. This module's `io.write` takes precedence when the user does
-// `require("io")` because the require result overrides the core view.
 package iox
 
 import (
@@ -22,11 +12,6 @@ import (
 	"github.com/hilthontt/luascript/internal/vm"
 )
 
-// ownFile attaches a GC finalizer that closes the underlying fd if the handle
-// becomes unreachable while still open. This stands in for Lua's __gc on file
-// objects (which this runtime does not implement), so files opened by io.open
-// / io.input / io.output / io.tmpfile don't leak their descriptor when the
-// script drops the handle without calling :close().
 func ownFile(h *fileHandle) *fileHandle {
 	runtime.SetFinalizer(h, func(h *fileHandle) {
 		if !h.closed && !h.isStd {
@@ -36,7 +21,6 @@ func ownFile(h *fileHandle) *fileHandle {
 	return h
 }
 
-// RegisterIOPreload installs the io module at package.preload as "io".
 func RegisterIOPreload(v *vm.VM) {
 	vm.RegisterPreload(v, "io", loader)
 }
@@ -45,17 +29,11 @@ func loader(_ *vm.VM, _ []vm.Value) []vm.Value {
 	return []vm.Value{newIO()}
 }
 
-// fileHandle is the Go-side state behind every Lua file table. The Lua
-// table itself just exposes methods; the *os.File and buffered reader
-// are kept here in a closure-captured struct.
 type fileHandle struct {
 	f      *os.File
 	br     *bufio.Reader
 	closed bool
-	// isStd indicates a process-owned stdin/stdout/stderr handle. Close()
-	// on these is a no-op so user scripts can't sever the process's std
-	// streams by closing them.
-	isStd bool
+	isStd  bool
 }
 
 func newIO() *vm.Table {
@@ -65,8 +43,6 @@ func newIO() *vm.Table {
 		methods.Set(name, &vm.GoFunc{Name: "io." + name, Fn: fn})
 	}
 
-	// Pre-built stdio handles. Reads go through a shared bufio.Reader
-	// so partial-line reads compose; writes go through os.File directly.
 	stdinH := &fileHandle{f: os.Stdin, br: bufio.NewReader(os.Stdin), isStd: true}
 	stdoutH := &fileHandle{f: os.Stdout, isStd: true}
 	stderrH := &fileHandle{f: os.Stderr, isStd: true}
@@ -79,10 +55,6 @@ func newIO() *vm.Table {
 	m.Set("stdout", stdoutT)
 	m.Set("stderr", stderrT)
 
-	// default_output / default_input track which handle io.write / io.read
-	// route through when no explicit file argument is given. Lua uses
-	// io.output() / io.input() for this; we expose simpler accessors and
-	// keep references in Go-side state.
 	defaultIn := stdinH
 	defaultOut := stdoutH
 
@@ -113,9 +85,6 @@ func newIO() *vm.Table {
 		} else {
 			br = defaultIn.br
 		}
-		// Close the owned file exactly once, whether the iterator reaches EOF
-		// or the loop is abandoned early (the finalizer below is the safety
-		// net for break/return). sync.Once makes the two paths race-free.
 		var once sync.Once
 		closeOwned := func() {
 			once.Do(func() {
@@ -151,9 +120,6 @@ func newIO() *vm.Table {
 		for _, a := range args {
 			fmt.Fprint(defaultOut.f, vm.ToStringMM(v, a))
 		}
-		// Lua returns the CURRENT default-output handle so io.write() chains
-		// — after io.output(f), a chained :write must keep writing to f, not
-		// jump back to stdout.
 		return []vm.Value{newFileTable(defaultOut)}
 	})
 
@@ -199,8 +165,6 @@ func newIO() *vm.Table {
 		return []vm.Value{"file"}
 	})
 
-	// io.input(filename or file?) / io.output(filename or file?). With no
-	// arg they return the current default handle; with one they switch it.
 	add("input", func(_ *vm.VM, args []vm.Value) []vm.Value {
 		if len(args) == 0 {
 			return []vm.Value{newFileTable(defaultIn)}
@@ -248,8 +212,6 @@ func newIO() *vm.Table {
 	return m
 }
 
-// handleFrom unwraps a file-table back to its *fileHandle. Returns nil if
-// arg is not a file table created by this module.
 func handleFrom(v vm.Value) *fileHandle {
 	t, ok := v.(*vm.Table)
 	if !ok {
@@ -260,10 +222,6 @@ func handleFrom(v vm.Value) *fileHandle {
 	return h
 }
 
-// newFileTable builds the Lua-visible table for a file handle. The handle
-// itself is stashed at table["__handle"] so the methods can retrieve it
-// via colon dispatch; "__handle" is mangled enough that user scripts are
-// unlikely to overwrite it accidentally.
 func newFileTable(h *fileHandle) *vm.Table {
 	t := vm.NewTable(0, 8)
 	t.Set("__handle", h)
@@ -274,11 +232,11 @@ func newFileTable(h *fileHandle) *vm.Table {
 	}
 
 	add("read", func(_ *vm.VM, args []vm.Value) []vm.Value {
-		_ = vm.TableArg("file:read", 1, args) // discard self
+		_ = vm.TableArg("file:read", 1, args)
 		return readFormats(h, args, 2)
 	})
 	add("write", func(v *vm.VM, args []vm.Value) []vm.Value {
-		_ = vm.TableArg("file:write", 1, args) // discard self
+		_ = vm.TableArg("file:write", 1, args)
 		if h.closed {
 			return []vm.Value{nil, "file is closed"}
 		}
@@ -290,7 +248,7 @@ func newFileTable(h *fileHandle) *vm.Table {
 		return []vm.Value{t}
 	})
 	add("lines", func(_ *vm.VM, args []vm.Value) []vm.Value {
-		_ = vm.TableArg("file:lines", 1, args) // discard self
+		_ = vm.TableArg("file:lines", 1, args)
 		iter := &vm.GoFunc{Name: "file:lines:iter", Fn: func(_ *vm.VM, _ []vm.Value) []vm.Value {
 			if h.closed {
 				return []vm.Value{nil}
@@ -332,7 +290,6 @@ func newFileTable(h *fileHandle) *vm.Table {
 		if err != nil {
 			return []vm.Value{nil, err.Error()}
 		}
-		// Seeking invalidates the buffered reader.
 		if h.br != nil {
 			h.br.Reset(h.f)
 		}
@@ -359,16 +316,11 @@ func newFileTable(h *fileHandle) *vm.Table {
 	return t
 }
 
-// readFormats implements the shared read-format logic for both io.read
-// and file:read. The reader argument is the handle to read from; argStart
-// is the index in args where the format strings begin (1 for io.read,
-// 2 for file:read because of the self slot).
 func readFormats(h *fileHandle, args []vm.Value, argStart int) []vm.Value {
 	if h.closed {
 		return []vm.Value{nil, "file is closed"}
 	}
 	if h.br == nil {
-		// Output-only handle (e.g. stdout opened via io.output(name)).
 		return []vm.Value{nil, "file is not readable"}
 	}
 	formats := args[argStart-1:]
@@ -411,7 +363,6 @@ func readFormats(h *fileHandle, args []vm.Value, argStart int) []vm.Value {
 				}
 				out = append(out, b.String())
 			case "n":
-				// Read a number — skip leading spaces, accumulate digits/sign/dot/e.
 				if err := skipSpaces(h.br); err != nil {
 					out = append(out, nil)
 					return out
@@ -434,19 +385,15 @@ func readFormats(h *fileHandle, args []vm.Value, argStart int) []vm.Value {
 				panic(vm.Errorf("io.read: invalid format (negative count)"))
 			}
 			if n == 0 {
-				// Lua semantics: returns "" if at EOF or not, depending on err.
 				out = append(out, "")
 				continue
 			}
-			// Read up to n bytes via a LimitReader so a huge n over a short
-			// stream grows the buffer only to what's actually available
-			// (no upfront make([]byte, n) OOM, no negative-length crash).
 			data, err := io.ReadAll(io.LimitReader(h.br, n))
 			if err != nil {
 				panic(vm.Errorf("io.read: %s", err.Error()))
 			}
 			if len(data) == 0 {
-				out = append(out, nil) // at EOF
+				out = append(out, nil)
 				return out
 			}
 			out = append(out, string(data))
@@ -460,7 +407,6 @@ func closeHandle(h *fileHandle) []vm.Value {
 		return []vm.Value{nil, "file is already closed"}
 	}
 	if h.isStd {
-		// Closing a std handle is a no-op so scripts can't break the process.
 		return []vm.Value{true}
 	}
 	if err := h.f.Close(); err != nil {
@@ -470,9 +416,6 @@ func closeHandle(h *fileHandle) []vm.Value {
 	return []vm.Value{true}
 }
 
-// openMode translates a Lua mode string into Go's O_* flags. Lua modes:
-// "r" (read), "w" (write/truncate), "a" (append), "r+"/"w+"/"a+" for
-// update; trailing "b" is accepted and ignored (no text mode here).
 func openMode(path, mode string) (*os.File, error) {
 	mode = strings.TrimSuffix(mode, "b")
 	var flag int
@@ -507,9 +450,6 @@ func skipSpaces(br *bufio.Reader) error {
 	}
 }
 
-// readNumber consumes a numeric token (decimal or float) from br and
-// returns it as int64 or float64. Tolerant of trailing junk — once the
-// pattern stops matching, the rest stays in the reader.
 func readNumber(br *bufio.Reader) (vm.Value, error) {
 	var b strings.Builder
 	saw := false

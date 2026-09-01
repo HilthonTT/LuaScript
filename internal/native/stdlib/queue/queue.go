@@ -9,7 +9,6 @@ import (
 	"github.com/hilthontt/luascript/internal/vm"
 )
 
-// RegisterQueuePreload installs the `queue` module under package.preload.
 func RegisterQueuePreload(v *vm.VM) {
 	vm.RegisterPreload(v, "queue", queueLoader)
 }
@@ -20,7 +19,6 @@ func queueLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
 
 	methods := vm.NewTable(0, 4)
 
-	// queue.new{ capacity = n, on_error = f } -> a job queue.
 	methods.Set("new", &vm.GoFunc{Name: "queue:new", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 		var opts *vm.Table
 		if len(args) > 0 && args[0] != nil {
@@ -37,15 +35,11 @@ func queueLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
 		return []vm.Value{wrapQueue(NewDispatcher(capacity), onError)}
 	}})
 
-	// queue.channel(capacity) -> a channel. capacity defaults to 0
-	// (unbuffered), matching Go.
 	methods.Set("channel", &vm.GoFunc{Name: "queue:channel", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 		capacity := vm.OptInt("queue.channel", 1, args, 0)
 		return []vm.Value{wrapChannel(NewChannel(int(capacity)), nil)}
 	}})
 
-	// queue.after(ms, value?) -> channel that yields `value` (default true)
-	// once, after ms, then closes.
 	methods.Set("after", &vm.GoFunc{Name: "queue:after", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 		ms := vm.IntArg("queue.after", 1, args)
 		var val vm.Value = true
@@ -58,16 +52,14 @@ func queueLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
 			defer t.Stop()
 			select {
 			case <-t.C:
-				c.Send(val, 0) // cap-1 buffer, empty: always succeeds
+				c.Send(val, 0)
 				c.Close()
 			case <-c.done:
-				// Receiver closed early; drop the timer and go home.
 			}
 		}()
 		return []vm.Value{wrapChannel(c, nil)}
 	}})
 
-	// queue.tick(ms) -> a channel that yields `true` every ms until :stop().
 	methods.Set("tick", &vm.GoFunc{Name: "queue:tick", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 		ms := vm.IntArg("queue.tick", 1, args)
 		if ms <= 0 {
@@ -80,16 +72,12 @@ func queueLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
 			for {
 				select {
 				case <-t.C:
-					// Non-blocking: a consumer that falls behind drops ticks
-					// rather than building an unbounded backlog — same policy
-					// as Go's time.Ticker.
 					c.Send(true, 0)
 				case <-c.done:
 					return
 				}
 			}
 		}()
-		// :stop() closes the channel, which is also the goroutine's exit signal.
 		return []vm.Value{wrapChannel(c, c.Close)}
 	}})
 
@@ -99,16 +87,12 @@ func queueLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
 	return []vm.Value{mod}
 }
 
-// wrapQueue exposes a Dispatcher as a Lua object.
 func wrapQueue(d *Dispatcher, onError vm.Value) *vm.Table {
 	o := vm.NewTable(0, 1)
 	methods := vm.NewTable(0, 8)
 
-	// nextID names jobs the script didn't name. Only ever touched from a
-	// GoFunc, i.e. the VM goroutine, so a plain counter is enough.
 	var nextID uint64
 
-	// :push(fn, opts?) -> id | nil, err
 	methods.Set("push", &vm.GoFunc{Name: "queue:push", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 		_ = vm.TableArg("queue:push", 1, args)
 		fn := funcArg("queue:push", 2, args)
@@ -150,14 +134,11 @@ func wrapQueue(d *Dispatcher, onError vm.Value) *vm.Table {
 		return []vm.Value{j.ID}
 	}})
 
-	// :run() -> processed. Blocks on the VM goroutine until the queue drains
-	// (waiting out any delays) or :stop() is called.
 	methods.Set("run", &vm.GoFunc{Name: "queue:run", Fn: func(machine *vm.VM, args []vm.Value) []vm.Value {
 		_ = vm.TableArg("queue:run", 1, args)
 		return []vm.Value{pump(machine, d, onError, true, 0)}
 	}})
 
-	// :poll(max?) -> processed. Runs only jobs already due; never sleeps.
 	methods.Set("poll", &vm.GoFunc{Name: "queue:poll", Fn: func(machine *vm.VM, args []vm.Value) []vm.Value {
 		_ = vm.TableArg("queue:poll", 1, args)
 		max := vm.OptInt("queue:poll", 2, args, 0)
@@ -205,12 +186,6 @@ func wrapQueue(d *Dispatcher, onError vm.Value) *vm.Table {
 	return o
 }
 
-// pump drains the dispatcher on the VM goroutine. It is the sole place a Lua
-// job is invoked.
-//
-// blocking=true waits out delays until the queue is empty or stopped (`:run`);
-// blocking=false takes only what is due right now (`:poll`). max>0 caps how
-// many jobs a single call will process.
 func pump(machine *vm.VM, d *Dispatcher, onError vm.Value, blocking bool, max int64) int64 {
 	var processed int64
 
@@ -222,12 +197,9 @@ func pump(machine *vm.VM, d *Dispatcher, onError vm.Value, blocking bool, max in
 		now := time.Now()
 		job, wait, ok := d.NextDue(now)
 		if !ok {
-			// wait == 0 means nothing is pending at all: drained, or stopped.
 			if !blocking || wait <= 0 {
 				return processed
 			}
-			// Park until the next delayed job comes due — or until a Submit or
-			// a Stop wakes us early.
 			t := time.NewTimer(wait)
 			select {
 			case <-t.C:
@@ -237,8 +209,6 @@ func pump(machine *vm.VM, d *Dispatcher, onError vm.Value, blocking bool, max in
 			continue
 		}
 
-		// Shed work that sat past its start deadline. See Job.Expired for why
-		// this is a start deadline and not an execution timeout.
 		if job.Expired(now) {
 			d.MarkExpired()
 			report(machine, onError, job, fmt.Sprintf("job %q expired before it ran", job.ID), true)
@@ -251,9 +221,6 @@ func pump(machine *vm.VM, d *Dispatcher, onError vm.Value, blocking bool, max in
 		}
 
 		start := time.Now()
-		// SafeCall, never CallValue: a job that errors (a Lua error(), a bad
-		// argument, a nil index) must not leave the shared VM's stack, frames
-		// and open upvalues dirty for the next job.
 		_, errVal, failed := machine.SafeCall(job.Fn, job.Args)
 		exec := time.Since(start)
 
@@ -262,19 +229,12 @@ func pump(machine *vm.VM, d *Dispatcher, onError vm.Value, blocking bool, max in
 		}
 		processed++
 
-		// A job may have called :stop() — honour it before taking another.
 		if d.Stopped() {
 			return processed
 		}
 	}
 }
 
-// report hands a failure to the on_error callback, if the script set one.
-//
-// It runs inside the pump loop, so it must not panic: an escaping panic would
-// unwind :run and strand the queue. SafeCall contains a bad callback, and a
-// callback that itself errors is logged rather than re-raised — there is
-// nobody left to report it to.
 func report(machine *vm.VM, onError vm.Value, job *Job, msg string, expired bool) {
 	if onError == nil {
 		return
@@ -294,8 +254,6 @@ func report(machine *vm.VM, onError vm.Value, job *Job, msg string, expired bool
 	}
 }
 
-// metricsTable renders a Metrics snapshot as a Lua table. Durations are
-// exposed as milliseconds (floats), which is what scripts want to print.
 func metricsTable(d *Dispatcher) *vm.Table {
 	m := d.Snapshot()
 	t := vm.NewTable(0, 12)
@@ -314,15 +272,10 @@ func metricsTable(d *Dispatcher) *vm.Table {
 	return t
 }
 
-// wrapChannel exposes a Channel as a Lua object. `stop`, when non-nil, is
-// installed as :stop() — queue.tick uses it to shut its goroutine down.
 func wrapChannel(c *Channel, stop func()) *vm.Table {
 	o := vm.NewTable(0, 1)
 	methods := vm.NewTable(0, 8)
 
-	// :send(v, timeout_ms?) -> true | false, "timeout"
-	// Blocks by default. Sending on a closed channel is a programming error
-	// and raises, mirroring Go (where it panics).
 	methods.Set("send", &vm.GoFunc{Name: "channel:send", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 		_ = vm.TableArg("channel:send", 1, args)
 		v := sendValue("channel:send", args)
@@ -340,7 +293,6 @@ func wrapChannel(c *Channel, stop func()) *vm.Table {
 		}
 	}})
 
-	// :try_send(v) -> true | false, reason
 	methods.Set("try_send", &vm.GoFunc{Name: "channel:try_send", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 		_ = vm.TableArg("channel:try_send", 1, args)
 		v := sendValue("channel:try_send", args)
@@ -354,7 +306,6 @@ func wrapChannel(c *Channel, stop func()) *vm.Table {
 		}
 	}})
 
-	// :receive(timeout_ms?) -> v, true | nil, false, reason
 	methods.Set("receive", &vm.GoFunc{Name: "channel:receive", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 		_ = vm.TableArg("channel:receive", 1, args)
 		timeout := time.Duration(-1)
@@ -364,7 +315,6 @@ func wrapChannel(c *Channel, stop func()) *vm.Table {
 		return receiveResults(c.Receive(timeout))
 	}})
 
-	// :try_receive() -> v, true | nil, false, reason
 	methods.Set("try_receive", &vm.GoFunc{Name: "channel:try_receive", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 		_ = vm.TableArg("channel:try_receive", 1, args)
 		return receiveResults(c.Receive(0))
@@ -410,7 +360,6 @@ func wrapChannel(c *Channel, stop func()) *vm.Table {
 	return o
 }
 
-// receiveResults renders a Receive into Lua's (value, ok, reason) triple.
 func receiveResults(v vm.Value, r Result) []vm.Value {
 	if r == OK {
 		return []vm.Value{v, true}
@@ -418,12 +367,6 @@ func receiveResults(v vm.Value, r Result) []vm.Value {
 	return []vm.Value{nil, false, r.String()}
 }
 
-// sendValue pulls the value off a :send / :try_send call.
-//
-// nil is rejected rather than sent. A channel can carry it perfectly well, but
-// receive returns (value, ok) — so a nil in the buffer would make the natural
-// `while true do local v = ch:receive(); if not v then break end end` loop
-// exit on a legitimate value. Refusing nil keeps that idiom honest.
 func sendValue(site string, args []vm.Value) vm.Value {
 	if len(args) < 2 {
 		panic(vm.Errorf("bad argument #1 to '%s' (value expected)", site))
@@ -434,8 +377,6 @@ func sendValue(site string, args []vm.Value) vm.Value {
 	return args[1]
 }
 
-// funcArg validates that arg n is a callable. vm has no combined helper —
-// ClosureArg rejects host *GoFunc — so, like httpserver and ui, we hand-roll it.
 func funcArg(site string, n int, args []vm.Value) vm.Value {
 	if n < 1 || n > len(args) {
 		panic(vm.Errorf("bad argument #%d to '%s' (function expected)", n, site))
@@ -447,7 +388,6 @@ func funcArg(site string, n int, args []vm.Value) vm.Value {
 	panic(vm.Errorf("bad argument #%d to '%s' (function expected, got %s)", n, site, vm.TypeName(args[n-1])))
 }
 
-// callableField validates an option-table field that must be a callable.
 func callableField(site, field string, v vm.Value) vm.Value {
 	switch v.(type) {
 	case *vm.Closure, *vm.GoFunc:
@@ -456,8 +396,6 @@ func callableField(site, field string, v vm.Value) vm.Value {
 	panic(vm.Errorf("bad option '%s' to '%s' (function expected, got %s)", field, site, vm.TypeName(v)))
 }
 
-// optIntField reads an integer option, tolerating absence. A present but
-// non-integer value is a script bug and raises.
 func optIntField(t *vm.Table, field string, dflt int64) int64 {
 	v := t.Get(field)
 	if v == nil {
@@ -475,8 +413,6 @@ func optIntField(t *vm.Table, field string, dflt int64) int64 {
 	panic(vm.Errorf("bad option '%s' (number expected, got %s)", field, vm.TypeName(v)))
 }
 
-// durationMS converts a millisecond count to a Duration, clamping negatives to
-// zero so a stray -1 can't turn into "wait forever" somewhere downstream.
 func durationMS(ms int64) time.Duration {
 	if ms <= 0 {
 		return 0
@@ -484,7 +420,6 @@ func durationMS(ms int64) time.Duration {
 	return time.Duration(ms) * time.Millisecond
 }
 
-// millis renders a Duration as fractional milliseconds for script consumption.
 func millis(d time.Duration) float64 {
 	return float64(d) / float64(time.Millisecond)
 }

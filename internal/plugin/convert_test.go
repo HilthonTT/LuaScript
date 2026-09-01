@@ -10,8 +10,6 @@ import (
 	"github.com/hilthontt/luascript/internal/vm"
 )
 
-// call invokes fn through the marshalling layer, recovering the Lua error it
-// raises on a bad argument so tests can assert on the message.
 func call(t *testing.T, fn any, args ...vm.Value) (res []vm.Value, luaErr string) {
 	t.Helper()
 	defer func() {
@@ -31,8 +29,6 @@ func tbl(vals ...vm.Value) *vm.Table {
 	return t
 }
 
-// Lua -> Go conversion is driven by the parameter type, so the same Lua
-// integer has to satisfy an int, a float64 and a time.Duration.
 func TestCallReflectedArgumentConversion(t *testing.T) {
 	tests := []struct {
 		name string
@@ -48,7 +44,6 @@ func TestCallReflectedArgumentConversion(t *testing.T) {
 			want: "HELLO",
 		},
 		{
-			// Lua only has int64; the Go signature says `int`.
 			name: "lua int -> go int",
 			fn:   func(n int) int { return n * 2 },
 			args: []vm.Value{int64(21)},
@@ -73,7 +68,6 @@ func TestCallReflectedArgumentConversion(t *testing.T) {
 			want: int64(3),
 		},
 		{
-			// Lua 5.4 refuses this too ("number has no integer representation").
 			name: "fractional float -> go int is rejected",
 			fn:   func(n int) int { return n },
 			args: []vm.Value{3.5},
@@ -167,9 +161,6 @@ func TestCallReflectedArgumentConversion(t *testing.T) {
 	}
 }
 
-// Every Go integer kind has to widen to int64 and every float to float64 —
-// the FFI rule in CLAUDE.md: those are the only numeric types the runtime
-// tracks.
 func TestFromGoWidensNumbers(t *testing.T) {
 	tests := []struct {
 		name string
@@ -211,8 +202,6 @@ func TestFromGoSlice(t *testing.T) {
 	}
 }
 
-// A returned error keeps its position and becomes nil or its message, so
-// `local v, err = p.Open(...)` reads the way a Lua programmer expects.
 func TestErrorReturnMapsToNilOrMessage(t *testing.T) {
 	fn := func(fail bool) (string, error) {
 		if fail {
@@ -238,8 +227,6 @@ func TestErrorReturnMapsToNilOrMessage(t *testing.T) {
 	}
 }
 
-// GoValue
-
 type greeter struct {
 	Name   string
 	hidden int
@@ -247,9 +234,6 @@ type greeter struct {
 
 func (g *greeter) Greet(punct string) string { return "hi " + g.Name + punct }
 
-// A Go value with no Lua counterpart comes back wrapped, with its exported
-// methods and fields still reachable. This is what makes `db:Query(...)` work
-// on a *sql.DB.
 func TestGoValueMethodAndFieldAccess(t *testing.T) {
 	res, luaErr := call(t, func() *greeter { return &greeter{Name: "ada", hidden: 1} })
 	if luaErr != "" {
@@ -264,21 +248,16 @@ func TestGoValueMethodAndFieldAccess(t *testing.T) {
 		t.Fatal("returned table is not a GoValue")
 	}
 
-	// Exported field.
 	if got := goValueMember(self, raw, "Name"); got != "ada" {
 		t.Errorf("field Name: got %#v, want \"ada\"", got)
 	}
-	// Unexported field stays invisible.
 	if got := goValueMember(self, raw, "hidden"); got != nil {
 		t.Errorf("unexported field should be nil, got %#v", got)
 	}
-	// Unknown member is nil, not a panic.
 	if got := goValueMember(self, raw, "Nope"); got != nil {
 		t.Errorf("unknown member should be nil, got %#v", got)
 	}
 
-	// Method, called the Lua way: `g:Greet("!")` passes the receiver as the
-	// first argument, and the binding has to drop it.
 	m, ok := goValueMember(self, raw, "Greet").(*vm.GoFunc)
 	if !ok {
 		t.Fatal("Greet did not resolve to a callable")
@@ -288,15 +267,12 @@ func TestGoValueMethodAndFieldAccess(t *testing.T) {
 		t.Fatalf("g:Greet(\"!\") = %#v, want \"hi ada!\"", got)
 	}
 
-	// And the dot form, `g.Greet("!")`, where no receiver is passed.
 	got = m.Fn(nil, []vm.Value{"!"})
 	if len(got) != 1 || got[0] != "hi ada!" {
 		t.Fatalf("g.Greet(\"!\") = %#v, want \"hi ada!\"", got)
 	}
 }
 
-// A GoValue handed back to Go must arrive as the value it wraps, so a handle
-// returned by one plugin call can be passed into the next.
 func TestGoValueRoundTripsBackIntoGo(t *testing.T) {
 	res, _ := call(t, func() *greeter { return &greeter{Name: "ada"} })
 	handle := res[0]
