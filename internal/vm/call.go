@@ -146,8 +146,9 @@ func (v *VM) doReturn(f *CallFrame, count int) {
 
 func (v *VM) unwindFrame(f *CallFrame, rets []Value) {
 	f.handlers = nil
-	if len(f.Deferred) > 0 {
+	if len(f.tbc) > 0 || len(f.Deferred) > 0 {
 		rets = append([]Value(nil), rets...)
+		v.closeTBC(f, len(f.tbc), nil)
 		v.runDeferred(f)
 	}
 	v.closeUpvaluesAbove(f.Base)

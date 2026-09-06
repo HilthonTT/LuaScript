@@ -95,6 +95,10 @@ const (
 
 	Throw
 
+	MarkTBC
+
+	CloseTBC
+
 	InstructionCount
 )
 
@@ -163,6 +167,8 @@ var InstructionNameTable = []string{
 	Try:             "try",
 	EndTry:          "endtry",
 	Throw:           "throw",
+	MarkTBC:         "marktbc",
+	CloseTBC:        "closetbc",
 }
 
 type Instruction struct {
@@ -312,9 +318,18 @@ func encodeParams(i *Instruction, op uint8, params []any) {
 		}
 
 	case LoadNil, LoadVararg, Pop, Concat, Return,
-		Closure, GetLocal, SetLocal, GetUpvalue, SetUpvalue, CloseUpvalues, EndTry:
+		Closure, GetLocal, SetLocal, GetUpvalue, SetUpvalue, CloseUpvalues, EndTry, CloseTBC:
 		if len(params) >= 1 {
 			i.A = asInt32(params[0])
+		}
+	case MarkTBC:
+		if len(params) >= 1 {
+			i.A = asInt32(params[0])
+		}
+		if len(params) >= 2 {
+			if s, ok := params[1].(string); ok {
+				i.StrA = s
+			}
 		}
 	case Jump, JumpIfFalse, JumpIfTrue, JumpIfFalseKeep, JumpIfTrueKeep, Try:
 		if len(params) >= 1 {

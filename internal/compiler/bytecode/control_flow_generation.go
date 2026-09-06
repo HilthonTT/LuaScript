@@ -60,7 +60,7 @@ func (g *Generator) compileRepeat(is *InstructionSet, s *ast.RepeatStatement) {
 	topAnchor := &anchor{line: is.count}
 	exitAnchor := &anchor{}
 
-	g.current.locals.openScope()
+	g.openScope()
 	contAnchor := &anchor{}
 	frame := &loopFrame{
 		breakAnchor: exitAnchor, continueAnchor: contAnchor,
@@ -87,7 +87,7 @@ func (g *Generator) compileRepeat(is *InstructionSet, s *ast.RepeatStatement) {
 	if frame.minContinueBindings >= 0 {
 		g.checkRepeatContinueLocals(is, frame, condStart, condProtos, s.Condition.Line())
 	}
-	g.current.locals.closeScope()
+	g.closeScope(is, s.Line())
 
 	g.popLoop()
 
@@ -107,7 +107,7 @@ func (g *Generator) compileNumericFor(is *InstructionSet, s *ast.NumericForState
 		is.define(LoadInt, s.Line(), int64(1))
 	}
 
-	g.current.locals.openScope()
+	g.openScope()
 	indexSlot := g.current.locals.define("(for index)")
 	g.current.locals.define("(for limit)")
 	g.current.locals.define("(for step)")
@@ -134,13 +134,13 @@ func (g *Generator) compileNumericFor(is *InstructionSet, s *ast.NumericForState
 	exitAnchor.line = is.count
 	g.emitLoopClose(is, varSlot, protos, s.Line())
 
-	g.current.locals.closeScope()
+	g.closeScope(is, s.Line())
 }
 
 func (g *Generator) compileGenericFor(is *InstructionSet, s *ast.GenericForStatement) {
 	g.emitExplistTo(is, s.Exprs, 3, s.Line())
 
-	g.current.locals.openScope()
+	g.openScope()
 	hiddenBase := g.current.locals.define("(for iter)")
 	g.current.locals.define("(for state)")
 	g.current.locals.define("(for control)")
@@ -175,7 +175,7 @@ func (g *Generator) compileGenericFor(is *InstructionSet, s *ast.GenericForState
 	exitAnchor.line = is.count
 	g.emitLoopClose(is, firstVarSlot, protos, s.Line())
 
-	g.current.locals.closeScope()
+	g.closeScope(is, s.Line())
 }
 
 func (g *Generator) compileReturn(is *InstructionSet, s *ast.ReturnStatement) {
@@ -202,6 +202,9 @@ func (g *Generator) compileBreak(is *InstructionSet, s *ast.BreakStatement) {
 		return
 	}
 	frame := g.current.loops[len(g.current.loops)-1]
+	if n := g.exitTBCDepth(frame); n > 0 {
+		is.define(CloseTBC, s.Line(), n)
+	}
 	if n := g.exitTryDepth(frame); n > 0 {
 		is.define(EndTry, s.Line(), n)
 	}
@@ -219,6 +222,9 @@ func (g *Generator) compileContinue(is *InstructionSet, s *ast.ContinueStatement
 		if frame.minContinueBindings < 0 || n < frame.minContinueBindings {
 			frame.minContinueBindings = n
 		}
+	}
+	if n := g.exitTBCDepth(frame); n > 0 {
+		is.define(CloseTBC, s.Line(), n)
 	}
 	if n := g.exitTryDepth(frame); n > 0 {
 		is.define(EndTry, s.Line(), n)

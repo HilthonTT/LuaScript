@@ -63,6 +63,7 @@ func (v *VM) acquireFrame(cl *Closure, base, top, nresults int, varargs []Value)
 	f.NResults = nresults
 	f.Varargs = varargs
 	f.Deferred = nil
+	f.tbc = nil
 	f.handlers = f.handlers[:0]
 	return f
 }
@@ -74,6 +75,7 @@ func (v *VM) releaseFrame(f *CallFrame) {
 	f.Closure = nil
 	f.Varargs = nil
 	f.Deferred = nil
+	f.tbc = nil
 	v.framePool = append(v.framePool, f)
 }
 

@@ -44,10 +44,15 @@ func (co *Coroutine) goroutineBody(v *VM) {
 	defer func() {
 		if r := recover(); r != nil {
 			if isCloseSignal(r) {
+				// coroutine.close abandons the coroutine mid-flight; its
+				// suspended frames still owe their `<close>` variables.
+				v.closePendingTBC(nil)
 				co.yieldCh <- yieldMsg{done: true, failed: true, errVal: closeSignal{}}
 				return
 			}
-			co.yieldCh <- yieldMsg{done: true, failed: true, errVal: v.errorValue(r)}
+			errVal := v.errorValue(r)
+			v.closePendingTBC(errVal)
+			co.yieldCh <- yieldMsg{done: true, failed: true, errVal: errVal}
 		}
 	}()
 	args := <-co.resumeCh

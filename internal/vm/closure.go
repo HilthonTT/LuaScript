@@ -20,6 +20,10 @@ type CallFrame struct {
 	NResults int
 	Varargs  []Value
 	Deferred []*Closure
+	// tbc holds the frame's live to-be-closed (`local x <close>`) values in
+	// declaration order; CloseTBC pops them, and any left over are closed when
+	// the frame goes away for any reason.
+	tbc      []Value
 	handlers []tryHandler
 }
 
@@ -27,4 +31,5 @@ type tryHandler struct {
 	catchIP   int
 	stackTop  int
 	markDepth int
+	tbcTop    int
 }

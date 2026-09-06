@@ -11,7 +11,7 @@ import (
 
 const serialMagic = "LSCB"
 
-const SerialVersion = 2
+const SerialVersion = 3
 
 const (
 	maxSerialCount  = 1 << 24
@@ -260,10 +260,12 @@ func rebuildParams(ins *Instruction) []any {
 		return []any{ins.BoxedAny}
 	case GetGlobal, SetGlobal, GetField, SetField, Self:
 		return []any{ins.StrA}
-	case LoadNil, LoadVararg, Pop, Concat, Return, EndTry,
+	case LoadNil, LoadVararg, Pop, Concat, Return, EndTry, CloseTBC,
 		Closure, GetLocal, SetLocal, GetUpvalue, SetUpvalue, CloseUpvalues,
 		Jump, JumpIfFalse, JumpIfTrue, JumpIfFalseKeep, JumpIfTrueKeep, Try:
 		return []any{int(ins.A)}
+	case MarkTBC:
+		return []any{int(ins.A), ins.StrA}
 	case NewTable, SetList, Call, TForCall, ForPrep, ForLoop, TForLoop:
 		return []any{int(ins.A), int(ins.B)}
 	}

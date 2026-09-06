@@ -12,7 +12,7 @@ func (g *Generator) compileMatch(is *InstructionSet, s *ast.MatchStatement) {
 	protosBefore := len(is.Protos)
 	base := g.current.locals.nextSlot
 
-	g.current.locals.openScope()
+	g.openScope()
 
 	g.compileExpression(is, s.Subject)
 	subjSlot := g.current.locals.define(matchSubjectName)
@@ -24,7 +24,7 @@ func (g *Generator) compileMatch(is *InstructionSet, s *ast.MatchStatement) {
 		armLine := arm.Line()
 		nextAnchor := &anchor{}
 
-		g.current.locals.openScope()
+		g.openScope()
 
 		for _, test := range matchTests(arm) {
 			g.compileExpression(is, test)
@@ -43,7 +43,7 @@ func (g *Generator) compileMatch(is *InstructionSet, s *ast.MatchStatement) {
 		}
 
 		g.compileStatement(is, arm.Body)
-		g.current.locals.closeScope()
+		g.closeScope(is, armLine)
 
 		if i < len(s.Arms)-1 {
 			j := is.define(Jump, armLine, endAnchor)
@@ -54,7 +54,7 @@ func (g *Generator) compileMatch(is *InstructionSet, s *ast.MatchStatement) {
 
 	endAnchor.line = is.count
 	declared := g.current.locals.nextSlot > base
-	g.current.locals.closeScope()
+	g.closeScope(is, line)
 
 	if declared && len(is.Protos) > protosBefore {
 		is.define(CloseUpvalues, line, base)

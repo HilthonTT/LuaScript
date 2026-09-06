@@ -19,6 +19,12 @@ type funcCtx struct {
 	tryDepth int
 
 	tryRegions []int
+
+	// tbcDepth counts the to-be-closed (`local x <close>`) variables currently
+	// in static scope; tbcScopes remembers the depth at each open block so the
+	// matching CloseTBC can be emitted when the block ends.
+	tbcDepth  int
+	tbcScopes []int
 }
 
 type labelInfo struct {
@@ -42,10 +48,12 @@ type loopFrame struct {
 	minContinueBindings int
 
 	tryDepth int
+	tbcDepth int
 }
 
 func (g *Generator) pushLoop(f *loopFrame) *loopFrame {
 	f.tryDepth = g.current.tryDepth
+	f.tbcDepth = g.current.tbcDepth
 	g.current.loops = append(g.current.loops, f)
 	return f
 }
@@ -56,6 +64,31 @@ func (g *Generator) popLoop() {
 
 func (g *Generator) exitTryDepth(frame *loopFrame) int {
 	return g.current.tryDepth - frame.tryDepth
+}
+
+// exitTBCDepth reports how many to-be-closed variables a break/continue out of
+// frame has to close before jumping.
+func (g *Generator) exitTBCDepth(frame *loopFrame) int {
+	return g.current.tbcDepth - frame.tbcDepth
+}
+
+// openScope begins a block scope. Pair every call with closeScope so that any
+// to-be-closed variable declared inside gets a CloseTBC on block exit.
+func (g *Generator) openScope() {
+	g.current.locals.openScope()
+	g.current.tbcScopes = append(g.current.tbcScopes, g.current.tbcDepth)
+}
+
+func (g *Generator) closeScope(is *InstructionSet, line int) {
+	if n := len(g.current.tbcScopes); n > 0 {
+		base := g.current.tbcScopes[n-1]
+		g.current.tbcScopes = g.current.tbcScopes[:n-1]
+		if d := g.current.tbcDepth - base; d > 0 {
+			is.define(CloseTBC, line, d)
+			g.current.tbcDepth = base
+		}
+	}
+	g.current.locals.closeScope()
 }
 
 type Generator struct {

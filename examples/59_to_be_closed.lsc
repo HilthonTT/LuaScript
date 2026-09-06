@@ -1,0 +1,49 @@
+-- To-be-closed variables: `local x <close> = v` runs v's __close metamethod
+-- as soon as the enclosing block is left -- by falling off the end, by break
+-- or continue, by return, or by an error unwinding through it.
+
+local function openResource(name)
+    print("open " .. name)
+    return setmetatable({ name = name }, {
+        __close = function(self, err)
+            if err == nil then
+                print("close " .. self.name)
+            else
+                print("close " .. self.name .. " after error: " .. tostring(err))
+            end
+        end,
+    })
+end
+
+-- Normal block exit closes in reverse declaration order.
+do
+    local a <close> = openResource("a")
+    local b <close> = openResource("b")
+    print("working")
+end
+
+-- A return closes before the caller sees the result.
+local function readIt()
+    local r <close> = openResource("file")
+    return "contents"
+end
+print(readIt())
+
+-- An error hands the error object to __close on the way out.
+local ok, err = pcall(function()
+    local r <close> = openResource("socket")
+    error("connection lost", 0)
+end)
+print(ok, err)
+
+-- `break` closes the current iteration's variable before leaving the loop.
+for i = 1, 3 do
+    local r <close> = openResource("item" .. i)
+    if i == 2 then break end
+end
+
+-- false and nil are accepted and simply do nothing.
+do
+    local none <close> = nil
+    print("nothing to close")
+end

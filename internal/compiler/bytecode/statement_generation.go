@@ -17,14 +17,14 @@ func (g *Generator) compileBlock(is *InstructionSet, block *ast.Block) {
 	if block == nil {
 		return
 	}
-	g.current.locals.openScope()
+	g.openScope()
 	for _, s := range block.Statements {
 		g.compileStatement(is, s)
 	}
 	if block.Return != nil {
 		g.compileReturn(is, block.Return)
 	}
-	g.current.locals.closeScope()
+	g.closeScope(is, block.Line())
 }
 
 func (g *Generator) compileScopedBlock(is *InstructionSet, block *ast.Block, line int) (base int, captured bool) {
@@ -33,7 +33,7 @@ func (g *Generator) compileScopedBlock(is *InstructionSet, block *ast.Block, lin
 		return base, false
 	}
 	protosBefore := len(is.Protos)
-	g.current.locals.openScope()
+	g.openScope()
 	for _, s := range block.Statements {
 		g.compileStatement(is, s)
 	}
@@ -41,7 +41,7 @@ func (g *Generator) compileScopedBlock(is *InstructionSet, block *ast.Block, lin
 		g.compileReturn(is, block.Return)
 	}
 	declared := g.current.locals.nextSlot > base
-	g.current.locals.closeScope()
+	g.closeScope(is, line)
 	captured = declared && len(is.Protos) > protosBefore
 	if captured && block.Return == nil {
 		is.define(CloseUpvalues, line, base)
@@ -149,7 +149,7 @@ func (g *Generator) compileAssign(is *InstructionSet, s *ast.AssignStatement) {
 		return
 	}
 
-	g.current.locals.openScope()
+	g.openScope()
 	tempBase := g.current.locals.maxSlot
 	_ = tempBase
 
@@ -217,7 +217,7 @@ func (g *Generator) compileAssign(is *InstructionSet, s *ast.AssignStatement) {
 		}
 	}
 
-	g.current.locals.closeScope()
+	g.closeScope(is, s.Line())
 }
 
 func (g *Generator) compileAssignOne(is *InstructionSet, target, value ast.Expression, line int) {
@@ -271,10 +271,17 @@ func (g *Generator) compileLocal(is *InstructionSet, s *ast.LocalStatement) {
 	slots := make([]int, n)
 	for i, ln := range s.Names {
 		slots[i] = g.current.locals.define(ln.Name)
-		_ = ln.Attrib
 	}
 	for i := n - 1; i >= 0; i-- {
 		is.define(SetLocal, s.Line(), slots[i])
+	}
+	// A `<close>` variable is registered with the frame once its value is in
+	// place; the matching CloseTBC is emitted when the enclosing block ends.
+	for i, ln := range s.Names {
+		if ln.Attrib == "close" {
+			is.define(MarkTBC, s.Line(), slots[i], ln.Name)
+			g.current.tbcDepth++
+		}
 	}
 }
 

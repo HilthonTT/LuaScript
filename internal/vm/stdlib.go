@@ -334,6 +334,9 @@ func safeCall(v *VM, fn Value, args []Value, wantTrace bool) (rs []Value, errVal
 				stack = v.tracebackFrom(frameDepth)
 			}
 			for i := len(v.frames) - 1; i >= frameDepth; i-- {
+				if len(v.frames[i].tbc) > 0 {
+					v.closeAllTBCSafely(v.frames[i], errVal)
+				}
 				if len(v.frames[i].Deferred) > 0 {
 					v.runDeferredSafely(v.frames[i])
 				}

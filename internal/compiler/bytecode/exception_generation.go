@@ -43,7 +43,7 @@ func (g *Generator) compileTryCatch(is *InstructionSet, s *ast.TryCatchStatement
 	}
 	catchBase := g.current.locals.nextSlot
 	catchProtos := len(is.Protos)
-	g.current.locals.openScope()
+	g.openScope()
 	if s.CatchVar != nil {
 		slot := g.current.locals.define(s.CatchVar.Name)
 		is.define(SetLocal, s.CatchVar.Line(), slot)
@@ -52,7 +52,7 @@ func (g *Generator) compileTryCatch(is *InstructionSet, s *ast.TryCatchStatement
 	}
 	g.compileBlock(is, s.Catch)
 	declared := g.current.locals.nextSlot > catchBase
-	g.current.locals.closeScope()
+	g.closeScope(is, s.Line())
 	if declared && len(is.Protos) > catchProtos {
 		is.define(CloseUpvalues, s.Line(), catchBase)
 	}

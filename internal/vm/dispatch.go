@@ -57,9 +57,15 @@ func (v *VM) dispatchToHandler(entryDepth int, r any) bool {
 	caught := v.errorValue(r)
 
 	for i := len(v.frames) - 1; i >= entryDepth; i-- {
+		if len(v.frames[i].tbc) > 0 {
+			v.closeAllTBCSafely(v.frames[i], caught)
+		}
 		if len(v.frames[i].Deferred) > 0 {
 			v.runDeferredSafely(v.frames[i])
 		}
+	}
+	if len(f.tbc) > h.tbcTop {
+		v.closeTBCSafely(f, len(f.tbc)-h.tbcTop, caught)
 	}
 	v.closeUpvaluesAbove(h.stackTop)
 	v.frames = v.frames[:entryDepth]
@@ -456,11 +462,17 @@ func (v *VM) dispatch(f *CallFrame, ins *bytecode.Instruction) {
 		}
 		f.Deferred = append(f.Deferred, cl)
 
+	case bytecode.MarkTBC:
+		v.markTBC(f, *v.localAt(f, int(ins.A)), ins.StrA)
+	case bytecode.CloseTBC:
+		v.closeTBC(f, int(ins.A), nil)
+
 	case bytecode.Try:
 		f.handlers = append(f.handlers, tryHandler{
 			catchIP:   int(ins.A),
 			stackTop:  len(v.Stack),
 			markDepth: len(v.callMarks),
+			tbcTop:    len(f.tbc),
 		})
 	case bytecode.EndTry:
 		f.handlers = f.handlers[:len(f.handlers)-int(ins.A)]

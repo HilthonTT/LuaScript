@@ -62,6 +62,7 @@ func (v *VM) RunMainChunkWithResults(main *bytecode.InstructionSet) (results []V
 func (v *VM) recoverToError(err *error) {
 	if r := recover(); r != nil {
 		*err = v.toRuntimeError(r)
+		v.closePendingTBC(v.errorValue(r))
 	}
 }
 
