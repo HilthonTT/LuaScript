@@ -57,15 +57,11 @@ func builtinSetmetatable(_ *VM, args []Value) []Value {
 	return []Value{t}
 }
 
-func builtinGetmetatable(_ *VM, args []Value) []Value {
+func builtinGetmetatable(v *VM, args []Value) []Value {
 	if len(args) < 1 {
 		return []Value{nil}
 	}
-	t, ok := args[0].(*Table)
-	if !ok {
-		return []Value{nil}
-	}
-	mt := t.Metatable()
+	mt := v.metatableOf(args[0])
 	if mt == nil {
 		return []Value{nil}
 	}
