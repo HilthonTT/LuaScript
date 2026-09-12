@@ -131,13 +131,18 @@ func (g *Generator) compileSpreadTable(is *InstructionSet, t *ast.TableConstruct
 	is.define(NewTable, line, len(t.Fields), 0)
 	slot := g.current.locals.define("(table spread)")
 	is.define(SetLocal, line, slot)
+	is.define(LoadInt, line, int64(0))
+	posSlot := g.current.locals.define("(table spread pos)")
+	is.define(SetLocal, line, posSlot)
 
-	for _, f := range t.Fields {
+	lastIdx := len(t.Fields) - 1
+	for i, f := range t.Fields {
 		switch {
 		case f.IsSpread:
-			g.emitMergeCall(is, line, spreadGlobal, slot, f.Value)
+			g.emitMergeCall(is, line, spreadGlobal, slot, posSlot, f.Value, false)
 		case f.Key == nil:
-			g.emitMergeCall(is, line, pushGlobal, slot, f.Value)
+			multi := i == lastIdx && isMultiValue(f.Value)
+			g.emitMergeCall(is, line, pushGlobal, slot, posSlot, f.Value, multi)
 		case f.IsBracketed:
 			is.define(GetLocal, line, slot)
 			g.compileExpression(is, f.Key)
@@ -156,11 +161,22 @@ func (g *Generator) compileSpreadTable(is *InstructionSet, t *ast.TableConstruct
 	is.define(GetLocal, line, slot)
 }
 
-func (g *Generator) emitMergeCall(is *InstructionSet, line int, global string, slot int, value ast.Expression) {
+func (g *Generator) emitMergeCall(is *InstructionSet, line int, global string, slot, posSlot int, value ast.Expression, multi bool) {
 	is.define(GetGlobal, line, global)
+	if multi {
+		is.define(MarkArgs, line)
+	}
 	is.define(GetLocal, line, slot)
-	g.compileExpression(is, value)
-	is.define(Call, line, 2, 0)
+	is.define(GetLocal, line, posSlot)
+	nargs := 3
+	if multi {
+		g.compileExpressionMulti(is, value, -1)
+		nargs = -1
+	} else {
+		g.compileExpression(is, value)
+	}
+	is.define(Call, line, nargs, 1)
+	is.define(SetLocal, line, posSlot)
 }
 
 func (g *Generator) compileLocalDestructure(is *InstructionSet, s *ast.LocalDestructureStatement) {

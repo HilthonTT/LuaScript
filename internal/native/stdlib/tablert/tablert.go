@@ -18,11 +18,12 @@ func RegisterTableRT(v *vm.VM) {
 
 func spreadInto(_ *vm.VM, args []vm.Value) []vm.Value {
 	dest := vm.TableArg(spreadGlobalName, 1, args)
-	src := vm.TableArg(spreadGlobalName, 2, args)
+	pos := vm.IntArg(spreadGlobalName, 2, args)
+	src := vm.TableArg(spreadGlobalName, 3, args)
 
 	n := src.Len()
 	for i := int64(1); i <= n; i++ {
-		dest.Set(dest.Len()+1, src.Get(i))
+		dest.Set(pos+i, src.Get(i))
 	}
 	for k, val := src.Next(nil); k != nil; k, val = src.Next(k) {
 		if idx, isInt := k.(int64); isInt && idx >= 1 && idx <= n {
@@ -30,17 +31,18 @@ func spreadInto(_ *vm.VM, args []vm.Value) []vm.Value {
 		}
 		dest.Set(k, val)
 	}
-	return []vm.Value{dest}
+	return []vm.Value{pos + n}
 }
 
 func push(_ *vm.VM, args []vm.Value) []vm.Value {
 	dest := vm.TableArg(pushGlobalName, 1, args)
-	var val vm.Value
-	if len(args) > 1 {
-		val = args[1]
+	pos := vm.IntArg(pushGlobalName, 2, args)
+	for i, val := range args[min(2, len(args)):] {
+		if val != nil {
+			dest.Set(pos+int64(i)+1, val)
+		}
 	}
-	dest.Set(dest.Len()+1, val)
-	return []vm.Value{dest}
+	return []vm.Value{pos + int64(max(0, len(args)-2))}
 }
 
 func restArray(_ *vm.VM, args []vm.Value) []vm.Value {
