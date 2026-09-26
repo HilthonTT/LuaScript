@@ -131,13 +131,21 @@ func (g *Generator) compileSpreadTable(is *InstructionSet, t *ast.TableConstruct
 	is.define(NewTable, line, len(t.Fields), 0)
 	slot := g.current.locals.define("(table spread)")
 	is.define(SetLocal, line, slot)
+	// The next array index lives in its own scratch local rather than being
+	// re-derived from the table's length, which a nil element would corrupt.
+	cursor := g.current.locals.define("(spread cursor)")
+	is.define(LoadInt, line, int64(1))
+	is.define(SetLocal, line, cursor)
 
-	for _, f := range t.Fields {
+	lastIdx := len(t.Fields) - 1
+	for i, f := range t.Fields {
 		switch {
 		case f.IsSpread:
-			g.emitMergeCall(is, line, spreadGlobal, slot, f.Value)
+			g.emitMergeCall(is, line, spreadGlobal, slot, cursor, f.Value, false)
 		case f.Key == nil:
-			g.emitMergeCall(is, line, pushGlobal, slot, f.Value)
+			// A trailing call or `...` expands to all its values, as in a
+			// plain constructor.
+			g.emitMergeCall(is, line, pushGlobal, slot, cursor, f.Value, i == lastIdx && isMultiValue(f.Value))
 		case f.IsBracketed:
 			is.define(GetLocal, line, slot)
 			g.compileExpression(is, f.Key)
@@ -156,11 +164,23 @@ func (g *Generator) compileSpreadTable(is *InstructionSet, t *ast.TableConstruct
 	is.define(GetLocal, line, slot)
 }
 
-func (g *Generator) emitMergeCall(is *InstructionSet, line int, global string, slot int, value ast.Expression) {
+// emitMergeCall emits `cursor = global(table, cursor, value)`; with multi set,
+// every value the expression produces is passed along.
+func (g *Generator) emitMergeCall(is *InstructionSet, line int, global string, slot, cursor int, value ast.Expression, multi bool) {
 	is.define(GetGlobal, line, global)
+	if multi {
+		is.define(MarkArgs, line)
+	}
 	is.define(GetLocal, line, slot)
-	g.compileExpression(is, value)
-	is.define(Call, line, 2, 0)
+	is.define(GetLocal, line, cursor)
+	if multi {
+		g.compileExpressionMulti(is, value, -1)
+		is.define(Call, line, -1, 1)
+	} else {
+		g.compileExpression(is, value)
+		is.define(Call, line, 3, 1)
+	}
+	is.define(SetLocal, line, cursor)
 }
 
 func (g *Generator) compileLocalDestructure(is *InstructionSet, s *ast.LocalDestructureStatement) {

@@ -136,6 +136,31 @@ func TestTableSpread(t *testing.T) {
 	assertGlobal(t, v, "last", int64(5))
 }
 
+func TestSpreadPositionalFields(t *testing.T) {
+	v := runScript(t, `
+		local holey = { ...{}, nil, 2 }
+		holeFirst, holeSecond = holey[1], holey[2]
+
+		local function multi() return 7, 8, 9 end
+		local function none() end
+		local trailing = { ...{ 0 }, multi() }
+		trailingLen, trailingLast = #trailing, trailing[4]
+		local middle = { ...{ 0 }, multi(), 1 }
+		middleLen, middleLast = #middle, middle[3]
+		emptyLen = #{ ...{ 0 }, none() }
+
+		local function pack(...) return { ...{ 0 }, ... } end
+		varargLen = #pack(1, 2, 3)`)
+	assertGlobal(t, v, "holeFirst", nil)
+	assertGlobal(t, v, "holeSecond", int64(2))
+	assertGlobal(t, v, "trailingLen", int64(4))
+	assertGlobal(t, v, "trailingLast", int64(9))
+	assertGlobal(t, v, "middleLen", int64(3))
+	assertGlobal(t, v, "middleLast", int64(1))
+	assertGlobal(t, v, "emptyLen", int64(1))
+	assertGlobal(t, v, "varargLen", int64(4))
+}
+
 func TestSpreadDoesNotMutateSource(t *testing.T) {
 	v := runScript(t, `
 		local src = { 1, 2 }

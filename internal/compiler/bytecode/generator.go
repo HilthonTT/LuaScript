@@ -12,9 +12,13 @@ type funcCtx struct {
 	locals       *localTable
 	upvals       []UpvalueDesc
 	loops        []*loopFrame
-	labels       map[string]labelInfo
 	pendingGotos []pendingGoto
 	pending      []*Instruction
+
+	// labelScopes holds one map per open block, innermost last: a goto sees
+	// the labels of its own block and of every enclosing one, never a
+	// sibling's, so two loops can each have their own ::continue::.
+	labelScopes []map[string]labelInfo
 
 	tryDepth int
 
@@ -30,6 +34,11 @@ type funcCtx struct {
 type labelInfo struct {
 	line       int
 	tryRegions []int
+
+	// Scope state at the label, so a goto can close what it leaves behind.
+	slot     int
+	tbcDepth int
+	protos   int
 }
 
 type pendingGoto struct {
@@ -37,6 +46,14 @@ type pendingGoto struct {
 	line       int
 	anchor     *anchor
 	tryRegions []int
+
+	// A forward goto cannot know how many scopes it leaves until its label
+	// is compiled, so it emits these placeholders for compileLabel to patch.
+	slot     int
+	tbcDepth int
+	depth    int // index into labelScopes of the block the goto is in
+	closeTBC *Instruction
+	closeUpv *Instruction
 }
 
 type loopFrame struct {
@@ -77,6 +94,7 @@ func (g *Generator) exitTBCDepth(frame *loopFrame) int {
 func (g *Generator) openScope() {
 	g.current.locals.openScope()
 	g.current.tbcScopes = append(g.current.tbcScopes, g.current.tbcDepth)
+	g.current.labelScopes = append(g.current.labelScopes, map[string]labelInfo{})
 }
 
 func (g *Generator) closeScope(is *InstructionSet, line int) {
@@ -89,6 +107,28 @@ func (g *Generator) closeScope(is *InstructionSet, line int) {
 		}
 	}
 	g.current.locals.closeScope()
+
+	// Drop this block's labels. A forward goto still pending from inside it
+	// now resolves as if written in the enclosing block: it may target a
+	// later label there, but never one inside a later sibling block.
+	g.current.labelScopes = g.current.labelScopes[:len(g.current.labelScopes)-1]
+	enclosing := len(g.current.labelScopes) - 1
+	for i := range g.current.pendingGotos {
+		if g.current.pendingGotos[i].depth > enclosing {
+			g.current.pendingGotos[i].depth = enclosing
+		}
+	}
+}
+
+// findLabel looks a label up through the open blocks, innermost first.
+func (g *Generator) findLabel(name string) (labelInfo, bool) {
+	scopes := g.current.labelScopes
+	for i := len(scopes) - 1; i >= 0; i-- {
+		if lbl, ok := scopes[i][name]; ok {
+			return lbl, true
+		}
+	}
+	return labelInfo{}, false
 }
 
 type Generator struct {
@@ -136,9 +176,9 @@ func (g *Generator) ResetInstructionSets() { g.chunks = nil }
 func (g *Generator) InitTopLevelScope(_ *ast.Program) {
 	is := &InstructionSet{name: Program, isType: Program, IsVararg: true}
 	g.current = &funcCtx{
-		is:     is,
-		locals: newLocalTable(nil),
-		labels: map[string]labelInfo{},
+		is:          is,
+		locals:      newLocalTable(nil),
+		labelScopes: []map[string]labelInfo{{}},
 	}
 }
 
@@ -183,10 +223,10 @@ func (g *Generator) endInstructions(is *InstructionSet, sourceLine int) {
 func (g *Generator) pushFunction(name string, params []ast.TypedParam, isVararg bool, sourceLine int) *funcCtx {
 	is := &InstructionSet{name: name, isType: FunctionDef, IsVararg: isVararg, NumParams: len(params)}
 	child := &funcCtx{
-		parent: g.current,
-		is:     is,
-		locals: newLocalTable(g.current.locals),
-		labels: map[string]labelInfo{},
+		parent:      g.current,
+		is:          is,
+		locals:      newLocalTable(g.current.locals),
+		labelScopes: []map[string]labelInfo{{}},
 	}
 	for _, p := range params {
 		child.locals.define(p.Name.Name)

@@ -261,6 +261,95 @@ func TestGotoForwardJump(t *testing.T) {
 	assertGlobalEqual(t, v, "x", int64(0))
 }
 
+func TestGotoLabelReusedAcrossLoops(t *testing.T) {
+	// Each loop's ::continue:: is its own label; the second goto used to
+	// resolve to the first loop's label and never terminate.
+	v := run(t, `
+		out = ""
+		for i = 1, 2 do
+			if i == 1 then goto continue end
+			out = out .. "a" .. i
+			::continue::
+		end
+		for j = 1, 2 do
+			if j == 1 then goto continue end
+			out = out .. "b" .. j
+			::continue::
+		end
+	`)
+	assertGlobalEqual(t, v, "out", "a2b2")
+}
+
+func TestGotoIntoSiblingBlockIsRejected(t *testing.T) {
+	_, err := compiler.CompileToInstructions(`
+		do goto x end
+		do ::x:: end
+	`, parser.NormalMode)
+	if err == nil || !strings.Contains(err.Error(), "no visible label 'x'") {
+		t.Fatalf("err = %v, want a no-visible-label error", err)
+	}
+}
+
+func TestGotoBackwardGivesFreshLocalPerPass(t *testing.T) {
+	v := run(t, `
+		local fs = {}
+		local k = 1
+		::top::
+		local kk = k
+		fs[k] = function() return kk end
+		k = k + 1
+		if k <= 3 then goto top end
+		a, b, c = fs[1](), fs[2](), fs[3]()
+	`)
+	assertGlobalEqual(t, v, "a", int64(1))
+	assertGlobalEqual(t, v, "b", int64(2))
+	assertGlobalEqual(t, v, "c", int64(3))
+}
+
+func TestGotoForwardOutOfBlockClosesUpvalues(t *testing.T) {
+	// Without closing, f1's upvalue kept pointing at the stack slot that
+	// the next block's local reuses.
+	v := run(t, `
+		local f1, f2
+		do
+			local v = 1
+			f1 = function() return v end
+			goto skip
+		end
+		::skip::
+		do
+			local w = 2
+			f2 = function() return w end
+		end
+		a, b = f1(), f2()
+	`)
+	assertGlobalEqual(t, v, "a", int64(1))
+	assertGlobalEqual(t, v, "b", int64(2))
+}
+
+func TestGotoClosesToBeClosedVariables(t *testing.T) {
+	v := run(t, `
+		log = ""
+		local function res(name)
+			return setmetatable({}, { __close = function() log = log .. name .. ";" end })
+		end
+		do
+			local r <close> = res("fwd")
+			goto out
+		end
+		::out::
+		log = log .. "after;"
+		do
+			local n = 0
+			::again::
+			local r <close> = res("back" .. n)
+			n = n + 1
+			if n < 3 then goto again end
+		end
+	`)
+	assertGlobalEqual(t, v, "log", "fwd;after;back0;back1;back2;")
+}
+
 func TestTableArrayPart(t *testing.T) {
 	v := run(t, `
 		t = {10, 20, 30}

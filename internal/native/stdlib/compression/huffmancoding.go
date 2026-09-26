@@ -90,8 +90,13 @@ func SymbolCountOrd(message string) []SymbolFreq {
 		listfreq[i] = SymbolFreq{Symbol: s, Freq: n}
 		i++
 	}
+	// Break frequency ties by symbol: the list is built from map iteration,
+	// so without it the order — and hence the Huffman codes — vary per run.
 	sort.Slice(listfreq, func(i, j int) bool {
-		return listfreq[i].Freq < listfreq[j].Freq
+		if listfreq[i].Freq != listfreq[j].Freq {
+			return listfreq[i].Freq < listfreq[j].Freq
+		}
+		return listfreq[i].Symbol < listfreq[j].Symbol
 	})
 	return listfreq
 }

@@ -40,13 +40,19 @@ func parseNumber(s string) (int64, float64, bool, bool) {
 	if s == "" {
 		return 0, 0, false, false
 	}
-	if strings.ContainsAny(s, "nN") {
+	// strconv follows Go literal syntax, which Lua does not: "_" digit
+	// separators and "inf"/"nan" spellings must not convert.
+	if strings.ContainsAny(s, "nN_") {
 		return 0, 0, false, false
 	}
 	lower := strings.ToLower(s)
 	if strings.HasPrefix(lower, "0x") || strings.HasPrefix(lower, "-0x") || strings.HasPrefix(lower, "+0x") {
-		if i, err := strconv.ParseInt(s, 0, 64); err == nil {
+		if i, ok := parseHexInt(lower); ok {
 			return i, 0, true, true
+		}
+		// Go insists on a binary exponent in hex floats; Lua does not.
+		if !strings.Contains(lower, "p") {
+			s += "p0"
 		}
 		if f, err := strconv.ParseFloat(s, 64); err == nil {
 			return 0, f, false, true
@@ -60,6 +66,40 @@ func parseNumber(s string) (int64, float64, bool, bool) {
 		return 0, f, false, true
 	}
 	return 0, 0, false, false
+}
+
+// parseHexInt parses a lower-cased, optionally signed "0x..." integer. Like
+// Lua (and the lexer), it wraps around modulo 2^64 instead of overflowing,
+// so "0xffffffffffffffff" is -1.
+func parseHexInt(s string) (int64, bool) {
+	neg := false
+	switch s[0] {
+	case '-':
+		neg = true
+		s = s[1:]
+	case '+':
+		s = s[1:]
+	}
+	digits := s[2:]
+	if digits == "" {
+		return 0, false
+	}
+	var n uint64
+	for i := 0; i < len(digits); i++ {
+		c := digits[i]
+		switch {
+		case c >= '0' && c <= '9':
+			n = n<<4 | uint64(c-'0')
+		case c >= 'a' && c <= 'f':
+			n = n<<4 | uint64(c-'a'+10)
+		default:
+			return 0, false
+		}
+	}
+	if neg {
+		n = -n
+	}
+	return int64(n), true
 }
 
 func floatArith(a, b float64, op string) Value {

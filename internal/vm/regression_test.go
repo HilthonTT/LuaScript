@@ -93,6 +93,21 @@ func TestTonumberWithBase(t *testing.T) {
 	assertGlobalEqual(t, v, "bad", nil)
 }
 
+func TestTonumberFollowsLuaNotGoSyntax(t *testing.T) {
+	v := run(t, `
+		wrap = tonumber("0xffffffffffffffff")
+		neghex = tonumber("-0x10")
+		hexfrac = tonumber("0x.8")
+		under = tonumber("1_000")
+		hexunder = tonumber("0x1_0")
+	`)
+	assertGlobalEqual(t, v, "wrap", int64(-1))
+	assertGlobalEqual(t, v, "neghex", int64(-16))
+	assertGlobalEqual(t, v, "hexfrac", 0.5)
+	assertGlobalEqual(t, v, "under", nil)
+	assertGlobalEqual(t, v, "hexunder", nil)
+}
+
 func TestPcallUpvalueErrorDoesNotCorruptVM(t *testing.T) {
 	v := run(t, `
 		ok = pcall(function()

@@ -67,11 +67,22 @@ func (g *Generator) compileThrow(is *InstructionSet, s *ast.ThrowStatement) {
 
 func (g *Generator) compileLabel(_ *InstructionSet, s *ast.LabelStatement) {
 	pos := g.current.is.count
-	g.current.labels[s.Name] = labelInfo{line: pos, tryRegions: slices.Clone(g.current.tryRegions)}
+	lbl := labelInfo{
+		line:       pos,
+		tryRegions: slices.Clone(g.current.tryRegions),
+		slot:       g.current.locals.nextSlot,
+		tbcDepth:   g.current.tbcDepth,
+		protos:     len(g.current.is.Protos),
+	}
+	depth := len(g.current.labelScopes) - 1
+	g.current.labelScopes[depth][s.Name] = lbl
 	keep := g.current.pendingGotos[:0]
 	for _, p := range g.current.pendingGotos {
-		if p.label == s.Name {
+		// Only gotos in this block (or in blocks nested in it that have
+		// already closed) can see the label.
+		if p.label == s.Name && p.depth == depth {
 			g.checkGotoTryRegions(p.label, p.line, p.tryRegions, g.current.tryRegions)
+			patchForwardGoto(p, lbl)
 			p.anchor.line = pos
 			continue
 		}

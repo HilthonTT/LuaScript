@@ -178,7 +178,8 @@ func TestGotoIntoTryIsRejected(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error for a goto that jumps into a try")
 	}
-	if want := "jumps into a 'try' block"; !strings.Contains(err.Error(), want) {
+	// Labels are block-scoped: one inside a try block is not visible here.
+	if want := "no visible label 'inside'"; !strings.Contains(err.Error(), want) {
 		t.Errorf("error = %q, want it to contain %q", err.Error(), want)
 	}
 }

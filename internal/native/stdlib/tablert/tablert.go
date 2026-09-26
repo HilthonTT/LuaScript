@@ -16,13 +16,20 @@ func RegisterTableRT(v *vm.VM) {
 	v.SetGlobal(restRecordGlobalName, &vm.GoFunc{Name: restRecordGlobalName, Fn: restRecord})
 }
 
+// spreadInto implements `__tbl_spread(dest, cursor, src)`: src's array part
+// goes to dest[cursor], dest[cursor+1], ..., its other keys are copied as-is,
+// and the next free cursor is returned. The cursor is threaded through the
+// generated code instead of recomputed from dest.Len(), because a nil element
+// would make the length stop short and later elements overwrite earlier ones.
 func spreadInto(_ *vm.VM, args []vm.Value) []vm.Value {
 	dest := vm.TableArg(spreadGlobalName, 1, args)
-	src := vm.TableArg(spreadGlobalName, 2, args)
+	cursor := vm.IntArg(spreadGlobalName, 2, args)
+	src := vm.TableArg(spreadGlobalName, 3, args)
 
 	n := src.Len()
 	for i := int64(1); i <= n; i++ {
-		dest.Set(dest.Len()+1, src.Get(i))
+		dest.Set(cursor, src.Get(i))
+		cursor++
 	}
 	for k, val := src.Next(nil); k != nil; k, val = src.Next(k) {
 		if idx, isInt := k.(int64); isInt && idx >= 1 && idx <= n {
@@ -30,17 +37,23 @@ func spreadInto(_ *vm.VM, args []vm.Value) []vm.Value {
 		}
 		dest.Set(k, val)
 	}
-	return []vm.Value{dest}
+	return []vm.Value{cursor}
 }
 
+// push implements `__tbl_push(dest, cursor, ...)`: each value is stored at the
+// next position, nils included, and the next free cursor is returned.
 func push(_ *vm.VM, args []vm.Value) []vm.Value {
 	dest := vm.TableArg(pushGlobalName, 1, args)
-	var val vm.Value
-	if len(args) > 1 {
-		val = args[1]
+	cursor := vm.IntArg(pushGlobalName, 2, args)
+	if len(args) < 3 {
+		// A trailing call that returned no values contributes nothing.
+		return []vm.Value{cursor}
 	}
-	dest.Set(dest.Len()+1, val)
-	return []vm.Value{dest}
+	for _, val := range args[2:] {
+		dest.Set(cursor, val)
+		cursor++
+	}
+	return []vm.Value{cursor}
 }
 
 func restArray(_ *vm.VM, args []vm.Value) []vm.Value {

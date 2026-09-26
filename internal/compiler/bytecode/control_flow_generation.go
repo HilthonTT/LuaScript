@@ -269,33 +269,70 @@ func (g *Generator) checkRepeatContinueLocals(is *InstructionSet, frame *loopFra
 	}
 }
 
+// compileGoto leaves every scope between the goto and its label the way a
+// block exit would: to-be-closed variables declared since are closed and
+// captured locals get their upvalues closed. Without the latter, a closure
+// made in an exited scope keeps pointing at a stack slot that a later local
+// reuses — and a backward goto would hand every pass the same variable.
 func (g *Generator) compileGoto(is *InstructionSet, s *ast.GotoStatement) {
-	if lbl, ok := g.current.labels[s.Label]; ok {
+	slot, tbcDepth := g.current.locals.nextSlot, g.current.tbcDepth
+	if lbl, ok := g.findLabel(s.Label); ok {
 		g.checkGotoTryRegions(s.Label, s.Line(), g.current.tryRegions, lbl.tryRegions)
+		if n := tbcDepth - lbl.tbcDepth; n > 0 {
+			is.define(CloseTBC, s.Line(), n)
+		}
+		if slot > lbl.slot && len(is.Protos) > lbl.protos {
+			is.define(CloseUpvalues, s.Line(), lbl.slot)
+		}
 		is.define(Jump, s.Line(), lbl.line)
 		return
 	}
-	a := &anchor{}
-	j := is.define(Jump, s.Line(), a)
-	g.current.recordPending(j)
-	g.current.pendingGotos = append(g.current.pendingGotos, pendingGoto{
-		label: s.Label, line: s.Line(), anchor: a,
+	p := pendingGoto{
+		label:      s.Label,
+		line:       s.Line(),
 		tryRegions: slices.Clone(g.current.tryRegions),
-	})
+		slot:       slot,
+		tbcDepth:   tbcDepth,
+		depth:      len(g.current.labelScopes) - 1,
+	}
+	if tbcDepth > 0 {
+		p.closeTBC = is.define(CloseTBC, s.Line(), 0)
+	}
+	if slot > 0 {
+		p.closeUpv = is.define(CloseUpvalues, s.Line(), slot)
+	}
+	p.anchor = &anchor{}
+	j := is.define(Jump, s.Line(), p.anchor)
+	g.current.recordPending(j)
+	g.current.pendingGotos = append(g.current.pendingGotos, p)
+}
+
+// patchForwardGoto fills in a forward goto's placeholders once its label's
+// scope is known. A placeholder with nothing to do is left as a no-op: a
+// CloseTBC of 0, or a CloseUpvalues above every local live at the goto.
+func patchForwardGoto(p pendingGoto, lbl labelInfo) {
+	if p.closeTBC != nil {
+		if n := p.tbcDepth - lbl.tbcDepth; n > 0 {
+			setIntParam(p.closeTBC, n)
+		}
+	}
+	if p.closeUpv != nil && lbl.slot < p.slot {
+		setIntParam(p.closeUpv, lbl.slot)
+	}
+}
+
+func setIntParam(ins *Instruction, n int) {
+	ins.A = int32(n)
+	ins.Params = []any{n}
 }
 
 func (g *Generator) checkGotoTryRegions(label string, line int, gotoRegions, labelRegions []int) {
 	if slices.Equal(gotoRegions, labelRegions) {
 		return
 	}
-	what := "jumps out of a 'try' block"
-	switch {
-	case len(gotoRegions) < len(labelRegions):
-		what = "jumps into a 'try' block"
-	case len(gotoRegions) == len(labelRegions):
-		what = "jumps between two sibling 'try' blocks"
-	}
+	// Labels are block-scoped, so a label inside a try block is invisible
+	// from outside it; leaving one is the only way the regions can differ.
 	g.errs = append(g.errs, fmt.Errorf(
-		"line %d: 'goto %s' %s — use 'break', 'return', or restructure the control flow",
-		line, label, what))
+		"line %d: 'goto %s' jumps out of a 'try' block — use 'break', 'return', or restructure the control flow",
+		line, label))
 }
