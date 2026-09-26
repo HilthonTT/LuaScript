@@ -170,6 +170,28 @@ func TestSpreadDoesNotMutateSource(t *testing.T) {
 	assertGlobal(t, v, "copyLen", int64(3))
 }
 
+func TestSpreadPositionalNilKeepsItsSlot(t *testing.T) {
+	v := runScript(t, `
+		local a = { 1, 2 }
+		local t = { ...a, nil, 99 }
+		third, fourth = t[3], t[4]`)
+	assertGlobal(t, v, "third", nil)
+	assertGlobal(t, v, "fourth", int64(99))
+}
+
+func TestSpreadTrailingMultiValueExpands(t *testing.T) {
+	v := runScript(t, `
+		local a = { 1, 2 }
+		local function three() return 7, 8, 9 end
+		local function pack(...) return { ...a, ... } end
+		callLen = #{ ...a, three() }
+		varargLen = #pack(3, 4, 5)
+		truncLen = #{ ...a, three(), x = 1 }`)
+	assertGlobal(t, v, "callLen", int64(5))
+	assertGlobal(t, v, "varargLen", int64(5))
+	assertGlobal(t, v, "truncLen", int64(3))
+}
+
 func TestOptionalChainShortCircuitsWholeChain(t *testing.T) {
 	v := runScript(t, `
 		local t = { inner = { value = 42 } }
@@ -284,6 +306,18 @@ func TestStructNamedConstructionStillWorks(t *testing.T) {
 		a, b = c.name, c.timeout`)
 	assertGlobal(t, v, "a", "svc")
 	assertGlobal(t, v, "b", nil)
+}
+
+func TestStructPositionalTableArgument(t *testing.T) {
+	v := runScript(t, `
+		struct Box { data: any }
+		struct Pair { left: any, right: any }
+		local payload = { name = "x" }
+		local p = Pair(1, 2)
+		name = Box(payload).data.name
+		wrapped = Box(p).data.right`)
+	assertGlobal(t, v, "name", "x")
+	assertGlobal(t, v, "wrapped", int64(2))
 }
 
 func TestImplOnPlainTable(t *testing.T) {

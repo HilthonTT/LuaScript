@@ -1,6 +1,7 @@
 package structrt
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/hilthontt/luascript/internal/vm"
@@ -53,7 +54,7 @@ func makeConstructor(_ string, fields []string, meta *vm.Table) func(*vm.VM, []v
 		}
 
 		inst := vm.NewTable(0, len(fields))
-		if named, ok := namedArg(args); ok {
+		if named, ok := namedArg(args, fields); ok {
 			for _, f := range fields {
 				inst.Set(f, named.Get(f))
 			}
@@ -69,16 +70,19 @@ func makeConstructor(_ string, fields []string, meta *vm.Table) func(*vm.VM, []v
 	}
 }
 
-func namedArg(args []vm.Value) (*vm.Table, bool) {
+func namedArg(args []vm.Value, fields []string) (*vm.Table, bool) {
 	if len(args) != 1 {
 		return nil, false
 	}
 	t, ok := args[0].(*vm.Table)
-	if !ok {
+	if !ok || t.Metatable() != nil {
 		return nil, false
 	}
-	if t.Get(int64(1)) != nil {
-		return nil, false
+	for k, _ := t.Next(nil); k != nil; k, _ = t.Next(k) {
+		s, isStr := k.(string)
+		if !isStr || !slices.Contains(fields, s) {
+			return nil, false
+		}
 	}
 	return t, true
 }

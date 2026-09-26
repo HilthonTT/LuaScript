@@ -5,15 +5,15 @@ go 1.27
 require (
 	fyne.io/fyne/v2 v2.8.1
 	github.com/chzyer/readline v1.5.1
-	github.com/gdamore/tcell/v3 v3.4.2
+	github.com/gdamore/tcell/v3 v3.5.0
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/google/go-cmp v0.7.0
 	github.com/lib/pq v1.12.3
-	github.com/mattn/go-runewidth v0.0.29
-	github.com/mattn/go-sqlite3 v1.14.50
+	github.com/mattn/go-runewidth v0.0.30
+	github.com/mattn/go-sqlite3 v1.14.52
 	github.com/microsoft/go-mssqldb v1.11.0
-	golang.org/x/crypto v0.56.0
-	modernc.org/sqlite v1.58.0
+	golang.org/x/crypto v0.57.0
+	modernc.org/sqlite v1.59.0
 )
 
 require (
@@ -58,10 +58,10 @@ require (
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/image v0.45.0 // indirect
 	golang.org/x/net v0.58.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/term v0.45.0 // indirect
-	golang.org/x/text v0.41.0 // indirect
-	modernc.org/libc v1.75.6 // indirect
+	golang.org/x/sys v0.48.0 // indirect
+	golang.org/x/term v0.46.0 // indirect
+	golang.org/x/text v0.42.0 // indirect
+	modernc.org/libc v1.75.7 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
 )
