@@ -3,8 +3,8 @@ package version
 import "fmt"
 
 const (
-	Version   = "0.0.1"
-	GitCommit = "e59e261"
+	Version   = "2.0.0"
+	GitCommit = "2185d6c"
 	BuildTime = "unknown"
 )
 
