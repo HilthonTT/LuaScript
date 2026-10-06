@@ -7,7 +7,7 @@
 [![CI](https://github.com/HilthonTT/LuaScript/actions/workflows/ci.yml/badge.svg)](https://github.com/HilthonTT/LuaScript/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/HilthonTT/LuaScript/actions/workflows/codeql.yml/badge.svg)](https://github.com/HilthonTT/LuaScript/actions/workflows/codeql.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-![Go](https://img.shields.io/badge/go-1.26-00ADD8?logo=go&logoColor=white)
+![Go](https://img.shields.io/badge/go-1.27-00ADD8?logo=go&logoColor=white)
 
 A Lua-flavored language with a stack-based virtual machine and **Luau-style
 gradual types**, written in Go.
@@ -52,24 +52,24 @@ print(dist({ x = 3, y = 4 }))   -- 5.0
 
 Subcommands are routed before flag parsing:
 
-| Subcommand | What it does |
-| ---------- | ------------ |
-| `doc [TOPIC]` | Stdlib man pages (alias `man`). Bare = index; `doc math.floor` = one entry; `-k` searches |
-| `fmt [-w] FILE` | Trivia-preserving formatter; `-w` writes in place |
-| `build -o OUT FILE` | Bundle script + interpreter into one executable |
-| `analyze FILE` | AST-level static analysis with pluggable passes |
-| `profile -cpu cpu.pgo FILE` | Collect a CPU profile for PGO (`scripts/build-pgo.sh` consumes it) |
-| `pkg` | Package manifest / lockfile commands |
-| `lsp` | Run the language server on stdio |
+| Subcommand                  | What it does                                                                              |
+| --------------------------- | ----------------------------------------------------------------------------------------- |
+| `doc [TOPIC]`               | Stdlib man pages (alias `man`). Bare = index; `doc math.floor` = one entry; `-k` searches |
+| `fmt [-w] FILE`             | Trivia-preserving formatter; `-w` writes in place                                         |
+| `build -o OUT FILE`         | Bundle script + interpreter into one executable                                           |
+| `analyze FILE`              | AST-level static analysis with pluggable passes                                           |
+| `profile -cpu cpu.pgo FILE` | Collect a CPU profile for PGO (`scripts/build-pgo.sh` consumes it)                        |
+| `pkg`                       | Package manifest / lockfile commands                                                      |
+| `lsp`                       | Run the language server on stdio                                                          |
 
-| Flag | Effect |
-| ---- | ------ |
-| `-i` | Force the REPL even when a script is given |
-| `-v` | Print version |
-| `-dis` | Disassemble to a bytecode dump |
-| `-time` / `-watch` | Time the run / re-run on every save (mutually exclusive) |
-| `-gc-percent N` / `-mem-limit N` | Host GC knobs (GOGC, soft heap limit) |
-| `-bonsai` | Grow an ASCII bonsai tree ([side mode](#bonsai-mode)) |
+| Flag                             | Effect                                                   |
+| -------------------------------- | -------------------------------------------------------- |
+| `-i`                             | Force the REPL even when a script is given               |
+| `-v`                             | Print version                                            |
+| `-dis`                           | Disassemble to a bytecode dump                           |
+| `-time` / `-watch`               | Time the run / re-run on every save (mutually exclusive) |
+| `-gc-percent N` / `-mem-limit N` | Host GC knobs (GOGC, soft heap limit)                    |
+| `-bonsai`                        | Grow an ASCII bonsai tree ([side mode](#bonsai-mode))    |
 
 ## Language
 
@@ -96,7 +96,7 @@ and numeric `for`, `<const>`/`<close>` attributes, the full Lua pattern surface
 - **`try` / `catch` / `throw`** — a real protected region in the enclosing
   frame, so `return`/`break`/`continue` inside a `try` act on the enclosing
   function or loop. Not a `pcall` desugar.
-- **`defer`** — LIFO cleanup on normal return *and* error unwinding. Captures by
+- **`defer`** — LIFO cleanup on normal return _and_ error unwinding. Captures by
   upvalue, so a deferred call sees the value at exit time.
 - **`continue`** — a real statement that closes upvalues on the way out.
 - **If expressions** — `if c then a else z`, no `end`, `else` mandatory.
@@ -128,7 +128,7 @@ stack traceback:
 ```
 
 `pcall`, `try`/`catch` and `coroutine.resume` report the position the error was
-*raised* at, not the one that caught it. `require("debug")` exposes the same
+_raised_ at, not the one that caught it. `require("debug")` exposes the same
 walk as `debug.traceback([msg [, level]])`.
 
 ## Modules
@@ -174,8 +174,8 @@ local v, ok = ch:receive(1000)   -- -> value, true | nil, false, "timeout"|"clos
 **The one rule: jobs always run on the VM goroutine, one at a time.** The VM has
 no locks, so running Lua on two goroutines is a data race, not a speedup. The
 queue buys ordering, delays, retries, backpressure, deadline-shedding and
-metrics — *not* parallelism. Consequently `timeout_ms` is a deadline on
-*starting*: a job past its deadline is dropped unrun, and a job already in
+metrics — _not_ parallelism. Consequently `timeout_ms` is a deadline on
+_starting_: a job past its deadline is dropped unrun, and a job already in
 flight cannot be preempted. See
 [DESIGN.md](DESIGN.md#concurrency-the-one-rule) and
 [`54_queue_module.lsc`](examples/54_queue_module.lsc).
@@ -198,13 +198,13 @@ executables — the same trade-off PyInstaller and Bun's `--compile` carry.
 
 ## REPL
 
-| Command | Effect |
-| ------- | ------ |
-| `help` | Print the help screen |
-| `exit`, `quit` | Leave |
-| `reset` | Rebuild the VM (clears globals and user state) |
-| `clear` | Clear the screen |
-| `doc <topic>` | Stdlib reference, same data as `luascript doc` |
+| Command        | Effect                                         |
+| -------------- | ---------------------------------------------- |
+| `help`         | Print the help screen                          |
+| `exit`, `quit` | Leave                                          |
+| `reset`        | Rebuild the VM (clears globals and user state) |
+| `clear`        | Clear the screen                               |
+| `doc <topic>`  | Stdlib reference, same data as `luascript doc` |
 
 **Ctrl+C** cancels input, **Ctrl+D** exits, **Ctrl+R** searches history. Bare
 expressions print their value. Incomplete input opens a continuation prompt, and
