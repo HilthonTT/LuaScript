@@ -31,7 +31,7 @@ FUZZTIME   ?= 30s
 
 # Version stamping: `luascript -v` reports the commit and build time passed
 # here. Without them the binary falls back to the Go toolchain's VCS stamp.
-VERSION_PKG := github.com/hilthontt/luascript/internal/version
+VERSION_PKG := github.com/hilthontt/luascript/v2/internal/version
 GIT_COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null)
 BUILD_TIME  ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)
 LDFLAGS     ?= -X $(VERSION_PKG).GitCommit=$(GIT_COMMIT) -X $(VERSION_PKG).BuildTime=$(BUILD_TIME)

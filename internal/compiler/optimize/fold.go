@@ -3,7 +3,7 @@ package optimize
 import (
 	"math"
 
-	"github.com/hilthontt/luascript/internal/compiler/ast"
+	"github.com/hilthontt/luascript/v2/internal/compiler/ast"
 )
 
 type num struct {

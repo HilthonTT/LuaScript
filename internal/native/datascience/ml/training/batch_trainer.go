@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hilthontt/luascript/internal/native/datascience/ml"
+	"github.com/hilthontt/luascript/v2/internal/native/datascience/ml"
 )
 
 type internalb struct {

@@ -1,8 +1,8 @@
 package vm
 
 import (
-	"github.com/hilthontt/luascript/internal/compiler/bytecode"
-	"github.com/hilthontt/luascript/internal/compiler/parser"
+	"github.com/hilthontt/luascript/v2/internal/compiler/bytecode"
+	"github.com/hilthontt/luascript/v2/internal/compiler/parser"
 )
 
 type VM struct {

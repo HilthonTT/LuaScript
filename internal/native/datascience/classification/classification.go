@@ -1,6 +1,6 @@
 package classification
 
-import "github.com/hilthontt/luascript/internal/vm"
+import "github.com/hilthontt/luascript/v2/internal/vm"
 
 func RegisterClassificationPreload(v *vm.VM) {
 	vm.RegisterPreload(v, "classification", classificationLoader)

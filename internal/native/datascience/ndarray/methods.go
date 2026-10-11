@@ -5,7 +5,7 @@ import (
 	"math"
 	"sort"
 
-	"github.com/hilthontt/luascript/internal/vm"
+	"github.com/hilthontt/luascript/v2/internal/vm"
 )
 
 func buildMeta() {

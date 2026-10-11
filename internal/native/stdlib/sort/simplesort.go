@@ -1,6 +1,6 @@
 package sort
 
-import "github.com/hilthontt/luascript/internal/native/constraints"
+import "github.com/hilthontt/luascript/v2/internal/native/constraints"
 
 func Simple[T constraints.Ordered](arr []T) []T {
 	for i := 1; i < len(arr); i++ {

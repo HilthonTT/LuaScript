@@ -1,6 +1,6 @@
 package typecheck
 
-import "github.com/hilthontt/luascript/internal/compiler/ast"
+import "github.com/hilthontt/luascript/v2/internal/compiler/ast"
 
 func (c *checker) walkBlock(b *ast.Block) {
 	if b == nil {

@@ -4,10 +4,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hilthontt/luascript/internal/compiler"
-	"github.com/hilthontt/luascript/internal/compiler/parser"
-	nativejson "github.com/hilthontt/luascript/internal/native/stdlib/json"
-	"github.com/hilthontt/luascript/internal/vm"
+	"github.com/hilthontt/luascript/v2/internal/compiler"
+	"github.com/hilthontt/luascript/v2/internal/compiler/parser"
+	nativejson "github.com/hilthontt/luascript/v2/internal/native/stdlib/json"
+	"github.com/hilthontt/luascript/v2/internal/vm"
 )
 
 func runJSON(t *testing.T, src string) *vm.VM {

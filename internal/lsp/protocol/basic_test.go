@@ -9,7 +9,7 @@ import (
 	"encoding/json"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/hilthontt/luascript/internal/lsp/uri"
+	"github.com/hilthontt/luascript/v2/internal/lsp/uri"
 )
 
 func TestPosition(t *testing.T) {

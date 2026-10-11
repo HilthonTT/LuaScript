@@ -1,6 +1,6 @@
 package typecheck
 
-import "github.com/hilthontt/luascript/internal/compiler/ast"
+import "github.com/hilthontt/luascript/v2/internal/compiler/ast"
 
 func (c *checker) requireModuleType(call *ast.CallExpression) *Type {
 	ident, ok := call.Func.(*ast.Identifier)

@@ -584,7 +584,7 @@ programmatically; use `-bonsai-print` for non-interactive runs.
 ```
 
 > **Note:** the repository is `LuaScript` but the Go module path is
-> `github.com/hilthontt/luascript`. A sed-rename artifact survives in the
+> `github.com/hilthontt/luascript/v2`. A sed-rename artifact survives in the
 > `scripts/build-pgo.sh` header (`.lsc profile` for `luascript profile`). The
 > module path, package names, env vars and build tags are the authoritative
 > current names.

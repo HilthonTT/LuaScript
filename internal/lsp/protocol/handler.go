@@ -9,8 +9,8 @@ import (
 
 	"encoding/json"
 
-	"github.com/hilthontt/luascript/internal/lsp/jsonrpc2"
-	"github.com/hilthontt/luascript/internal/lsp/xcontext"
+	"github.com/hilthontt/luascript/v2/internal/lsp/jsonrpc2"
+	"github.com/hilthontt/luascript/v2/internal/lsp/xcontext"
 )
 
 // CancelHandler handler of cancelling.

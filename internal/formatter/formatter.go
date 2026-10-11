@@ -1,8 +1,8 @@
 package formatter
 
 import (
-	"github.com/hilthontt/luascript/internal/compiler/lexer"
-	"github.com/hilthontt/luascript/internal/compiler/parser"
+	"github.com/hilthontt/luascript/v2/internal/compiler/lexer"
+	"github.com/hilthontt/luascript/v2/internal/compiler/parser"
 )
 
 func Format(src string, opts Options) (string, error) {

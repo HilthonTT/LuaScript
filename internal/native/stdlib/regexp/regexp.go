@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/hilthontt/luascript/internal/vm"
+	"github.com/hilthontt/luascript/v2/internal/vm"
 )
 
 func submatchValues(s string, idx []int) []vm.Value {

@@ -12,8 +12,8 @@ const Version = "2.0.0"
 
 // GitCommit and BuildTime are stamped at link time:
 //
-//	go build -ldflags "-X github.com/hilthontt/luascript/internal/version.GitCommit=$(git rev-parse --short HEAD) \
-//	                   -X github.com/hilthontt/luascript/internal/version.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" ./cmd/luascript
+//	go build -ldflags "-X github.com/hilthontt/luascript/v2/internal/version.GitCommit=$(git rev-parse --short HEAD) \
+//	                   -X github.com/hilthontt/luascript/v2/internal/version.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" ./cmd/luascript
 //
 // When left empty, Commit and Built fall back to the VCS stamp the Go
 // toolchain embeds (`go build` inside a git checkout), then to "unknown".

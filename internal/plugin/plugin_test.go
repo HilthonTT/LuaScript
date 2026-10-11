@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hilthontt/luascript/internal/vm"
+	"github.com/hilthontt/luascript/v2/internal/vm"
 )
 
 func specTable(pkgs, fns []map[string]string) *vm.Table {

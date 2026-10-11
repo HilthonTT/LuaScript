@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/hilthontt/luascript/internal/native"
-	"github.com/hilthontt/luascript/internal/vm"
+	"github.com/hilthontt/luascript/v2/internal/native"
+	"github.com/hilthontt/luascript/v2/internal/vm"
 )
 
 func RegisterDataFramePreload(v *vm.VM) {

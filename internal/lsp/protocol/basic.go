@@ -3,7 +3,7 @@
 
 package protocol
 
-import "github.com/hilthontt/luascript/internal/lsp/uri"
+import "github.com/hilthontt/luascript/v2/internal/lsp/uri"
 
 // DocumentURI represents the URI of a document.
 //

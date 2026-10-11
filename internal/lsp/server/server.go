@@ -5,10 +5,10 @@ import (
 	"io"
 	"log/slog"
 
-	"github.com/hilthontt/luascript/internal/formatter"
-	"github.com/hilthontt/luascript/internal/lsp/jsonrpc2"
-	"github.com/hilthontt/luascript/internal/lsp/protocol"
-	"github.com/hilthontt/luascript/internal/version"
+	"github.com/hilthontt/luascript/v2/internal/formatter"
+	"github.com/hilthontt/luascript/v2/internal/lsp/jsonrpc2"
+	"github.com/hilthontt/luascript/v2/internal/lsp/protocol"
+	"github.com/hilthontt/luascript/v2/internal/version"
 )
 
 type Server struct {

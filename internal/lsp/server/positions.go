@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/hilthontt/luascript/internal/lsp/protocol"
+	"github.com/hilthontt/luascript/v2/internal/lsp/protocol"
 )
 
 func lineWidth(src string, line1 int) int {

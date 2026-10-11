@@ -2,7 +2,7 @@
 
 package ui
 
-import "github.com/hilthontt/luascript/internal/vm"
+import "github.com/hilthontt/luascript/v2/internal/vm"
 
 // stubFunctions mirrors the module surface of the Fyne build (ui_fyne.go), so
 // require("ui") resolves in every build and a script can feature-test with

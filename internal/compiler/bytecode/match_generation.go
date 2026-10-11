@@ -1,8 +1,8 @@
 package bytecode
 
 import (
-	"github.com/hilthontt/luascript/internal/compiler/ast"
-	"github.com/hilthontt/luascript/internal/compiler/token"
+	"github.com/hilthontt/luascript/v2/internal/compiler/ast"
+	"github.com/hilthontt/luascript/v2/internal/compiler/token"
 )
 
 const matchSubjectName = "(match subject)"

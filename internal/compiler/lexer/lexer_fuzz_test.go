@@ -3,7 +3,7 @@ package lexer
 import (
 	"testing"
 
-	"github.com/hilthontt/luascript/internal/compiler/token"
+	"github.com/hilthontt/luascript/v2/internal/compiler/token"
 )
 
 func FuzzLexer(f *testing.F) {

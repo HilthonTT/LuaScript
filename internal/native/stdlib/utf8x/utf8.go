@@ -4,7 +4,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/hilthontt/luascript/internal/vm"
+	"github.com/hilthontt/luascript/v2/internal/vm"
 )
 
 const charpattern = "[\x00-\x7F\xC2-\xFD][\x80-\xBF]*"

@@ -3,7 +3,7 @@
 
 package protocol
 
-import "github.com/hilthontt/luascript/internal/lsp/jsonrpc2"
+import "github.com/hilthontt/luascript/v2/internal/lsp/jsonrpc2"
 
 const (
 	// LSPReservedErrorRangeStart is the start range of LSP reserved error codes.

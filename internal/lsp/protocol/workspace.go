@@ -6,7 +6,7 @@ package protocol
 import (
 	"strconv"
 
-	"github.com/hilthontt/luascript/internal/lsp/uri"
+	"github.com/hilthontt/luascript/v2/internal/lsp/uri"
 )
 
 // WorkspaceFolder response of Workspace folders request.

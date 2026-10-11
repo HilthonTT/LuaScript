@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/hilthontt/luascript/internal/version"
+	"github.com/hilthontt/luascript/v2/internal/version"
 )
 
 type Options struct {

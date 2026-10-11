@@ -3,9 +3,9 @@ package optimize
 import (
 	"testing"
 
-	"github.com/hilthontt/luascript/internal/compiler/ast"
-	"github.com/hilthontt/luascript/internal/compiler/lexer"
-	"github.com/hilthontt/luascript/internal/compiler/parser"
+	"github.com/hilthontt/luascript/v2/internal/compiler/ast"
+	"github.com/hilthontt/luascript/v2/internal/compiler/lexer"
+	"github.com/hilthontt/luascript/v2/internal/compiler/parser"
 )
 
 func parseExpr(t *testing.T, src string) ast.Expression {

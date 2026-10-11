@@ -1,6 +1,6 @@
 package formatter
 
-import "github.com/hilthontt/luascript/internal/compiler/ast"
+import "github.com/hilthontt/luascript/v2/internal/compiler/ast"
 
 func (e *emitter) typeNode(t ast.TypeNode, opts Options) Doc {
 	switch v := t.(type) {

@@ -8,10 +8,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/hilthontt/luascript/internal/compiler"
-	"github.com/hilthontt/luascript/internal/compiler/parser"
-	native_db "github.com/hilthontt/luascript/internal/native/stdlib/db"
-	"github.com/hilthontt/luascript/internal/vm"
+	"github.com/hilthontt/luascript/v2/internal/compiler"
+	"github.com/hilthontt/luascript/v2/internal/compiler/parser"
+	native_db "github.com/hilthontt/luascript/v2/internal/native/stdlib/db"
+	"github.com/hilthontt/luascript/v2/internal/vm"
 )
 
 type fakeDriver struct{}

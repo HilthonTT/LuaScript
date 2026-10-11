@@ -7,7 +7,7 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/hilthontt/luascript/internal/lsp/jsonrpc2"
+	"github.com/hilthontt/luascript/v2/internal/lsp/jsonrpc2"
 )
 
 // NewServer returns the context in which client is embedded, jsonrpc2.Conn, and the Client.

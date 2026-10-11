@@ -1,13 +1,13 @@
 package compiler
 
 import (
-	"github.com/hilthontt/luascript/internal/compiler/ast"
-	"github.com/hilthontt/luascript/internal/compiler/bytecode"
-	"github.com/hilthontt/luascript/internal/compiler/constcheck"
-	"github.com/hilthontt/luascript/internal/compiler/lexer"
-	"github.com/hilthontt/luascript/internal/compiler/optimize"
-	"github.com/hilthontt/luascript/internal/compiler/parser"
-	"github.com/hilthontt/luascript/internal/compiler/typecheck"
+	"github.com/hilthontt/luascript/v2/internal/compiler/ast"
+	"github.com/hilthontt/luascript/v2/internal/compiler/bytecode"
+	"github.com/hilthontt/luascript/v2/internal/compiler/constcheck"
+	"github.com/hilthontt/luascript/v2/internal/compiler/lexer"
+	"github.com/hilthontt/luascript/v2/internal/compiler/optimize"
+	"github.com/hilthontt/luascript/v2/internal/compiler/parser"
+	"github.com/hilthontt/luascript/v2/internal/compiler/typecheck"
 )
 
 func CompileToInstructions(input string, pm parser.Mode) ([]*bytecode.InstructionSet, error) {

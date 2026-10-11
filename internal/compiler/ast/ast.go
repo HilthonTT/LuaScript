@@ -3,7 +3,7 @@ package ast
 import (
 	"bytes"
 
-	"github.com/hilthontt/luascript/internal/compiler/token"
+	"github.com/hilthontt/luascript/v2/internal/compiler/token"
 )
 
 type BaseNode struct {

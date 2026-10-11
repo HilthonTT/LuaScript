@@ -7,12 +7,12 @@ import (
 	"os"
 	"time"
 
-	"github.com/hilthontt/luascript/internal/bonsai"
-	"github.com/hilthontt/luascript/internal/formatter"
-	"github.com/hilthontt/luascript/internal/gctune"
-	"github.com/hilthontt/luascript/internal/repl"
-	"github.com/hilthontt/luascript/internal/version"
-	"github.com/hilthontt/luascript/internal/vm"
+	"github.com/hilthontt/luascript/v2/internal/bonsai"
+	"github.com/hilthontt/luascript/v2/internal/formatter"
+	"github.com/hilthontt/luascript/v2/internal/gctune"
+	"github.com/hilthontt/luascript/v2/internal/repl"
+	"github.com/hilthontt/luascript/v2/internal/version"
+	"github.com/hilthontt/luascript/v2/internal/vm"
 )
 
 func main() {

@@ -1,11 +1,11 @@
 package server
 
 import (
-	"github.com/hilthontt/luascript/internal/compiler/analyze"
-	"github.com/hilthontt/luascript/internal/compiler/lexer"
-	"github.com/hilthontt/luascript/internal/compiler/parser"
-	"github.com/hilthontt/luascript/internal/compiler/typecheck"
-	"github.com/hilthontt/luascript/internal/lsp/protocol"
+	"github.com/hilthontt/luascript/v2/internal/compiler/analyze"
+	"github.com/hilthontt/luascript/v2/internal/compiler/lexer"
+	"github.com/hilthontt/luascript/v2/internal/compiler/parser"
+	"github.com/hilthontt/luascript/v2/internal/compiler/typecheck"
+	"github.com/hilthontt/luascript/v2/internal/lsp/protocol"
 )
 
 func computeDiagnostics(src string) []protocol.Diagnostic {

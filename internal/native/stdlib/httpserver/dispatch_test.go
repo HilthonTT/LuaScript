@@ -4,9 +4,9 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/hilthontt/luascript/internal/compiler"
-	"github.com/hilthontt/luascript/internal/compiler/parser"
-	"github.com/hilthontt/luascript/internal/vm"
+	"github.com/hilthontt/luascript/v2/internal/compiler"
+	"github.com/hilthontt/luascript/v2/internal/compiler/parser"
+	"github.com/hilthontt/luascript/v2/internal/vm"
 )
 
 func loadHandlers(t *testing.T, src string) *vm.VM {

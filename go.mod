@@ -1,4 +1,4 @@
-module github.com/hilthontt/luascript
+module github.com/hilthontt/luascript/v2
 
 go 1.27
 

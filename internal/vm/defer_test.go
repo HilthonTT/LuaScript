@@ -3,8 +3,8 @@ package vm
 import (
 	"testing"
 
-	"github.com/hilthontt/luascript/internal/compiler"
-	"github.com/hilthontt/luascript/internal/compiler/parser"
+	"github.com/hilthontt/luascript/v2/internal/compiler"
+	"github.com/hilthontt/luascript/v2/internal/compiler/parser"
 )
 
 const deferPreamble = `

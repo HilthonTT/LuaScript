@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hilthontt/luascript/internal/vm"
+	"github.com/hilthontt/luascript/v2/internal/vm"
 )
 
 const Version = "0.1.0"

@@ -3,7 +3,7 @@ package server
 import (
 	"context"
 
-	"github.com/hilthontt/luascript/internal/lsp/protocol"
+	"github.com/hilthontt/luascript/v2/internal/lsp/protocol"
 )
 
 type unimplementedServer struct{}

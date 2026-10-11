@@ -1,6 +1,6 @@
 package vm
 
-import "github.com/hilthontt/luascript/internal/compiler/bytecode"
+import "github.com/hilthontt/luascript/v2/internal/compiler/bytecode"
 
 type Closure struct {
 	Proto    *bytecode.InstructionSet

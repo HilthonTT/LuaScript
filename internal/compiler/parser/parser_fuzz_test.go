@@ -3,7 +3,7 @@ package parser
 import (
 	"testing"
 
-	"github.com/hilthontt/luascript/internal/compiler/lexer"
+	"github.com/hilthontt/luascript/v2/internal/compiler/lexer"
 )
 
 func FuzzParser(f *testing.F) {

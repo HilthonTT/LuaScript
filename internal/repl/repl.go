@@ -9,15 +9,15 @@ import (
 	"strings"
 
 	"github.com/chzyer/readline"
-	"github.com/hilthontt/luascript/internal/compiler"
-	"github.com/hilthontt/luascript/internal/compiler/bccache"
-	"github.com/hilthontt/luascript/internal/compiler/bytecode"
-	"github.com/hilthontt/luascript/internal/compiler/parser"
-	parserrors "github.com/hilthontt/luascript/internal/compiler/parser/errors"
-	"github.com/hilthontt/luascript/internal/compiler/typecheck"
-	"github.com/hilthontt/luascript/internal/docs"
-	"github.com/hilthontt/luascript/internal/version"
-	"github.com/hilthontt/luascript/internal/vm"
+	"github.com/hilthontt/luascript/v2/internal/compiler"
+	"github.com/hilthontt/luascript/v2/internal/compiler/bccache"
+	"github.com/hilthontt/luascript/v2/internal/compiler/bytecode"
+	"github.com/hilthontt/luascript/v2/internal/compiler/parser"
+	parserrors "github.com/hilthontt/luascript/v2/internal/compiler/parser/errors"
+	"github.com/hilthontt/luascript/v2/internal/compiler/typecheck"
+	"github.com/hilthontt/luascript/v2/internal/docs"
+	"github.com/hilthontt/luascript/v2/internal/version"
+	"github.com/hilthontt/luascript/v2/internal/vm"
 )
 
 type lineReader interface {

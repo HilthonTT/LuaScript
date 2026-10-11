@@ -4,8 +4,8 @@ import (
 	"math"
 	"sort"
 
-	"github.com/hilthontt/luascript/internal/native"
-	"github.com/hilthontt/luascript/internal/vm"
+	"github.com/hilthontt/luascript/v2/internal/native"
+	"github.com/hilthontt/luascript/v2/internal/vm"
 )
 
 func RegisterStatsPreload(v *vm.VM) {

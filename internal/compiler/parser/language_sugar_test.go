@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hilthontt/luascript/internal/compiler/ast"
+	"github.com/hilthontt/luascript/v2/internal/compiler/ast"
 )
 
 func TestParseContinueInLoops(t *testing.T) {

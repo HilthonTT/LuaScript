@@ -3,7 +3,7 @@ package vm
 import (
 	"testing"
 
-	"github.com/hilthontt/luascript/internal/compiler/bccache"
+	"github.com/hilthontt/luascript/v2/internal/compiler/bccache"
 )
 
 func TestCachedChunkRunsIdentically(t *testing.T) {

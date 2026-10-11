@@ -1,6 +1,6 @@
 package std
 
-import "github.com/hilthontt/luascript/internal/native/constraints"
+import "github.com/hilthontt/luascript/v2/internal/native/constraints"
 
 type BTreeNode[T constraints.Ordered] struct {
 	keys     []T

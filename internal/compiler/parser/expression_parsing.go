@@ -3,10 +3,10 @@ package parser
 import (
 	"fmt"
 
-	"github.com/hilthontt/luascript/internal/compiler/ast"
-	"github.com/hilthontt/luascript/internal/compiler/parser/errors"
-	"github.com/hilthontt/luascript/internal/compiler/parser/precedence"
-	"github.com/hilthontt/luascript/internal/compiler/token"
+	"github.com/hilthontt/luascript/v2/internal/compiler/ast"
+	"github.com/hilthontt/luascript/v2/internal/compiler/parser/errors"
+	"github.com/hilthontt/luascript/v2/internal/compiler/parser/precedence"
+	"github.com/hilthontt/luascript/v2/internal/compiler/token"
 )
 
 func (p *Parser) parseExpression() ast.Expression {

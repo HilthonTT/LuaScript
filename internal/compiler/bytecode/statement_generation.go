@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/hilthontt/luascript/internal/compiler/ast"
+	"github.com/hilthontt/luascript/v2/internal/compiler/ast"
 )
 
 func (g *Generator) compileStatements(stmts []ast.Statement) {

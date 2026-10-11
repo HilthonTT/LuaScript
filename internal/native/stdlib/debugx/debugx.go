@@ -1,7 +1,7 @@
 package debugx
 
 import (
-	"github.com/hilthontt/luascript/internal/vm"
+	"github.com/hilthontt/luascript/v2/internal/vm"
 )
 
 func RegisterDebugPreload(v *vm.VM) {

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/hilthontt/luascript/internal/compiler/bytecode"
+	"github.com/hilthontt/luascript/v2/internal/compiler/bytecode"
 )
 
 func (v *VM) exec(entryDepth int) {

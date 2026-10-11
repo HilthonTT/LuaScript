@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hilthontt/luascript/internal/compiler/lexer"
-	"github.com/hilthontt/luascript/internal/compiler/parser"
+	"github.com/hilthontt/luascript/v2/internal/compiler/lexer"
+	"github.com/hilthontt/luascript/v2/internal/compiler/parser"
 )
 
 func runCheck(t *testing.T, src string) []TypeError {

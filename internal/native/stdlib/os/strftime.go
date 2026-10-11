@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hilthontt/luascript/internal/vm"
+	"github.com/hilthontt/luascript/v2/internal/vm"
 )
 
 func tableInt(t *vm.Table, key string, def int64) int64 {

@@ -6,8 +6,8 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/hilthontt/luascript/internal/native"
-	"github.com/hilthontt/luascript/internal/native/datascience/ml"
+	"github.com/hilthontt/luascript/v2/internal/native"
+	"github.com/hilthontt/luascript/v2/internal/native/datascience/ml"
 )
 
 type StatsPrinter struct {

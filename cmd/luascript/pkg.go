@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/hilthontt/luascript/internal/pkgmanager"
+	"github.com/hilthontt/luascript/v2/internal/pkgmanager"
 )
 
 func runPkg(argv []string) int {

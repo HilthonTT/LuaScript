@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	osNative "github.com/hilthontt/luascript/internal/native/stdlib/os"
-	"github.com/hilthontt/luascript/internal/vm"
+	osNative "github.com/hilthontt/luascript/v2/internal/native/stdlib/os"
+	"github.com/hilthontt/luascript/v2/internal/vm"
 )
 
 func RegisterTimePreload(v *vm.VM) {
