@@ -8,7 +8,7 @@ import (
 
 // Version is the language/interpreter release. It is a constant because
 // bundled binaries (`luascript build`) compare it against the stub they run on.
-const Version = "2.0.0"
+const Version = "3.0.0"
 
 // GitCommit and BuildTime are stamped at link time:
 //
