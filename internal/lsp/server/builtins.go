@@ -1,8 +1,8 @@
 package server
 
 import (
-	"github.com/hilthontt/luascript/v2/internal/docs"
-	"github.com/hilthontt/luascript/v2/internal/lsp/protocol"
+	"github.com/hilthontt/luascript/v3/internal/docs"
+	"github.com/hilthontt/luascript/v3/internal/lsp/protocol"
 )
 
 type builtin struct {

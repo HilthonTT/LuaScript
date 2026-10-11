@@ -3,10 +3,10 @@ package utf8x_test
 import (
 	"testing"
 
-	"github.com/hilthontt/luascript/v2/internal/compiler"
-	"github.com/hilthontt/luascript/v2/internal/compiler/parser"
-	"github.com/hilthontt/luascript/v2/internal/native/stdlib/utf8x"
-	"github.com/hilthontt/luascript/v2/internal/vm"
+	"github.com/hilthontt/luascript/v3/internal/compiler"
+	"github.com/hilthontt/luascript/v3/internal/compiler/parser"
+	"github.com/hilthontt/luascript/v3/internal/native/stdlib/utf8x"
+	"github.com/hilthontt/luascript/v3/internal/vm"
 )
 
 func runUTF8(t *testing.T, src string) *vm.VM {

@@ -1,7 +1,7 @@
 package ndarray
 
 import (
-	"github.com/hilthontt/luascript/v2/internal/vm"
+	"github.com/hilthontt/luascript/v3/internal/vm"
 )
 
 func RegisterNDArrayPreload(v *vm.VM) {

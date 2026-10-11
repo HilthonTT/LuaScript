@@ -7,7 +7,7 @@ import (
 	"compress/zlib"
 	"io"
 
-	"github.com/hilthontt/luascript/v2/internal/vm"
+	"github.com/hilthontt/luascript/v3/internal/vm"
 )
 
 const maxDecodeBytes = 256 << 20

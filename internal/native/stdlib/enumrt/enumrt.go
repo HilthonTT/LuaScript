@@ -3,7 +3,7 @@ package enumrt
 import (
 	"strings"
 
-	"github.com/hilthontt/luascript/v2/internal/vm"
+	"github.com/hilthontt/luascript/v3/internal/vm"
 )
 
 const freezeGlobalName = "__enum_freeze"

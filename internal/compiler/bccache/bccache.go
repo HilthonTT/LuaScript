@@ -8,10 +8,10 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/hilthontt/luascript/v2/internal/compiler"
-	"github.com/hilthontt/luascript/v2/internal/compiler/bytecode"
-	"github.com/hilthontt/luascript/v2/internal/compiler/parser"
-	"github.com/hilthontt/luascript/v2/internal/version"
+	"github.com/hilthontt/luascript/v3/internal/compiler"
+	"github.com/hilthontt/luascript/v3/internal/compiler/bytecode"
+	"github.com/hilthontt/luascript/v3/internal/compiler/parser"
+	"github.com/hilthontt/luascript/v3/internal/version"
 )
 
 var buildStamp = sync.OnceValue(func() string {

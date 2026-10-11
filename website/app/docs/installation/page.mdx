@@ -40,15 +40,15 @@ If your installed Go is older, `go build` tells you so. With the default `GOTOOL
 ## Install with `go install`
 
 ```sh
-go install github.com/hilthontt/luascript/v2/cmd/luascript@latest
+go install github.com/hilthontt/luascript/v3/cmd/luascript@latest
 ```
 
 This builds the latest release and places `luascript` in `$GOBIN` (by default `$HOME/go/bin`, or `%USERPROFILE%\go\bin` on Windows). Make sure that directory is on your `PATH`. To try unreleased changes, use `@main` instead of `@latest`.
 
-Note the module path, `github.com/hilthontt/luascript/v2`. It is lowercase, unlike the repository's display name `HilthonTT/LuaScript`, and it ends in `/v2`, the major-version suffix Go requires for 2.x releases.
+Note the module path, `github.com/hilthontt/luascript/v3`. It is lowercase, unlike the repository's display name `HilthonTT/LuaScript`, and it ends in `/v3`, the major-version suffix Go requires for 3.x releases.
 
 <Callout type="info">
-Leaving out the `/v2` (`github.com/hilthontt/luascript/cmd/luascript@latest`) installs the old 1.x line. The `v2.0.0` tag predates the `/v2` module path, so it cannot be installed with `go install`; use a prebuilt binary or build that tag from source.
+Leaving out the `/v3` (`github.com/hilthontt/luascript/cmd/luascript@latest`) installs the old 1.x line. Releases before 3.0.0, including `v2.0.0`, were not published under a matching module path and cannot be installed with `go install`; use a prebuilt binary or build those tags from source.
 </Callout>
 
 ## Build from source
@@ -114,7 +114,7 @@ luascript -v
 ```
 
 ```text
-Version: 2.0.0, GitCommit: 936ac38, BuildTime: 2026-10-11T20:30:25Z
+Version: 3.0.0, GitCommit: eb7f827, BuildTime: 2026-10-11T20:53:58Z
 ```
 
 Release binaries carry the commit and build time they were made from. A `go build` from a git checkout reports the checkout's commit and commit time instead (with `-dirty` if the tree has uncommitted changes), and builds without that information print `unknown`.

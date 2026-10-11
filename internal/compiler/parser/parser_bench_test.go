@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hilthontt/luascript/v2/internal/compiler/lexer"
+	"github.com/hilthontt/luascript/v3/internal/compiler/lexer"
 )
 
 func BenchmarkParseSmokeProgram(b *testing.B) {

@@ -1,10 +1,10 @@
 package server
 
 import (
-	"github.com/hilthontt/luascript/v2/internal/compiler/ast"
-	"github.com/hilthontt/luascript/v2/internal/compiler/lexer"
-	"github.com/hilthontt/luascript/v2/internal/compiler/parser"
-	"github.com/hilthontt/luascript/v2/internal/lsp/protocol"
+	"github.com/hilthontt/luascript/v3/internal/compiler/ast"
+	"github.com/hilthontt/luascript/v3/internal/compiler/lexer"
+	"github.com/hilthontt/luascript/v3/internal/compiler/parser"
+	"github.com/hilthontt/luascript/v3/internal/lsp/protocol"
 )
 
 func documentSymbols(uri, src string) []protocol.SymbolInformationOrDocumentSymbol {

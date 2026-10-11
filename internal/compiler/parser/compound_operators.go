@@ -1,6 +1,6 @@
 package parser
 
-import "github.com/hilthontt/luascript/v2/internal/compiler/token"
+import "github.com/hilthontt/luascript/v3/internal/compiler/token"
 
 var compoundOps = map[token.Type]string{
 	token.PlusAssign:   "+",

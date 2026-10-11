@@ -4,10 +4,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hilthontt/luascript/v2/internal/compiler"
-	"github.com/hilthontt/luascript/v2/internal/compiler/parser"
-	nativecrypto "github.com/hilthontt/luascript/v2/internal/native/stdlib/crypto"
-	"github.com/hilthontt/luascript/v2/internal/vm"
+	"github.com/hilthontt/luascript/v3/internal/compiler"
+	"github.com/hilthontt/luascript/v3/internal/compiler/parser"
+	nativecrypto "github.com/hilthontt/luascript/v3/internal/native/stdlib/crypto"
+	"github.com/hilthontt/luascript/v3/internal/vm"
 )
 
 func runCrypto(t *testing.T, src string) *vm.VM {

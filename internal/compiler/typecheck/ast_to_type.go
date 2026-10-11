@@ -1,6 +1,6 @@
 package typecheck
 
-import "github.com/hilthontt/luascript/v2/internal/compiler/ast"
+import "github.com/hilthontt/luascript/v3/internal/compiler/ast"
 
 func (c *checker) resolveAST(n ast.TypeNode) *Type {
 	if n == nil {

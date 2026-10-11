@@ -3,8 +3,8 @@ package main
 import (
 	"os"
 
-	"github.com/hilthontt/luascript/v2/internal/native/stdlib/testx"
-	"github.com/hilthontt/luascript/v2/internal/vm"
+	"github.com/hilthontt/luascript/v3/internal/native/stdlib/testx"
+	"github.com/hilthontt/luascript/v3/internal/vm"
 )
 
 // scriptTestTracker lets a plain `luascript foo_test.lsc` run (and a bundled

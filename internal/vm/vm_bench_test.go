@@ -3,9 +3,9 @@ package vm
 import (
 	"testing"
 
-	"github.com/hilthontt/luascript/v2/internal/compiler"
-	"github.com/hilthontt/luascript/v2/internal/compiler/bytecode"
-	"github.com/hilthontt/luascript/v2/internal/compiler/parser"
+	"github.com/hilthontt/luascript/v3/internal/compiler"
+	"github.com/hilthontt/luascript/v3/internal/compiler/bytecode"
+	"github.com/hilthontt/luascript/v3/internal/compiler/parser"
 )
 
 func compileBench(b *testing.B, src string) *bytecode.InstructionSet {

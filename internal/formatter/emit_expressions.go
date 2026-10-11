@@ -3,7 +3,7 @@ package formatter
 import (
 	"strconv"
 
-	"github.com/hilthontt/luascript/v2/internal/compiler/ast"
+	"github.com/hilthontt/luascript/v3/internal/compiler/ast"
 )
 
 func (e *emitter) expr(x ast.Expression, opts Options) Doc {

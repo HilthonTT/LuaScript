@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hilthontt/luascript/v2/internal/compiler"
-	"github.com/hilthontt/luascript/v2/internal/compiler/parser"
+	"github.com/hilthontt/luascript/v3/internal/compiler"
+	"github.com/hilthontt/luascript/v3/internal/compiler/parser"
 )
 
 const tryPreamble = `

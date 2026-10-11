@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/hilthontt/luascript/v2/internal/native/stdlib/testx"
+	"github.com/hilthontt/luascript/v3/internal/native/stdlib/testx"
 )
 
 type palette struct {

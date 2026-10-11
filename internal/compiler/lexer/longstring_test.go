@@ -3,7 +3,7 @@ package lexer
 import (
 	"testing"
 
-	"github.com/hilthontt/luascript/v2/internal/compiler/token"
+	"github.com/hilthontt/luascript/v3/internal/compiler/token"
 )
 
 func TestLongStringDropsLeadingNewline(t *testing.T) {

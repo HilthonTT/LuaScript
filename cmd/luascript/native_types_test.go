@@ -4,8 +4,8 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/hilthontt/luascript/v2/internal/compiler/typecheck"
-	"github.com/hilthontt/luascript/v2/internal/vm"
+	"github.com/hilthontt/luascript/v3/internal/compiler/typecheck"
+	"github.com/hilthontt/luascript/v3/internal/vm"
 )
 
 func callableWord(isFn bool) string {

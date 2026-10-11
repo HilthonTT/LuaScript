@@ -1,6 +1,6 @@
 package vm
 
-import "github.com/hilthontt/luascript/v2/internal/compiler/bytecode"
+import "github.com/hilthontt/luascript/v3/internal/compiler/bytecode"
 
 func (v *VM) callClosure(cl *Closure, args []Value, nresults int) {
 	if len(v.frames) >= maxCallDepth {

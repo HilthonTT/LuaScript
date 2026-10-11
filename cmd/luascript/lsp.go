@@ -8,8 +8,8 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/hilthontt/luascript/v2/internal/lsp/server"
-	"github.com/hilthontt/luascript/v2/internal/version"
+	"github.com/hilthontt/luascript/v3/internal/lsp/server"
+	"github.com/hilthontt/luascript/v3/internal/version"
 )
 
 func runLSP(argv []string) int {

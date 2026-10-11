@@ -1,6 +1,6 @@
 package tablert
 
-import "github.com/hilthontt/luascript/v2/internal/vm"
+import "github.com/hilthontt/luascript/v3/internal/vm"
 
 const (
 	spreadGlobalName     = "__tbl_spread"

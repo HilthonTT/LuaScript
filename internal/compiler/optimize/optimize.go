@@ -1,6 +1,6 @@
 package optimize
 
-import "github.com/hilthontt/luascript/v2/internal/compiler/ast"
+import "github.com/hilthontt/luascript/v3/internal/compiler/ast"
 
 func Fold(prog *ast.Program) {
 	if prog == nil {

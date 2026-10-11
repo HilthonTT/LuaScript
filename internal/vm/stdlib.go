@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/hilthontt/luascript/v2/internal/gctune"
+	"github.com/hilthontt/luascript/v3/internal/gctune"
 )
 
 type luaError struct{ value Value }

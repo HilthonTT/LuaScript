@@ -41,7 +41,7 @@ luascript -v
 ```
 
 ```text
-Version: 2.0.0, GitCommit: 936ac38, BuildTime: 2026-10-11T20:30:25Z
+Version: 3.0.0, GitCommit: eb7f827, BuildTime: 2026-10-11T20:53:58Z
 ```
 
 Release binaries and `make build` stamp the commit and build time at link time. A plain `go build` inside a git checkout falls back to the commit and commit time Go embeds (with a `-dirty` suffix for uncommitted changes); when neither is available, for example under `go run`, both read `unknown`.

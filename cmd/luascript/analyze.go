@@ -7,7 +7,7 @@ import (
 
 	"os"
 
-	"github.com/hilthontt/luascript/v2/internal/compiler/analyze"
+	"github.com/hilthontt/luascript/v3/internal/compiler/analyze"
 )
 
 func runAnalyze(argv []string) int {

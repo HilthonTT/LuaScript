@@ -11,8 +11,8 @@ import (
 
 	"encoding/json"
 
-	"github.com/hilthontt/luascript/v2/internal/lsp/jsonrpc2"
-	"github.com/hilthontt/luascript/v2/internal/lsp/xcontext"
+	"github.com/hilthontt/luascript/v3/internal/lsp/jsonrpc2"
+	"github.com/hilthontt/luascript/v3/internal/lsp/xcontext"
 )
 
 // ClientDispatcher returns a Client that dispatches LSP requests across the

@@ -3,7 +3,7 @@ package native
 import (
 	"fmt"
 
-	"github.com/hilthontt/luascript/v2/internal/vm"
+	"github.com/hilthontt/luascript/v3/internal/vm"
 )
 
 func ExtractArray(t *vm.Table) (any, error) {

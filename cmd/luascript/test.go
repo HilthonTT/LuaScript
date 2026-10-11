@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/hilthontt/luascript/v2/internal/testrunner"
+	"github.com/hilthontt/luascript/v3/internal/testrunner"
 )
 
 func runTest(argv []string) int {

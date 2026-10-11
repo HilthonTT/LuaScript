@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hilthontt/luascript/v2/internal/version"
+	"github.com/hilthontt/luascript/v3/internal/version"
 )
 
 func buildBundle(stub, script, ver string) []byte {

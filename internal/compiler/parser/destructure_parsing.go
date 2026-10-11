@@ -1,9 +1,9 @@
 package parser
 
 import (
-	"github.com/hilthontt/luascript/v2/internal/compiler/ast"
-	"github.com/hilthontt/luascript/v2/internal/compiler/parser/errors"
-	"github.com/hilthontt/luascript/v2/internal/compiler/token"
+	"github.com/hilthontt/luascript/v3/internal/compiler/ast"
+	"github.com/hilthontt/luascript/v3/internal/compiler/parser/errors"
+	"github.com/hilthontt/luascript/v3/internal/compiler/token"
 )
 
 const destructureSyntax = "local { a, b } = expr  or  local [ first, second ] = expr"

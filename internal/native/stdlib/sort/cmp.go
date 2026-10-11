@@ -3,8 +3,8 @@ package sort
 import (
 	stdsort "sort"
 
-	"github.com/hilthontt/luascript/v2/internal/native"
-	"github.com/hilthontt/luascript/v2/internal/vm"
+	"github.com/hilthontt/luascript/v3/internal/native"
+	"github.com/hilthontt/luascript/v3/internal/vm"
 )
 
 func cmpSortInPlace(v *vm.VM, t *vm.Table, cmp vm.Value, site string, stable bool) {

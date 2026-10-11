@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/hilthontt/luascript/v2/internal/vm"
+	"github.com/hilthontt/luascript/v3/internal/vm"
 )
 
 func frame(order []string, cols map[string][]vm.Value) *DataFrame {

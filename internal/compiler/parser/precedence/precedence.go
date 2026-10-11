@@ -1,6 +1,6 @@
 package precedence
 
-import "github.com/hilthontt/luascript/v2/internal/compiler/token"
+import "github.com/hilthontt/luascript/v3/internal/compiler/token"
 
 const (
 	Lowest = iota

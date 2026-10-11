@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hilthontt/luascript/v2/internal/vm"
+	"github.com/hilthontt/luascript/v3/internal/vm"
 )
 
 type Channel struct {

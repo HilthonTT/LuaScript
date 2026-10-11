@@ -32,7 +32,7 @@ code costs nothing at run time.
 ## Install
 
 ```sh
-go install github.com/hilthontt/luascript/v2/cmd/luascript@latest
+go install github.com/hilthontt/luascript/v3/cmd/luascript@latest
 ```
 
 Or download a prebuilt binary for Linux, macOS or Windows from

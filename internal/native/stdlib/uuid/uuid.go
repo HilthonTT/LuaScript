@@ -4,7 +4,7 @@ import (
 	"crypto/rand"
 	"regexp"
 
-	"github.com/hilthontt/luascript/v2/internal/vm"
+	"github.com/hilthontt/luascript/v3/internal/vm"
 )
 
 var uuidV4Pattern = regexp.MustCompile(

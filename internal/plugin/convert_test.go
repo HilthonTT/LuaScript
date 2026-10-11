@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hilthontt/luascript/v2/internal/vm"
+	"github.com/hilthontt/luascript/v3/internal/vm"
 )
 
 func call(t *testing.T, fn any, args ...vm.Value) (res []vm.Value, luaErr string) {

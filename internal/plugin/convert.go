@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"sync"
 
-	"github.com/hilthontt/luascript/v2/internal/vm"
+	"github.com/hilthontt/luascript/v3/internal/vm"
 )
 
 var errType = reflect.TypeFor[error]()

@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hilthontt/luascript/v2/internal/compiler/bccache"
-	"github.com/hilthontt/luascript/v2/internal/native/stdlib/testx"
-	"github.com/hilthontt/luascript/v2/internal/pkgmanager"
-	"github.com/hilthontt/luascript/v2/internal/vm"
+	"github.com/hilthontt/luascript/v3/internal/compiler/bccache"
+	"github.com/hilthontt/luascript/v3/internal/native/stdlib/testx"
+	"github.com/hilthontt/luascript/v3/internal/pkgmanager"
+	"github.com/hilthontt/luascript/v3/internal/vm"
 )
 
 const Suffix = "_test.lsc"

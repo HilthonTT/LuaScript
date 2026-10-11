@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/hilthontt/luascript/v2/internal/compiler/ast"
+	"github.com/hilthontt/luascript/v3/internal/compiler/ast"
 )
 
 func (g *Generator) compileIf(is *InstructionSet, s *ast.IfStatement) {

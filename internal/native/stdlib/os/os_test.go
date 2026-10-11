@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hilthontt/luascript/v2/internal/compiler"
-	"github.com/hilthontt/luascript/v2/internal/compiler/parser"
-	native_os "github.com/hilthontt/luascript/v2/internal/native/stdlib/os"
-	"github.com/hilthontt/luascript/v2/internal/vm"
+	"github.com/hilthontt/luascript/v3/internal/compiler"
+	"github.com/hilthontt/luascript/v3/internal/compiler/parser"
+	native_os "github.com/hilthontt/luascript/v3/internal/native/stdlib/os"
+	"github.com/hilthontt/luascript/v3/internal/vm"
 )
 
 func runOS(t *testing.T, src string) *vm.VM {

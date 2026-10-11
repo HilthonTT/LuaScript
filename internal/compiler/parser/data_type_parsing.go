@@ -5,10 +5,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/hilthontt/luascript/v2/internal/compiler/ast"
-	"github.com/hilthontt/luascript/v2/internal/compiler/lexer"
-	"github.com/hilthontt/luascript/v2/internal/compiler/parser/errors"
-	"github.com/hilthontt/luascript/v2/internal/compiler/token"
+	"github.com/hilthontt/luascript/v3/internal/compiler/ast"
+	"github.com/hilthontt/luascript/v3/internal/compiler/lexer"
+	"github.com/hilthontt/luascript/v3/internal/compiler/parser/errors"
+	"github.com/hilthontt/luascript/v3/internal/compiler/token"
 )
 
 func int64FromUint64Bits(u uint64) int64 {

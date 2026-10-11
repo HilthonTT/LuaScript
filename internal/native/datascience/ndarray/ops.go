@@ -3,7 +3,7 @@ package ndarray
 import (
 	"math"
 
-	"github.com/hilthontt/luascript/v2/internal/vm"
+	"github.com/hilthontt/luascript/v3/internal/vm"
 )
 
 func ewise(site string, a, b *ndarray, op func(x, y float64) float64) *ndarray {

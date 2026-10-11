@@ -1,6 +1,6 @@
 package compression
 
-import "github.com/hilthontt/luascript/v2/internal/vm"
+import "github.com/hilthontt/luascript/v3/internal/vm"
 
 func rleEncode(data []byte) []byte {
 	out := make([]byte, 0, len(data))

@@ -3,8 +3,8 @@ export const site = {
   tagline: "Lua 5.4 with gradual types",
   repo: "https://github.com/HilthonTT/LuaScript",
   url: "https://hilthontt.github.io/LuaScript/",
-  // The /v2 suffix is part of the module path; without it Go installs 1.x.
-  install: "go install github.com/hilthontt/luascript/v2/cmd/luascript@latest",
+  // The /v3 suffix is part of the module path; without it Go installs 1.x.
+  install: "go install github.com/hilthontt/luascript/v3/cmd/luascript@latest",
 };
 
 /** Prefixes public assets with the deploy base path (GitHub Pages). */

@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/hilthontt/luascript/v2/internal/compiler"
-	"github.com/hilthontt/luascript/v2/internal/compiler/bccache"
-	"github.com/hilthontt/luascript/v2/internal/compiler/parser"
+	"github.com/hilthontt/luascript/v3/internal/compiler"
+	"github.com/hilthontt/luascript/v3/internal/compiler/bccache"
+	"github.com/hilthontt/luascript/v3/internal/compiler/parser"
 )
 
 const baseSearchPath = "./?.lsc;./?.lua;./?/init.lsc;./?/init.lua;./src/?.lsc;./src/?.lua;./src/?/init.lsc;./src/?/init.lua;./lua_modules/?.lsc;./lua_modules/?.lua;./lua_modules/?/init.lsc;./lua_modules/?/init.lua"

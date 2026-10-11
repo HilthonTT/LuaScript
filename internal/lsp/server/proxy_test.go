@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hilthontt/luascript/v2/internal/lsp/protocol"
+	"github.com/hilthontt/luascript/v3/internal/lsp/protocol"
 )
 
 func TestComputeDiagnostics_SyntaxError(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hilthontt/luascript/v2/internal/vm"
+	"github.com/hilthontt/luascript/v3/internal/vm"
 )
 
 func TestChannelSendReceive(t *testing.T) {

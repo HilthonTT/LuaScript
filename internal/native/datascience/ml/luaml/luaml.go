@@ -3,9 +3,9 @@ package luaml
 import (
 	"os"
 
-	"github.com/hilthontt/luascript/v2/internal/native/datascience/ml"
-	"github.com/hilthontt/luascript/v2/internal/native/datascience/ml/training"
-	"github.com/hilthontt/luascript/v2/internal/vm"
+	"github.com/hilthontt/luascript/v3/internal/native/datascience/ml"
+	"github.com/hilthontt/luascript/v3/internal/native/datascience/ml/training"
+	"github.com/hilthontt/luascript/v3/internal/vm"
 )
 
 func RegisterMLPreload(v *vm.VM) {

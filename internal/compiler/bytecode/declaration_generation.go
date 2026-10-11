@@ -1,6 +1,6 @@
 package bytecode
 
-import "github.com/hilthontt/luascript/v2/internal/compiler/ast"
+import "github.com/hilthontt/luascript/v3/internal/compiler/ast"
 
 func (g *Generator) compileEnumStatement(is *InstructionSet, s *ast.EnumStatement) {
 	if s.Name == nil || len(s.Variants) == 0 {

@@ -3,7 +3,7 @@ package formatter
 import (
 	"strings"
 
-	"github.com/hilthontt/luascript/v2/internal/compiler/ast"
+	"github.com/hilthontt/luascript/v3/internal/compiler/ast"
 )
 
 func (e *emitter) statement(stmt ast.Statement, opts Options) Doc {

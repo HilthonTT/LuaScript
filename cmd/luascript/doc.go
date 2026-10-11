@@ -8,8 +8,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/hilthontt/luascript/v2/internal/docs"
-	"github.com/hilthontt/luascript/v2/internal/vm"
+	"github.com/hilthontt/luascript/v3/internal/docs"
+	"github.com/hilthontt/luascript/v3/internal/vm"
 )
 
 func runDoc(argv []string) int {

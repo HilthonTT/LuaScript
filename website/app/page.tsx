@@ -243,7 +243,7 @@ export default async function Home() {
             className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-4 py-1.5 text-xs text-mist-300 transition hover:border-white/25 hover:text-white"
           >
             <span className="size-1.5 rounded-full bg-ok" />
-            v2.0 · Lua 5.4 compatible · written in Go
+            v3.0 · Lua 5.4 compatible · written in Go
             <ArrowRight className="size-3" />
           </Link>
           <h1 className="mx-auto mt-8 max-w-4xl text-5xl font-semibold tracking-tight text-white sm:text-7xl">

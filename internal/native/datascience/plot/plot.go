@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/hilthontt/luascript/v2/internal/vm"
+	"github.com/hilthontt/luascript/v3/internal/vm"
 )
 
 func RegisterPlotPreload(v *vm.VM) {

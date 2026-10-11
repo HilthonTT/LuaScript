@@ -5,10 +5,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/hilthontt/luascript/v2/internal/compiler"
-	"github.com/hilthontt/luascript/v2/internal/compiler/parser"
-	nativehttp "github.com/hilthontt/luascript/v2/internal/native/stdlib/http"
-	"github.com/hilthontt/luascript/v2/internal/vm"
+	"github.com/hilthontt/luascript/v3/internal/compiler"
+	"github.com/hilthontt/luascript/v3/internal/compiler/parser"
+	nativehttp "github.com/hilthontt/luascript/v3/internal/native/stdlib/http"
+	"github.com/hilthontt/luascript/v3/internal/vm"
 )
 
 func runHTTP(t *testing.T, base, src string) *vm.VM {
