@@ -4,6 +4,8 @@ import (
 	"math"
 	"strings"
 	"testing"
+
+	"github.com/hilthontt/luascript/internal/vm"
 )
 
 func TestNiceTicks(t *testing.T) {
@@ -24,12 +26,47 @@ func TestNiceTicks(t *testing.T) {
 func TestDataBoundsIncludesZeroForBars(t *testing.T) {
 	f := newFigure()
 	f.series = append(f.series, &series{kind: "bar", xs: []float64{1, 2}, ys: []float64{5, 7}})
-	_, _, ylo, yhi := f.dataBounds()
+	xlo, xhi, ylo, yhi := f.dataBounds()
 	if ylo != 0 {
 		t.Fatalf("bar y-lower should include 0, got %v", ylo)
 	}
-	if yhi != 7 {
-		t.Fatalf("y-upper: got %v want 7", yhi)
+	// 7 plus 5% headroom.
+	if math.Abs(yhi-7.35) > 1e-9 {
+		t.Fatalf("y-upper: got %v want 7.35", yhi)
+	}
+	// Half a slot either side keeps the outer bars inside the frame.
+	if xlo != 0.5 || xhi != 2.5 {
+		t.Fatalf("x bounds: got [%v, %v] want [0.5, 2.5]", xlo, xhi)
+	}
+}
+
+func TestHistogramBinsFillFrame(t *testing.T) {
+	f := newFigure()
+	f.series = append(f.series, &series{kind: "bar", hist: true,
+		xs: []float64{5, 15, 25}, ys: []float64{3, 3, 3}})
+	xlo, xhi, _, yhi := f.dataBounds()
+	if xlo != 0 || xhi != 30 {
+		t.Fatalf("histogram x bounds: got [%v, %v] want the bin edges [0, 30]", xlo, xhi)
+	}
+	if yhi <= 3 {
+		t.Fatalf("equal-count bins need headroom above them, got y-upper %v", yhi)
+	}
+}
+
+func TestSeriesOptsAcceptsLabelString(t *testing.T) {
+	f := newFigure()
+	label, color := seriesOpts(f, []vm.Value{"growth"}, 1) // argAt is 1-based
+	if label != "growth" || color == "" {
+		t.Fatalf("got label %q color %q, want label \"growth\" and a palette color", label, color)
+	}
+}
+
+func TestScatterPointsInsideFrame(t *testing.T) {
+	f := newFigure()
+	f.series = append(f.series, &series{kind: "scatter", xs: []float64{1, 20}, ys: []float64{1, 400}})
+	xlo, xhi, ylo, yhi := f.dataBounds()
+	if !(xlo < 1 && xhi > 20 && ylo < 1 && yhi > 400) {
+		t.Fatalf("points should not sit on the frame: x [%v, %v] y [%v, %v]", xlo, xhi, ylo, yhi)
 	}
 }
 

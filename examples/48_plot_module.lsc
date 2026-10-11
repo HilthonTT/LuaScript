@@ -25,9 +25,16 @@ bars:save("scratch_bar.svg")
 print("bar:", tostring(bars))
 
 -- A histogram one-liner over a batch of samples.
+-- The mean of three uniform draws is bell-shaped (Irwin-Hall), so the bins
+-- show a hump rather than a flat wall. A tiny LCG keeps it deterministic.
+local seed = 12345
+local function uniform()
+  seed = (seed * 1103515245 + 12345) % 2147483648
+  return seed / 2147483648
+end
 local samples = {}
 for i = 1, 200 do
-  samples[i] = (i * 7) % 50            -- deterministic spread over [0,50)
+  samples[i] = (uniform() + uniform() + uniform()) / 3 * 50   -- in [0,50)
 end
 plot.histogram(samples, 10):title("sample distribution"):save("scratch_hist.svg")
 print("wrote scratch_line.svg, scratch_bar.svg, scratch_hist.svg")
@@ -46,7 +53,7 @@ print("--- plot.bar ---")
 -- Categories on one axis, values on the other. Labels are strings, so this
 -- is the chart for data that is NOT numeric on the x axis.
 local bar = plot.bar({ "apples", "pears", "figs", "plums" }, { 12, 7, 19, 4 }, "stock")
-bar:title("fruit stock"):ylabel("count"):save("scratch_bar.svg")
+bar:title("fruit stock"):ylabel("count"):save("scratch_stock.svg")
 print("bar figure:", tostring(bar))
 
 print("--- plot.scatter ---")
@@ -70,4 +77,4 @@ print("  plot.histogram one series, binned — the shape of a distribution")
 print("  plot.figure    an empty canvas, for several series at once")
 
 print()
-print("All four charts written: scratch_line, scratch_bar, scratch_hist, scratch_scatter (.svg)")
+print("All charts written: scratch_line, scratch_bar, scratch_hist, scratch_stock, scratch_scatter (.svg)")

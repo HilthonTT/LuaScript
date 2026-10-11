@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -26,6 +27,7 @@ type series struct {
 	ys    []float64
 	label string
 	color string
+	hist  bool // histogram bins are drawn edge to edge
 }
 
 type figure struct {
@@ -211,6 +213,10 @@ func numsFromTable(site string, t *vm.Table) []float64 {
 
 func seriesOpts(f *figure, args []vm.Value, pos int) (label, color string) {
 	color = f.nextColor()
+	// A bare string is shorthand for { label = s }.
+	if s, ok := argAt(args, pos).(string); ok {
+		return s, color
+	}
 	if opts, ok := argAt(args, pos).(*vm.Table); ok {
 		if s, ok := opts.Get("label").(string); ok {
 			label = s
@@ -308,7 +314,7 @@ func addHistogram(f *figure, site string, args []vm.Value, base int) {
 		counts[idx]++
 	}
 	label, color := seriesOpts(f, args, base+2)
-	f.series = append(f.series, &series{kind: "bar", xs: centers, ys: counts, label: label, color: color})
+	f.series = append(f.series, &series{kind: "bar", xs: centers, ys: counts, label: label, color: color, hist: true})
 }
 
 func positions(n int) []float64 {
@@ -356,7 +362,8 @@ func (f *figure) dataBounds() (xlo, xhi, ylo, yhi float64) {
 	if !any {
 		return 0, 1, 0, 1
 	}
-	if f.hasBars() {
+	bars := f.hasBars()
+	if bars {
 		ylo = math.Min(ylo, 0)
 		yhi = math.Max(yhi, 0)
 	}
@@ -366,7 +373,50 @@ func (f *figure) dataBounds() (xlo, xhi, ylo, yhi float64) {
 	if ylo == yhi {
 		ylo, yhi = ylo-1, yhi+1
 	}
+
+	// x: bars are centered in slots, so pad by half a slot to keep the
+	// outermost bars inside the frame; points get a small margin so they
+	// don't sit on the border.
+	if bars {
+		half := f.barStep() / 2
+		xlo, xhi = xlo-half, xhi+half
+	} else {
+		pad := (xhi - xlo) * 0.04
+		xlo, xhi = xlo-pad, xhi+pad
+	}
+
+	// y: a little headroom so nothing touches the frame. A bar baseline at 0
+	// stays put.
+	pad := (yhi - ylo) * 0.05
+	if !bars || ylo < 0 {
+		ylo -= pad
+	}
+	if !bars || yhi > 0 {
+		yhi += pad
+	}
 	return
+}
+
+// barStep is the data-space distance between neighbouring bars: 1 for
+// categories, the bin width for histograms, the smallest gap otherwise.
+func (f *figure) barStep() float64 {
+	step := math.Inf(1)
+	for _, s := range f.series {
+		if s.kind != "bar" {
+			continue
+		}
+		xs := append([]float64(nil), s.xs...)
+		sort.Float64s(xs)
+		for i := 1; i < len(xs); i++ {
+			if d := xs[i] - xs[i-1]; d > 0 && d < step {
+				step = d
+			}
+		}
+	}
+	if math.IsInf(step, 1) {
+		return 1
+	}
+	return step
 }
 
 func (f *figure) hasBars() bool {
@@ -467,8 +517,11 @@ func (f *figure) renderSVG() string {
 				fmt.Fprintf(&b, `<circle cx="%.2f" cy="%.2f" r="3.5" fill="%s"/>`, sx(s.xs[i]), sy(s.ys[i]), s.color)
 			}
 		case "bar":
-			slot := f.slotWidth(plotW)
+			slot := f.barStep() / (xhi - xlo) * float64(plotW)
 			groupW := slot * 0.8
+			if s.hist {
+				groupW = slot
+			}
 			barW := groupW / math.Max(1, float64(barTotal))
 			for i := range s.xs {
 				cx := sx(s.xs[i])
@@ -514,19 +567,6 @@ func (f *figure) renderSVG() string {
 	return b.String()
 }
 
-func (f *figure) slotWidth(plotW int) float64 {
-	n := 0
-	for _, s := range f.series {
-		if s.kind == "bar" && len(s.xs) > n {
-			n = len(s.xs)
-		}
-	}
-	if n < 1 {
-		n = 1
-	}
-	return float64(plotW) / float64(n+1)
-}
-
 type legendEntry struct{ label, color string }
 
 func (f *figure) legendEntries() []legendEntry {
@@ -543,6 +583,20 @@ func niceTicks(lo, hi float64, want int) []float64 {
 	if hi <= lo || want < 1 {
 		return []float64{lo}
 	}
+	step := niceStep(lo, hi, want)
+	start := math.Ceil(lo/step-1e-9) * step
+	var ticks []float64
+	for t := start; t <= hi+step*1e-9; t += step {
+		ticks = append(ticks, t)
+	}
+	return ticks
+}
+
+// niceStep picks a 1/2/5 x 10^n tick spacing giving about want ticks.
+func niceStep(lo, hi float64, want int) float64 {
+	if hi <= lo || want < 1 {
+		return 1
+	}
 	raw := (hi - lo) / float64(want)
 	mag := math.Pow(10, math.Floor(math.Log10(raw)))
 	norm := raw / mag
@@ -557,13 +611,7 @@ func niceTicks(lo, hi float64, want int) []float64 {
 	default:
 		step = 10
 	}
-	step *= mag
-	start := math.Ceil(lo/step) * step
-	var ticks []float64
-	for t := start; t <= hi+step*1e-9; t += step {
-		ticks = append(ticks, t)
-	}
-	return ticks
+	return step * mag
 }
 
 func fmtTick(x float64) string {
