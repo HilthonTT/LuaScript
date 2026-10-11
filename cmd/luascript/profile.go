@@ -78,7 +78,7 @@ func runProfile(argv []string) int {
 	fmt.Fprintf(os.Stderr, "luascript profile: %d run(s) in %v\n", *count, elapsed)
 	if *cpuOut != "" {
 		fmt.Fprintf(os.Stderr, "  cpu profile: %s\n", *cpuOut)
-		fmt.Fprintf(os.Stderr, "  pgo build:   go build -pgo=%s -o luascript ./cmd\n", *cpuOut)
+		fmt.Fprintf(os.Stderr, "  pgo build:   go build -pgo=%s -o luascript ./cmd/luascript\n", *cpuOut)
 	}
 	if *memOut != "" {
 		fmt.Fprintf(os.Stderr, "  mem profile: %s\n", *memOut)

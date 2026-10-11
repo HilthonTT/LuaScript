@@ -310,8 +310,17 @@ func newFileTable(h *fileHandle) *vm.Table {
 		return closeHandle(h)
 	})
 
-	mt := vm.NewTable(0, 1)
+	mt := vm.NewTable(0, 2)
 	mt.Set("__index", methods)
+	// `local f <close> = io.open(path)`: Lua 5.4 file handles close when
+	// their to-be-closed variable goes out of scope. A handle the script
+	// already closed explicitly is left alone, so this never raises.
+	mt.Set("__close", &vm.GoFunc{Name: "file:__close", Fn: func(_ *vm.VM, _ []vm.Value) []vm.Value {
+		if !h.closed && !h.isStd {
+			closeHandle(h)
+		}
+		return nil
+	}})
 	t.SetMetatable(mt)
 	return t
 }

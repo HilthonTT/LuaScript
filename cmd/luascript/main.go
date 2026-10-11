@@ -128,6 +128,8 @@ Flags:
 	for _, reg := range nativeRegistrars {
 		r.AddPostInit(reg)
 	}
+	var tests scriptTestTracker
+	r.AddPostInit(tests.install)
 
 	if *interactive && len(args) > 0 {
 		fmt.Fprintln(os.Stderr, "luascript: -i takes no script argument")
@@ -149,10 +151,24 @@ Flags:
 		}
 	case *timed:
 		start := time.Now()
-		r.RunFile(file)
+		err := r.ExecFile(file)
 		fmt.Fprintf(os.Stdout, "Execution time: %v\n", time.Since(start))
+		return scriptExitCode(err, &tests)
 	default:
-		r.RunFile(file)
+		return scriptExitCode(r.ExecFile(file), &tests)
+	}
+	return 0
+}
+
+// scriptExitCode maps a script run to the process status: 1 if it failed to
+// compile or run, or if any `require("test")` test in it failed.
+func scriptExitCode(err error, tests *scriptTestTracker) int {
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "luascript:", err)
+		return 1
+	}
+	if tests.failed() {
+		return 1
 	}
 	return 0
 }

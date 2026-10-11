@@ -87,5 +87,8 @@ func (r *REPL) safeRunFile(path string) {
 			fmt.Fprintf(os.Stderr, "watch: panic during run: %v\n", rec)
 		}
 	}()
-	r.RunFile(path)
+	// Report the failure and keep watching: the next save gets a fresh run.
+	if err := r.ExecFile(path); err != nil {
+		fmt.Fprintln(os.Stderr, "luascript:", err)
+	}
 }

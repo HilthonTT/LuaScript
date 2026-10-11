@@ -56,6 +56,8 @@ func ToString(v Value) string {
 		return fmt.Sprintf("function: %p", x)
 	case *GoFunc:
 		return "function: builtin " + x.Name
+	case *Coroutine:
+		return fmt.Sprintf("thread: %p", x)
 	default:
 		return fmt.Sprintf("%v", v)
 	}

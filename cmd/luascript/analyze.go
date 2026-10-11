@@ -24,7 +24,7 @@ func runAnalyze(argv []string) int {
 
 	args := fs.Args()
 	if len(args) != 1 {
-		fmt.Fprintln(os.Stderr, "usage:.lsc analyze [-max-complexity N] <script.lsc>")
+		fmt.Fprintln(os.Stderr, "usage: luascript analyze [-max-complexity N] <script.lsc>")
 		return 2
 	}
 

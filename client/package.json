@@ -52,7 +52,7 @@
     }
   },
   "scripts": {
-    "build:server": "go build -o bin/luascript.exe ../cmd/luascript",
+    "build:server": "node scripts/build-server.mjs",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "vscode:prepublish": "bun run build:server && bun run compile"

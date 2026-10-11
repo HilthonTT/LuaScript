@@ -382,6 +382,12 @@ func (l *Lexer) matchLongClose(level int) bool {
 func (l *Lexer) readLongString(level int) (lit string, terminated bool) {
 	var b strings.Builder
 
+	// Lua drops a newline that immediately follows the opening bracket, so
+	// "[[" + newline + "hello]]" is "hello".
+	if l.ch == '\n' || l.ch == '\r' {
+		l.skipNewline()
+	}
+
 	for {
 		if l.ch == 0 {
 			return b.String(), false
@@ -390,12 +396,27 @@ func (l *Lexer) readLongString(level int) (lit string, terminated bool) {
 			return b.String(), true
 		}
 
-		if l.ch == '\n' {
-			l.line++
+		if l.ch == '\n' || l.ch == '\r' {
+			// Any end-of-line sequence (\n, \r\n, \r, \n\r) becomes a single
+			// \n, as in Lua, so CRLF sources produce the same string value.
+			l.skipNewline()
+			b.WriteByte('\n')
+			continue
 		}
 		b.WriteRune(l.ch)
 		l.readChar()
 	}
+}
+
+// skipNewline consumes one end-of-line sequence starting at l.ch (which must
+// be '\n' or '\r') and counts it as a single line.
+func (l *Lexer) skipNewline() {
+	first := l.ch
+	l.readChar()
+	if (l.ch == '\n' || l.ch == '\r') && l.ch != first {
+		l.readChar()
+	}
+	l.line++
 }
 
 func (l *Lexer) readIdentifier() []rune {

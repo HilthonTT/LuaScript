@@ -83,16 +83,33 @@ func (r *REPL) Start() {
 	r.runREPL()
 }
 
+// RunFile runs a script and exits the process with status 1 if it fails to
+// read, compile or run. Use ExecFile to get the error instead.
 func (r *REPL) RunFile(path string) {
-	src, err := os.ReadFile(path)
-	if err != nil {
+	if err := r.ExecFile(path); err != nil {
 		fmt.Fprintln(os.Stderr, "luascript:", err)
 		os.Exit(1)
 	}
+}
+
+// ExecFile reads, compiles and runs a script in a fresh VM (with the
+// registered post-init hooks applied) and returns the first error instead
+// of exiting, so long-lived callers such as -watch can keep going.
+func (r *REPL) ExecFile(path string) error {
+	_, err := r.ExecFileVM(path)
+	return err
+}
+
+// ExecFileVM is ExecFile but also returns the VM the script ran in (nil if
+// the script never started), so callers can inspect its state afterwards.
+func (r *REPL) ExecFileVM(path string) (*vm.VM, error) {
+	src, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
 	main, err := bccache.CompileCached(string(src))
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "luascript:", err)
-		os.Exit(1)
+		return nil, err
 	}
 	main.SetSource(path)
 	v := vm.New()
@@ -100,10 +117,7 @@ func (r *REPL) RunFile(path string) {
 		v.AddScriptDir(filepath.Dir(abs))
 	}
 	r.runPostInits(v)
-	if err := v.Run(main); err != nil {
-		fmt.Fprintln(os.Stderr, "luascript:", err)
-		os.Exit(1)
-	}
+	return v, v.Run(main)
 }
 
 func NewREPL(v *vm.VM, in io.Reader, out io.Writer) *REPL {

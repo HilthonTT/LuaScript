@@ -29,6 +29,13 @@ FUZZ       ?= FuzzParser
 FUZZPKG    ?= ./internal/compiler/parser/
 FUZZTIME   ?= 30s
 
+# Version stamping: `luascript -v` reports the commit and build time passed
+# here. Without them the binary falls back to the Go toolchain's VCS stamp.
+VERSION_PKG := github.com/hilthontt/luascript/internal/version
+GIT_COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null)
+BUILD_TIME  ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)
+LDFLAGS     ?= -X $(VERSION_PKG).GitCommit=$(GIT_COMMIT) -X $(VERSION_PKG).BuildTime=$(BUILD_TIME)
+
 .DEFAULT_GOAL := build
 
 # ---- build / run -----------------------------------------------------------
@@ -36,7 +43,7 @@ FUZZTIME   ?= 30s
 ## build: compile the interpreter to ./$(BINARY)
 .PHONY: build
 build:
-	$(GO) build $(GOFLAGS) -o $(BINARY) $(PKG)
+	$(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BINARY) $(PKG)
 
 ## run: run a script (make run FILE=examples/05_types.lsc)
 .PHONY: run
@@ -51,7 +58,7 @@ repl:
 ## install: install the binary into $GOBIN / $GOPATH/bin
 .PHONY: install
 install:
-	$(GO) install $(PKG)
+	$(GO) install $(GOFLAGS) -ldflags "$(LDFLAGS)" $(PKG)
 
 # ---- tests -----------------------------------------------------------------
 

@@ -13,6 +13,7 @@ type VM struct {
 
 	mainThread *Thread
 	currentCo  *Coroutine
+	mainCo     *Coroutine
 
 	frames   []*CallFrame
 	openUpvs []*Upvalue
@@ -94,6 +95,12 @@ func (v *VM) CallValue(fn Value, args []Value, nresults int) []Value {
 			}
 		}
 		return out
+	}
+	// Callable tables/userdata: honour __call so pcall, xpcall, table.sort
+	// comparators, coroutine bodies and every other host-side call site
+	// treat them exactly like the CALL opcode does.
+	if results, ok := v.callMMIfNotFunction(fn, args, nresults); ok {
+		return results
 	}
 	panic(Errorf("attempt to call a %s value", TypeName(fn)))
 }

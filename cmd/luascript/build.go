@@ -134,6 +134,8 @@ func readEmbeddedPayload() (string, bool, error) {
 func runBundled(src string) int {
 	v := vm.New()
 	registerAllNatives(v)
+	var tests scriptTestTracker
+	tests.install(v)
 
 	chunks, err := compiler.CompileToInstructions(src, parser.NormalMode)
 	if err != nil {
@@ -143,11 +145,7 @@ func runBundled(src string) int {
 	if len(chunks) == 0 {
 		return 0
 	}
-	if err := v.Run(chunks[0]); err != nil {
-		fmt.Fprintln(os.Stderr, "luascript:", err)
-		return 1
-	}
-	return 0
+	return scriptExitCode(v.Run(chunks[0]), &tests)
 }
 
 func runBuild(argv []string) int {
