@@ -68,6 +68,7 @@ func withMethods(methods *vm.Table) *vm.Table {
 func uiLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
 	mod := vm.NewTable(0, 2)
 	mod.Set("VERSION", "0.1.0")
+	mod.Set("supported", true)
 
 	methods := vm.NewTable(0, 8)
 

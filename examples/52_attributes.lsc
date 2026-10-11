@@ -1,8 +1,9 @@
 -- Lua 5.4 local attributes: `local x <const>` declares a binding that can
 -- never be reassigned. Violations are *compile* errors (they run before the
 -- program starts, and unlike type checking they are NOT disabled by
--- `--!nocheck`). `<close>` gets the same no-reassignment protection; its
--- runtime to-be-closed behaviour (`__close` at scope exit) is not implemented.
+-- `--!nocheck`). `<close>` gets the same no-reassignment protection, and at
+-- runtime its value's `__close` metamethod runs when the scope exits (see
+-- 59_to_be_closed.lsc for the to-be-closed behaviour).
 --
 -- Unknown attributes are rejected at parse time:
 --   local x <frozen> = 1   -->  local: unknown attribute 'frozen'

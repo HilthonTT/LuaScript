@@ -85,6 +85,9 @@ func mathModule() *Type {
 		{Key: "atan", Type: NewFunction([]*Type{numberT, Optional(numberT)}, one, false, nil)},
 		{Key: "log", Type: NewFunction([]*Type{numberT, Optional(numberT)}, one, false, nil)},
 
+		{Key: "deg", Type: oneToOne},
+		{Key: "rad", Type: oneToOne},
+
 		{Key: "fmod", Type: twoToOne},
 		{Key: "pow", Type: twoToOne},
 

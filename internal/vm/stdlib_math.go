@@ -97,6 +97,12 @@ func buildMathLibrary() *Table {
 		y := FloatArg("math.pow", 2, args)
 		return []Value{math.Pow(x, y)}
 	})
+	add("deg", func(_ *VM, args []Value) []Value {
+		return []Value{FloatArg("math.deg", 1, args) * (180 / math.Pi)}
+	})
+	add("rad", func(_ *VM, args []Value) []Value {
+		return []Value{FloatArg("math.rad", 1, args) * (math.Pi / 180)}
+	})
 	add("ult", func(_ *VM, args []Value) []Value {
 		a := IntArg("math.ult", 1, args)
 		b := IntArg("math.ult", 2, args)

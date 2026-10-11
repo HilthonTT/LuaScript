@@ -81,8 +81,10 @@ print("count :", count)              -- 0
 print()
 
 -- --- realistic pattern: pcall + traceback for error context ---
--- Lua's xpcall isn't in v1, but you can build the same shape with
--- pcall + a traceback captured eagerly inside the protected call.
+-- xpcall(f, handler) exists, but its handler runs after the stack has
+-- unwound, so a traceback taken there shows the handler's stack. Capturing
+-- the traceback eagerly inside the protected call, then using pcall, keeps
+-- the failing frames.
 -- The traceback is appended to the error message so the caller of
 -- pcall sees both the failure and where it came from.
 print("--- pcall + traceback ---")

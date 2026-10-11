@@ -3,10 +3,11 @@
 -- This is the first thing to understand, because getting it wrong gives you
 -- a silent nil rather than an error:
 --
---   math                  the auto-global. The Lua 5.4 surface, no require.
---   require("math")       a BIGGER table: hyperbolics, cbrt, erf, deg/rad,
---                         clamp, softmax, statistical helpers and a full set
---                         of numeric limits...
+--   math                  the auto-global. The Lua 5.4 surface (deg/rad
+--                         included), no require.
+--   require("math")       a BIGGER table: hyperbolics, cbrt, erf, clamp,
+--                         softmax, statistical helpers and a full set of
+--                         numeric limits...
 --
 --   ...but it DROPS three names the global has: math.type, math.maxinteger
 --   and math.mininteger, plus randomseed.
@@ -67,9 +68,9 @@ print("tan(0)           =", math.tan(0))
 print("acos(1), asin(0) =", math.acos(1), math.asin(0))
 print("atan(1)          =", math.atan(1), "-- pi/4")
 print("atan(1, 1)       =", math.atan(1, 1), "-- two-argument form, full circle")
--- deg/rad live on the module, not the global.
-print("deg(pi)          =", mathx.deg(math.pi))
-print("rad(180)         =", mathx.rad(180))
+-- deg/rad are standard Lua 5.4, so they are on both surfaces.
+print("deg(pi)          =", math.deg(math.pi))
+print("rad(180)         =", math.rad(180))
 print()
 
 print("=== hyperbolics (module only) ===")

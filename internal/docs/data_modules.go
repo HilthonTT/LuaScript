@@ -2,22 +2,25 @@ package docs
 
 var moduleTopics = []Topic{
 	{
-		Name: "os", Kind: KindModule, RuntimeModule: "os",
-		Title:    "operating-system facilities",
-		Synopsis: `local os = require("os")`,
-		Detail: `os is NOT an auto-global in luascript — it must be required. Beyond the
-Lua 5.4 surface it exposes low-level file opening (os.open with o_* flags
+		Name: "os", Kind: KindLibrary, Requireable: true, RuntimeModule: "os", RuntimeGlobal: "os",
+		Title: "operating-system facilities",
+		Synopsis: `os.time()                     -- auto-global, no require needed
+local os = require("os")      -- the same table, named explicitly`,
+		Detail: `As in Lua 5.4, os is a global: the global os and require("os") are the
+same table. Beyond the Lua 5.4 surface it exposes low-level file opening (os.open with o_* flags
 and mode_* permissions), directory and environment manipulation, and the
 platform constants.
 
 os.open and os.create return a file object documented under os.file. That
 object is a different type from the one io.open returns: it is
 descriptor-oriented (seek by whence constant, stat, chmod, truncate)
-rather than stream-oriented.`,
-		Example: `local os = require("os")
-print(os.platform, os.arch)
+rather than stream-oriented.
+
+There are no octal literals: 0644 is the decimal number 644. Write
+permission bits as tonumber("644", 8) (= 420) or as the decimal value.`,
+		Example: `print(os.platform, os.arch)
 print(os.date("%Y-%m-%d"))
-local f = os.open("/tmp/x", os.o_create | os.o_wronly, 0644)
+local f = os.open("/tmp/x", os.o_create | os.o_wronly, tonumber("644", 8))
 f:write("hi"); f:close()`,
 		SeeAlso: []string{"os.file", "io", "time", "log"},
 		Entries: []Entry{
@@ -41,23 +44,23 @@ f:write("hi"); f:close()`,
 				Summary: "The host machine's name."},
 			{Name: "exit", Kind: EntryFunction, Signature: "os.exit([code])",
 				Summary: "Terminates the process immediately with the given exit code. Deferred blocks do not run."},
-			{Name: "execute", Kind: EntryFunction, Signature: `os.execute([cmd]): boolean, string, number`,
-				Summary: `Runs cmd through the system shell and reports success, "exit" and the exit status. With no argument it reports whether a shell is available.`},
+			{Name: "execute", Kind: EntryFunction, Signature: `os.execute([cmd]): true?, string, number`,
+				Summary: `Runs cmd through the system shell and returns true, "exit", 0 on success or nil, "exit", status on failure (as in Lua 5.4). With no argument it reports whether a shell is available.`},
 			{Name: "open", Kind: EntryFunction, Signature: "os.open(path, flags, perm): file",
-				Summary: "Opens a file descriptor with the given o_* flag set and permission bits, returning an os.file.",
-				Detail:  "Combine flags with the bitwise or: os.o_create | os.o_wronly | os.o_trunc."},
+				Summary: "Opens a file descriptor with the given o_* flag set and permission bits, returning an os.file. Raises on failure.",
+				Detail:  "Combine flags with the bitwise or: os.o_create | os.o_wronly | os.o_trunc. perm is required; there are no octal literals, so write tonumber(\"644\", 8) (420), not 0644."},
 			{Name: "create", Kind: EntryFunction, Signature: "os.create(path): file",
-				Summary: "Creates or truncates a file and returns an os.file open for writing."},
+				Summary: "Creates or truncates a file and returns an os.file open for writing. Raises on failure."},
 			{Name: "remove", Kind: EntryFunction, Signature: "os.remove(path): boolean, string?",
 				Summary: "Deletes a file or an empty directory."},
 			{Name: "rename", Kind: EntryFunction, Signature: "os.rename(from, to): boolean, string?",
 				Summary: "Renames or moves a file."},
-			{Name: "mkdir", Kind: EntryFunction, Signature: "os.mkdir(path, perm): boolean, string?",
-				Summary: "Creates a directory with the given permission bits."},
+			{Name: "mkdir", Kind: EntryFunction, Signature: "os.mkdir(path, perm)",
+				Summary: "Creates a directory with the given permission bits (e.g. tonumber(\"755\", 8)). Returns nothing; raises on failure."},
 			{Name: "tmpname", Kind: EntryFunction, Signature: "os.tmpname(): string",
-				Summary: "A path usable for a temporary file. The file is not created."},
+				Summary: "Creates an empty temporary file and returns its path. Remove it yourself when done."},
 			{Name: "setlocale", Kind: EntryFunction, Signature: `os.setlocale([locale]): string?`,
-				Summary: "Present for Lua compatibility; Go has no locale switch, so it reports the current setting only."},
+				Summary: `Present for Lua compatibility only; nothing changes. Returns "C" with no argument and echoes a string argument back.`},
 			{Name: "platform", Kind: EntryConstant, Signature: "os.platform: string",
 				Summary: `The host OS: "windows", "linux", "darwin", ...`},
 			{Name: "arch", Kind: EntryConstant, Signature: "os.arch: string",
@@ -167,7 +170,9 @@ with method, url, body, headers, query and timeout (in seconds). For
 several requests against one host, new_client shares a base URL, default
 headers and a connection pool.
 
-Options recognised on any call:
+Options recognised on any call (on a client made with new_client,
+timeout and follow_redirects only apply at construction — per-call
+values are ignored):
 
   body              string  the raw request body
   json              any     serialised to JSON, sets Content-Type
@@ -401,7 +406,7 @@ end`,
 			{Name: "v4", Kind: EntryFunction, Signature: "uuid.v4(): string",
 				Summary: "A random (version 4) UUID in the canonical 8-4-4-4-12 hex form."},
 			{Name: "is_valid", Kind: EntryFunction, Signature: "uuid.is_valid(s): boolean",
-				Summary: "Reports whether s is a well-formed UUID."},
+				Summary: "Reports whether s is a well-formed version-4 UUID (RFC 4122 variant). Other versions, e.g. v1, report false."},
 			{Name: "VERSION", Kind: EntryConstant, Signature: "uuid.VERSION: string", Summary: "The module's version string."},
 		},
 	},
@@ -409,7 +414,8 @@ end`,
 		Name: "sort", Kind: KindModule, RuntimeModule: "sort",
 		Title:    "sorting algorithms and helpers",
 		Synopsis: `local sort = require("sort")`,
-		Detail: `sort.sort is the one to reach for; it is what table.sort uses. The
+		Detail: `sort.sort is the one to reach for. It is independent of table.sort
+(which is the VM's own stable sort); sort.sort is not stable. The
 named algorithms (bubble, circle, simple, quicksort) are included for
 teaching and benchmarking, not because they are faster.
 
@@ -431,13 +437,13 @@ print(sort.is_sorted(t, function(a, b) return a > b end))`,
 			{Name: "reverse", Kind: EntryFunction, Signature: "sort.reverse(t): table",
 				Summary: "Reverses the array part of t in place."},
 			{Name: "quicksort", Kind: EntryFunction, Signature: "sort.quicksort(t): table",
-				Summary: "Quicksort over numbers. A reference implementation; sort.sort is the practical choice."},
+				Summary: "Quicksort over numbers or strings. A reference implementation; sort.sort is the practical choice."},
 			{Name: "bubble", Kind: EntryFunction, Signature: "sort.bubble(t): table",
-				Summary: "Bubble sort over numbers. Quadratic — for teaching only."},
+				Summary: "Bubble sort over numbers or strings. Quadratic — for teaching only."},
 			{Name: "circle", Kind: EntryFunction, Signature: "sort.circle(t): table",
-				Summary: "Circle sort over numbers. A reference implementation."},
+				Summary: "Circle sort over numbers or strings. A reference implementation."},
 			{Name: "simple", Kind: EntryFunction, Signature: "sort.simple(t): table",
-				Summary: "A straightforward comparison sort over numbers. A reference implementation."},
+				Summary: "A straightforward comparison sort over numbers or strings. A reference implementation."},
 			{Name: "VERSION", Kind: EntryConstant, Signature: "sort.VERSION: string", Summary: "The module's version string."},
 		},
 	},
@@ -511,7 +517,7 @@ q:run()`,
 		SeeAlso: []string{"queue.jobqueue", "queue.channel", "coroutine", "httpserver"},
 		Entries: []Entry{
 			{Name: "new", Kind: EntryFunction, Signature: "queue.new([opts]): jobqueue",
-				Summary: "Creates a job queue. opts.on_error is called with the error value when a job raises.",
+				Summary: "Creates a job queue. opts.on_error is called with the error value when a job raises; opts.capacity caps pending jobs (push then returns nil, \"queue is full\").",
 				Detail:  "Jobs are ordered by priority (higher first), then FIFO within a priority."},
 			{Name: "channel", Kind: EntryFunction, Signature: "queue.channel([capacity]): channel",
 				Summary: "Creates a channel carrying Lua values. Capacity 0 (the default) makes it unbuffered."},
@@ -527,8 +533,9 @@ q:run()`,
 		Title:    "gzip, zlib, deflate, RLE and Huffman coding",
 		Synopsis: `local compression = require("compression")`,
 		Detail: `The gzip/zlib/deflate pairs are the practical codecs: they take a
-string and an optional level from 1 (fastest) to 9 (smallest), and
-return a string. RLE and the Huffman functions (encode, decode, codes,
+string and an optional level, and return a string. Levels follow Go's
+compress/flate: 1 (fastest) to 9 (smallest), 0 for no compression, -1 the
+default and -2 Huffman-only. RLE and the Huffman functions (encode, decode, codes,
 symbol_count) are teaching implementations with their own formats — do
 not expect them to interoperate with anything else.`,
 		Example: `local z = require("compression")
@@ -557,9 +564,9 @@ print(#packed, #z.gzip_decode(packed))`,
 			{Name: "decode", Kind: EntryFunction, Signature: "compression.decode(t): string",
 				Summary: "Reverses compression.encode, taking the table it produced."},
 			{Name: "codes", Kind: EntryFunction, Signature: "compression.codes(s): table",
-				Summary: "The Huffman code assigned to each symbol of s."},
+				Summary: "The Huffman code of each symbol of s, as an array of { symbol, code } pairs."},
 			{Name: "symbol_count", Kind: EntryFunction, Signature: "compression.symbol_count(s): table",
-				Summary: "A frequency table of the symbols in s."},
+				Summary: "The frequency of each symbol of s, as an array of { symbol, count } pairs."},
 			{Name: "VERSION", Kind: EntryConstant, Signature: "compression.VERSION: string", Summary: "The module's version string."},
 		},
 	},
@@ -568,8 +575,9 @@ print(#packed, #z.gzip_decode(packed))`,
 		Title:    "32-bit bitwise operations",
 		Synopsis: `local bit32 = require("bit32")`,
 		Detail: `Arguments are truncated to unsigned 32-bit before the operation and
-results come back in [0, 2^32). Shift counts outside 0..31 yield 0,
-matching Lua 5.2's bit32.
+results come back in [0, 2^32). As in Lua 5.2's bit32, a negative shift
+count shifts the other way, a count of 32 or more shifts everything out
+(0), and arshift of a negative value by 32 or more gives 0xFFFFFFFF.
 
 luascript also has native bitwise operators (& | ~ << >> and the ~ unary)
 that work on full 64-bit integers. Reach for bit32 when you specifically
@@ -600,14 +608,15 @@ print(bit32.extract(0xFF00, 8, 8))`,
 		},
 	},
 	{
-		Name: "utf8", Kind: KindModule, RuntimeModule: "utf8",
-		Title:    "UTF-8 aware string handling",
-		Synopsis: `local utf8 = require("utf8")`,
+		Name: "utf8", Kind: KindLibrary, Requireable: true, RuntimeModule: "utf8", RuntimeGlobal: "utf8",
+		Title: "UTF-8 aware string handling",
+		Synopsis: `utf8.len("héllo")             -- auto-global, no require needed
+local utf8 = require("utf8")  -- the same table, named explicitly`,
 		Detail: `luascript strings are byte strings; # and string.sub count bytes.
 These functions interpret those bytes as UTF-8 so you can count and
-index characters instead.`,
-		Example: `local utf8 = require("utf8")
-local s = "héllo"
+index characters instead. As in Lua 5.4, utf8 is a global; require("utf8")
+returns the same table.`,
+		Example: `local s = "héllo"
 print(#s, utf8.len(s))          --> 6  5
 for p, c in utf8.codes(s) do print(p, c) end`,
 		SeeAlso: []string{"string", "bit32"},
@@ -687,12 +696,12 @@ that is not running has no current line.`,
 		Entries: []Entry{
 			{Name: "traceback", Kind: EntryFunction, Signature: "debug.traceback([message [, level]]): string",
 				Summary: "A stack traceback, with message prepended when given."},
-			{Name: "getinfo", Kind: EntryFunction, Signature: "debug.getinfo(f): table",
-				Summary: "Information about a function: what, source, short_src, currentline, name, namewhat, nparams and isvararg."},
+			{Name: "getinfo", Kind: EntryFunction, Signature: "debug.getinfo(f | level): table?",
+				Summary: "Information about a function, or the function running at a stack level: what, source, short_src, currentline, name, namewhat, nparams and isvararg. nil when the level is out of range."},
 			{Name: "sethook", Kind: EntryFunction, Signature: "debug.sethook(...)",
 				Summary: "Accepted and ignored — a stub for compatibility. The VM has no hooks."},
-			{Name: "gethook", Kind: EntryFunction, Signature: "debug.gethook(): nil",
-				Summary: "Always returns nil — a stub for compatibility."},
+			{Name: "gethook", Kind: EntryFunction, Signature: "debug.gethook(): nil, string, number",
+				Summary: `Always returns nil, "", 0 (no hook, no mask, no count) — a stub for compatibility.`},
 			{Name: "VERSION", Kind: EntryConstant, Signature: "debug.VERSION: string", Summary: "The module's version string."},
 		},
 	},
@@ -708,7 +717,11 @@ by default:
   sqlserver   SQL Server / Azure  @p1, @p2 placeholders
   sqlite      SQLite (pure Go)    ? placeholders
 
-db.drivers() lists what this binary actually has. Aliases resolve, so
+db.drivers() lists what this binary actually has — the raw database/sql
+registrations, so SQL Server appears twice: the go-mssqldb driver
+registers both "sqlserver" (the current name) and "mssql" (its legacy
+name). They are the same linked driver; prefer "sqlserver". Aliases
+resolve, so
 "pg"/"postgresql", "mariadb" and "mssql" all work, and "sqlite" finds
 whichever SQLite backend was built in. Building with
 -tags luascript_sqlite_cgo swaps the pure-Go SQLite for mattn/go-sqlite3,
@@ -725,7 +738,8 @@ string — the driver escapes them and the query plan is reusable.
 Values come back typed: a number column is a Lua number on every driver,
 including MySQL, whose wire protocol returns raw bytes. DECIMAL and
 NUMERIC stay strings on purpose — float64 cannot hold them exactly.
-NULL is nil, and timestamps are RFC3339 strings.
+NULL is nil, and timestamps are RFC3339 strings with fractional seconds
+(RFC3339Nano).
 
 SQLite in-memory databases (":memory:") are pinned to a single pooled
 connection, because each SQLite in-memory connection is a separate
@@ -747,7 +761,8 @@ conn:close()`,
 				Summary: `Opens a connection pool. Driver names and aliases resolve against what is compiled in.`,
 				Detail:  "sql.Open is lazy, so db.open pings before returning — a bad DSN raises here rather than on the first query."},
 			{Name: "drivers", Kind: EntryFunction, Signature: "db.drivers(): table",
-				Summary: "An array of the database/sql driver names this binary can open."},
+				Summary: "A sorted array of the database/sql driver names this binary can open.",
+				Detail:  `Default build: mssql, mysql, postgres, sqlite, sqlserver. "mssql" and "sqlserver" are both registered by the one SQL Server driver.`},
 			{Name: "placeholder", Kind: EntryFunction, Signature: "db.placeholder(driver [, n]): string",
 				Summary: `How a driver spells its nth bind parameter: "?", "$1" or "@p1". n defaults to 1.`,
 				Detail:  "Answers for drivers that are not compiled in too, so a script can generate SQL for a database it is not connected to."},
@@ -805,15 +820,37 @@ an unchanged spec loads instantly.`},
 		Title:    "desktop GUI (Fyne)",
 		Synopsis: `local ui = require("ui")`,
 		Detail: `Off by default. The standard build compiles a headless stub:
-require("ui") resolves, but constructing a widget raises. The real
-Fyne backend needs -tags luascript_ui, which pulls in OpenGL through cgo
-and therefore a C toolchain (MSYS2 MinGW-w64 on Windows).
+require("ui") resolves and ui.supported is false, but every constructor
+(and run/quit) raises "built without -tags luascript_ui". The real Fyne
+backend needs -tags luascript_ui, which pulls in OpenGL through cgo and
+therefore a C toolchain (MSYS2 MinGW-w64 on Windows).
 
   go run -tags luascript_ui ./cmd/luascript examples/31_ui_module.lsc
 
-Because the widget surface only exists in the tagged build, it is not
-documented here — see examples/31_ui_module.lsc.`,
+The widget objects' methods (set_text, on_click, add, show_and_run, ...)
+only exist in the tagged build — see examples/31_ui_module.lsc.`,
+		Example: `local ui = require("ui")
+if not ui.supported then
+  print("no GUI in this build")
+  return
+end
+local w = ui.new_window("hello")
+w:set_content(ui.new_label("hi"))
+w:show_and_run()`,
 		SeeAlso: []string{"plot", "httpserver"},
+		Entries: []Entry{
+			{Name: "supported", Kind: EntryConstant, Signature: "ui.supported: boolean",
+				Summary: "true in a -tags luascript_ui build, false in the default headless stub."},
+			{Name: "new_window", Kind: EntryFunction, Signature: "ui.new_window([title [, w, h]]): window", Summary: "Creates a top-level window (default 480x320)."},
+			{Name: "new_label", Kind: EntryFunction, Signature: "ui.new_label([text]): label", Summary: "Creates a text label."},
+			{Name: "new_button", Kind: EntryFunction, Signature: "ui.new_button([text]): button", Summary: "Creates a button; attach a handler with :on_click(fn)."},
+			{Name: "new_entry", Kind: EntryFunction, Signature: "ui.new_entry([placeholder]): entry", Summary: "Creates a single-line text entry."},
+			{Name: "new_vbox", Kind: EntryFunction, Signature: "ui.new_vbox(children): container", Summary: "A container stacking an array of widgets vertically."},
+			{Name: "new_hbox", Kind: EntryFunction, Signature: "ui.new_hbox(children): container", Summary: "A container laying an array of widgets out horizontally."},
+			{Name: "run", Kind: EntryFunction, Signature: "ui.run()", Summary: "Runs the event loop until the last window closes."},
+			{Name: "quit", Kind: EntryFunction, Signature: "ui.quit()", Summary: "Stops the event loop."},
+			{Name: "VERSION", Kind: EntryConstant, Signature: "ui.VERSION: string", Summary: "The module's version string."},
+		},
 	},
 	{
 		Name: "test", Kind: KindModule, RuntimeModule: "test",

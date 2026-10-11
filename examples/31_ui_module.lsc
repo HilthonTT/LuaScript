@@ -1,7 +1,7 @@
 -- 31_ui_module.lsc — minimal Fyne-backed GUI demo.
 --
--- Run from the repo root (NOT from cmd/):
---   go run ./cmd examples/31_ui_module.lsc
+-- The ui module needs the cgo-backed Fyne build. Run from the repo root:
+--   go run -tags luascript_ui ./cmd/luascript examples/31_ui_module.lsc
 --
 -- Builds a window with a label, a text entry, a button, and a quit
 -- button. Clicking the greet button reads the entry and updates the

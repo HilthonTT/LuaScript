@@ -6,7 +6,12 @@ var objectTopics = []Topic{
 		Title:    "stream-oriented file handle (io.open)",
 		Synopsis: `local f = assert(require("io").open("data.txt", "r"))`,
 		Detail: `The handle io.open, io.tmpfile and the standard streams return.
-Calling a method on a closed handle raises.
+Methods on a closed handle do not raise: read and write return nil,
+"file is closed", close returns nil, "file is already closed", and a
+lines iterator simply ends. Use io.type(f) to test for "closed file".
+
+Handles have a __close metamethod, so local f <close> = io.open(...)
+closes the file when the scope exits, error or not.
 
 os.open returns a DIFFERENT type — see os.file — which is
 descriptor-oriented rather than stream-oriented.`,
@@ -26,8 +31,8 @@ f:close()`,
 				Summary: `Moves and reports the file position. whence is "set", "cur" (default) or "end"; the return is the new position from the start.`},
 			{Name: "flush", Kind: EntryMethod, Signature: "f:flush(): file",
 				Summary: "Flushes buffered writes to the operating system."},
-			{Name: "close", Kind: EntryMethod, Signature: "f:close(): boolean",
-				Summary: "Closes the handle. Further method calls on it raise."},
+			{Name: "close", Kind: EntryMethod, Signature: "f:close(): true?, string?",
+				Summary: "Closes the handle. Returns true, or nil plus a message (e.g. when already closed)."},
 		},
 	},
 	{
@@ -38,7 +43,7 @@ f:close()`,
 layer than io.file: seeks take a numeric whence constant, and it can
 stat, chmod and truncate the underlying file.`,
 		Example: `local os = require("os")
-local f = os.open("/tmp/x", os.o_rdwr | os.o_create, 0644)
+local f = os.open("/tmp/x", os.o_rdwr | os.o_create, tonumber("644", 8))
 f:write("hello")
 f:seek(0, os.seek_set)
 print(f:read(5))
@@ -46,24 +51,24 @@ print(f:stat().size)
 f:close()`,
 		SeeAlso: []string{"os", "io.file"},
 		Entries: []Entry{
-			{Name: "read", Kind: EntryMethod, Signature: "f:read(n): string",
-				Summary: "Reads up to n bytes from the current position."},
+			{Name: "read", Kind: EntryMethod, Signature: "f:read(n): string?",
+				Summary: "Reads up to n bytes from the current position; nil at end of file."},
 			{Name: "write", Kind: EntryMethod, Signature: "f:write(s): number",
 				Summary: "Writes a string at the current position and returns the byte count."},
 			{Name: "seek", Kind: EntryMethod, Signature: "f:seek(offset, whence): number",
 				Summary: "Moves the file position; whence is os.seek_set, os.seek_cur or os.seek_end. Returns the new position."},
 			{Name: "stat", Kind: EntryMethod, Signature: "f:stat(): table",
 				Summary: "File metadata: name, size, mode, mod_time and is_dir."},
-			{Name: "chmod", Kind: EntryMethod, Signature: "f:chmod(mode): boolean",
-				Summary: "Changes the file's permission bits."},
-			{Name: "truncate", Kind: EntryMethod, Signature: "f:truncate(size): boolean",
-				Summary: "Resizes the file, padding with zeros when it grows."},
-			{Name: "sync", Kind: EntryMethod, Signature: "f:sync(): boolean",
-				Summary: "Forces buffered writes all the way to stable storage."},
+			{Name: "chmod", Kind: EntryMethod, Signature: "f:chmod(mode)",
+				Summary: "Changes the file's permission bits. Returns nothing; raises on failure."},
+			{Name: "truncate", Kind: EntryMethod, Signature: "f:truncate(size)",
+				Summary: "Resizes the file, padding with zeros when it grows. Returns nothing; raises on failure."},
+			{Name: "sync", Kind: EntryMethod, Signature: "f:sync()",
+				Summary: "Forces buffered writes all the way to stable storage. Returns nothing; raises on failure."},
 			{Name: "name", Kind: EntryMethod, Signature: "f:name(): string",
 				Summary: "The path the file was opened with."},
-			{Name: "close", Kind: EntryMethod, Signature: "f:close(): boolean",
-				Summary: "Closes the descriptor."},
+			{Name: "close", Kind: EntryMethod, Signature: "f:close(): true?, string?",
+				Summary: "Closes the descriptor. Returns true, or nil plus an error message."},
 		},
 	},
 	{
@@ -93,8 +98,8 @@ The method is :capture rather than :match because match is a keyword.`,
 				Summary: "Replaces every match in s. Use $1, $2 in repl to reference capture groups."},
 			{Name: "replace_func", Kind: EntryMethod, Signature: "re:replace_func(s, fn): string",
 				Summary: "Replaces every match with the result of fn(match, ...groups), so the replacement can be computed rather than rearranged."},
-			{Name: "split", Kind: EntryMethod, Signature: "re:split(s [, n]): table",
-				Summary: "Splits s around each match, returning the pieces as an array."},
+			{Name: "split", Kind: EntryMethod, Signature: "re:split(s): table",
+				Summary: "Splits s around every match, returning the pieces as an array. There is no limit argument."},
 		},
 	},
 	{
@@ -115,7 +120,8 @@ shorthands — see the http page.`,
 			{Name: "put", Kind: EntryMethod, Signature: "c:put(url [, body [, opts]]): table", Summary: "PUT with a body string."},
 			{Name: "patch", Kind: EntryMethod, Signature: "c:patch(url [, body [, opts]]): table", Summary: "PATCH with a body string."},
 			{Name: "request", Kind: EntryMethod, Signature: "c:request(opts): table",
-				Summary: "The full-surface form, taking the same options table as http.request."},
+				Summary: "The full-surface form, taking the same options table as http.request (method, url, body, headers, ...).",
+				Detail:  "timeout and follow_redirects are fixed when the client is made (http.new_client) and are ignored per call."},
 		},
 	},
 	{
@@ -169,10 +175,10 @@ conn:placeholder(n) gives that driver's bind-parameter syntax.`,
 				Summary: "This connection's bind-parameter syntax for the nth parameter. n defaults to 1."},
 			{Name: "driver", Kind: EntryField, Signature: "conn.driver: string",
 				Summary: "The resolved database/sql driver name backing this connection."},
-			{Name: "ping", Kind: EntryMethod, Signature: "conn:ping(): boolean, string?",
-				Summary: "Verifies the connection is alive, opening one if the pool is empty."},
-			{Name: "close", Kind: EntryMethod, Signature: "conn:close(): boolean",
-				Summary: "Closes the pool and every connection in it."},
+			{Name: "ping", Kind: EntryMethod, Signature: "conn:ping()",
+				Summary: "Verifies the connection is alive, opening one if the pool is empty. Returns nothing; raises when the database is unreachable (wrap in pcall to test)."},
+			{Name: "close", Kind: EntryMethod, Signature: "conn:close()",
+				Summary: "Closes the pool and every connection in it. Returns nothing; raises on failure."},
 		},
 	},
 	{
@@ -191,8 +197,9 @@ print(q:metrics().processed)`,
 			{Name: "push", Kind: EntryMethod, Signature: "q:push(fn [, opts]): string | nil, string",
 				Summary: "Schedules fn and returns its job id, or nil plus an error.",
 				Detail: `opts keys: priority (higher runs first), delay_ms, timeout_ms (a
-deadline on STARTING — an expired job is dropped unrun), retries,
-backoff_ms, args (an array passed to fn), payload and id.`},
+deadline on STARTING — an expired job is dropped unrun), retries (extra
+attempts after a failure), backoff_ms (a fixed delay before each retry — not
+exponential), args (an array passed to fn), payload and id.`},
 			{Name: "run", Kind: EntryMethod, Signature: "q:run(): number",
 				Summary: "Drains the queue, waiting out delays, and returns how many jobs ran. Blocks until empty or :stop()."},
 			{Name: "poll", Kind: EntryMethod, Signature: "q:poll([max]): number",
@@ -202,9 +209,12 @@ backoff_ms, args (an array passed to fn), payload and id.`},
 			{Name: "is_stopped", Kind: EntryMethod, Signature: "q:is_stopped(): boolean", Summary: "Whether :stop has been called."},
 			{Name: "size", Kind: EntryMethod, Signature: "q:size(): number", Summary: "The number of pending jobs. The # operator does the same."},
 			{Name: "empty", Kind: EntryMethod, Signature: "q:empty(): boolean", Summary: "Whether nothing is pending."},
-			{Name: "clear", Kind: EntryMethod, Signature: "q:clear()", Summary: "Discards every pending job."},
+			{Name: "clear", Kind: EntryMethod, Signature: "q:clear(): number", Summary: "Discards every pending job and returns how many were discarded."},
 			{Name: "metrics", Kind: EntryMethod, Signature: "q:metrics(): table",
-				Summary: "Counters and timings: enqueued, processed, succeeded, failed, retried, expired, dropped, pending, and the average and maximum wait and execution times in milliseconds."},
+				Summary: "Counters and timings: enqueued, processed, succeeded, failed, retried, expired, dropped, pending, and the average and maximum wait and execution times in milliseconds.",
+				Detail: `processed counts execution attempts, retries included — a job that fails
+twice and then succeeds adds 3 to processed, 2 to retried and 1 to
+succeeded. The wait/exec averages are per attempt.`},
 		},
 	},
 	{
@@ -215,19 +225,22 @@ backoff_ms, args (an array passed to fn), payload and id.`},
 goroutines queue.after and queue.tick create.
 
 The data channel is never closed: :close closes a separate done channel,
-so a send racing a close reports "closed" instead of panicking.`,
+so a send racing a close never crashes the host. Values already buffered can
+still be received after :close; once drained, receives return nil, false,
+"closed".`,
 		SeeAlso: []string{"queue", "coroutine"},
 		Entries: []Entry{
 			{Name: "send", Kind: EntryMethod, Signature: "ch:send(v [, timeout_ms]): boolean, string?",
-				Summary: "Sends a value, blocking until there is room or the timeout expires."},
-			{Name: "receive", Kind: EntryMethod, Signature: "ch:receive([timeout_ms]): any, string?",
-				Summary: "Receives a value, blocking until one arrives or the timeout expires."},
-			{Name: "try_send", Kind: EntryMethod, Signature: "ch:try_send(v): boolean",
-				Summary: "Sends only if it can be done immediately."},
-			{Name: "try_receive", Kind: EntryMethod, Signature: "ch:try_receive(): any, boolean",
-				Summary: "Receives only if a value is already waiting; the second return says whether one was."},
+				Summary: "Sends a value, blocking until there is room or the timeout expires. Returns true, or false, \"timeout\". Raises on a closed channel.",
+				Detail:  "v may not be nil (send false or a sentinel instead). Use :try_send to get false, \"closed\" back instead of an error."},
+			{Name: "receive", Kind: EntryMethod, Signature: "ch:receive([timeout_ms]): any, boolean, string?",
+				Summary: "Receives a value, blocking until one arrives or the timeout expires. Returns v, true — or nil, false, reason where reason is \"timeout\" or \"closed\"."},
+			{Name: "try_send", Kind: EntryMethod, Signature: "ch:try_send(v): boolean, string?",
+				Summary: "Sends only if it can be done immediately. Returns true, or false plus \"full\" or \"closed\" — it never raises on a closed channel."},
+			{Name: "try_receive", Kind: EntryMethod, Signature: "ch:try_receive(): any, boolean, string?",
+				Summary: "Receives only if a value is already waiting: v, true — or nil, false, \"timeout\" (nothing waiting) or \"closed\"."},
 			{Name: "close", Kind: EntryMethod, Signature: "ch:close()",
-				Summary: "Marks the channel closed. Later sends report an error rather than raising."},
+				Summary: "Marks the channel closed. Afterwards :send raises and :try_send returns false, \"closed\"; buffered values can still be received."},
 			{Name: "is_closed", Kind: EntryMethod, Signature: "ch:is_closed(): boolean", Summary: "Whether :close has been called."},
 			{Name: "len", Kind: EntryMethod, Signature: "ch:len(): number", Summary: "How many values are buffered. The # operator does the same."},
 			{Name: "cap", Kind: EntryMethod, Signature: "ch:cap(): number", Summary: "The channel's buffer capacity."},
@@ -370,15 +383,15 @@ stores two keys. All of them must match the tree's key type.`},
 automatically as series are added; a series given a label appears in the
 legend.`,
 		Example: `require("plot").figure()
-  :scatter({1, 2, 3}, {1, 4, 9}, "squares")
+  :scatter({1, 2, 3}, {1, 4, 9}, { label = "squares", color = "#e15759" })
   :size(640, 480):title("demo")
   :save("out.svg")`,
 		SeeAlso: []string{"plot"},
 		Entries: []Entry{
-			{Name: "line", Kind: EntryMethod, Signature: "fig:line(xs, ys [, label]): figure", Summary: "Adds a line series."},
-			{Name: "scatter", Kind: EntryMethod, Signature: "fig:scatter(xs, ys [, label]): figure", Summary: "Adds a scatter series."},
-			{Name: "bar", Kind: EntryMethod, Signature: "fig:bar(labels, values [, label]): figure", Summary: "Adds a bar series."},
-			{Name: "histogram", Kind: EntryMethod, Signature: "fig:histogram(values [, bins [, label]]): figure",
+			{Name: "line", Kind: EntryMethod, Signature: "fig:line([xs,] ys [, label | opts]): figure", Summary: "Adds a line series. The last argument is a label string or { label = ..., color = ... }; a label adds a legend entry."},
+			{Name: "scatter", Kind: EntryMethod, Signature: "fig:scatter([xs,] ys [, label | opts]): figure", Summary: "Adds a scatter series. The last argument is a label string or { label = ..., color = ... }."},
+			{Name: "bar", Kind: EntryMethod, Signature: "fig:bar(labels, values [, label | opts]): figure", Summary: "Adds a bar series. The last argument is a label string or { label = ..., color = ... }."},
+			{Name: "histogram", Kind: EntryMethod, Signature: "fig:histogram(values [, bins [, label | opts]]): figure",
 				Summary: "Adds a histogram of values."},
 			{Name: "title", Kind: EntryMethod, Signature: "fig:title(s): figure", Summary: "Sets the chart title."},
 			{Name: "xlabel", Kind: EntryMethod, Signature: "fig:xlabel(s): figure", Summary: "Sets the x-axis label."},
@@ -411,12 +424,12 @@ print((a * 2):max())`,
 			{Name: "ndim", Kind: EntryMethod, Signature: "a:ndim(): number", Summary: "The number of dimensions."},
 			{Name: "size", Kind: EntryMethod, Signature: "a:size(): number", Summary: "The total number of elements."},
 			{Name: "reshape", Kind: EntryMethod, Signature: "a:reshape(shape): ndarray",
-				Summary: "A view of the same data with a new shape. The element count must match."},
+				Summary: "A copy of the data with a new shape. The element count must match; one dimension may be -1 to infer it."},
 			{Name: "flatten", Kind: EntryMethod, Signature: "a:flatten(): ndarray", Summary: "A 1-D copy of the array."},
 			{Name: "transpose", Kind: EntryMethod, Signature: "a:transpose(): ndarray", Summary: "The array with its axes reversed."},
 			{Name: "copy", Kind: EntryMethod, Signature: "a:copy(): ndarray", Summary: "An independent copy."},
 			{Name: "to_table", Kind: EntryMethod, Signature: "a:to_table(): table", Summary: "A nested Lua table with the same contents."},
-			{Name: "tolist", Kind: EntryMethod, Signature: "a:tolist(): table", Summary: "A nested Lua table — the NumPy spelling of to_table."},
+			{Name: "tolist", Kind: EntryMethod, Signature: "a:tolist(): table", Summary: "Every element as a flat 1-D Lua array, in row-major order. Use to_table for a nested table."},
 			{Name: "add", Kind: EntryMethod, Signature: "a:add(b): ndarray", Summary: "Elementwise sum, broadcasting. The + operator does the same."},
 			{Name: "sub", Kind: EntryMethod, Signature: "a:sub(b): ndarray", Summary: "Elementwise difference, broadcasting."},
 			{Name: "mul", Kind: EntryMethod, Signature: "a:mul(b): ndarray", Summary: "Elementwise product, broadcasting."},
@@ -433,8 +446,8 @@ print((a * 2):max())`,
 			{Name: "max", Kind: EntryMethod, Signature: "a:max([axis]): ndarray | number", Summary: "Maximum over an axis, or of everything."},
 			{Name: "std", Kind: EntryMethod, Signature: "a:std([axis]): ndarray | number", Summary: "Standard deviation over an axis, or of everything."},
 			{Name: "var", Kind: EntryMethod, Signature: "a:var([axis]): ndarray | number", Summary: "Variance over an axis, or of everything."},
-			{Name: "argmin", Kind: EntryMethod, Signature: "a:argmin([axis]): ndarray | number", Summary: "Index of the smallest element."},
-			{Name: "argmax", Kind: EntryMethod, Signature: "a:argmax([axis]): ndarray | number", Summary: "Index of the largest element."},
+			{Name: "argmin", Kind: EntryMethod, Signature: "a:argmin(): number", Summary: "The 1-based flat index of the smallest element. No axis form."},
+			{Name: "argmax", Kind: EntryMethod, Signature: "a:argmax(): number", Summary: "The 1-based flat index of the largest element. No axis form."},
 			{Name: "abs", Kind: EntryMethod, Signature: "a:abs(): ndarray", Summary: "Elementwise absolute value."},
 			{Name: "sqrt", Kind: EntryMethod, Signature: "a:sqrt(): ndarray", Summary: "Elementwise square root."},
 			{Name: "exp", Kind: EntryMethod, Signature: "a:exp(): ndarray", Summary: "Elementwise exponential."},
@@ -480,15 +493,16 @@ print((a * 2):max())`,
 		Detail: `Operations return new frames rather than mutating, so they chain.
 Row callbacks receive a table keyed by column name.`,
 		Example: `local df = require("dataframe").from_csv("people.csv")
-print(df:select("name", "age")
+print(df:select({ "name", "age" })
         :filter(function(r) return r.age > 30 end)
         :sort("age"))`,
 		SeeAlso: []string{"dataframe", "csv", "stats"},
 		Entries: []Entry{
 			{Name: "col", Kind: EntryMethod, Signature: "df:col(name): table", Summary: "One column, as an array."},
 			{Name: "row", Kind: EntryMethod, Signature: "df:row(i): table", Summary: "One row, as a table keyed by column name."},
-			{Name: "select", Kind: EntryMethod, Signature: "df:select(...): frame", Summary: "A frame with only the named columns."},
-			{Name: "drop", Kind: EntryMethod, Signature: "df:drop(...): frame", Summary: "A frame without the named columns."},
+			{Name: "rows", Kind: EntryMethod, Signature: "df:rows(): table", Summary: "Every row, as an array of tables keyed by column name."},
+			{Name: "select", Kind: EntryMethod, Signature: "df:select(names): frame", Summary: "A frame with only the named columns, given an array of names: df:select({ \"a\", \"b\" })."},
+			{Name: "drop", Kind: EntryMethod, Signature: "df:drop(names): frame", Summary: "A frame without the named columns, given an array of names."},
 			{Name: "rename", Kind: EntryMethod, Signature: "df:rename(mapping): frame",
 				Summary: "A frame with columns renamed, given an old-name to new-name table."},
 			{Name: "filter", Kind: EntryMethod, Signature: "df:filter(fn): frame",
@@ -498,12 +512,21 @@ print(df:select("name", "age")
 			{Name: "sort", Kind: EntryMethod, Signature: "df:sort(name [, descending]): frame",
 				Summary: "The rows ordered by one column."},
 			{Name: "group_by", Kind: EntryMethod, Signature: "df:group_by(name, aggs): frame",
-				Summary: "Groups by a column and aggregates the rest, given a column-to-aggregation table."},
+				Summary: "Groups by a column and aggregates the rest, given a column-to-aggregation table.",
+				Detail: `Aggregations: sum, mean (or avg), min, max, median, std, var, count,
+first, last. Output columns are named <column>_<aggregation>, e.g.
+{ age = "mean" } produces age_mean.`},
+			{Name: "describe", Kind: EntryMethod, Signature: "df:describe(): frame",
+				Summary: "Summary statistics (count, mean, std, min, 25%, 50%, 75%, max) of each numeric column, one row per statistic."},
 			{Name: "head", Kind: EntryMethod, Signature: "df:head([n]): frame", Summary: "The first n rows (default 5)."},
 			{Name: "tail", Kind: EntryMethod, Signature: "df:tail([n]): frame", Summary: "The last n rows (default 5)."},
 			{Name: "shape", Kind: EntryMethod, Signature: "df:shape(): number, number", Summary: "The row and column counts."},
+			{Name: "nrows", Kind: EntryMethod, Signature: "df:nrows(): number", Summary: "The row count."},
+			{Name: "ncols", Kind: EntryMethod, Signature: "df:ncols(): number", Summary: "The column count."},
 			{Name: "columns", Kind: EntryMethod, Signature: "df:columns(): table", Summary: "The column names, in order."},
-			{Name: "to_csv", Kind: EntryMethod, Signature: "df:to_csv(path)", Summary: "Writes the frame to a CSV file."},
+			{Name: "to_table", Kind: EntryMethod, Signature: "df:to_table(): table", Summary: "A table of named columns, the shape dataframe.new accepts."},
+			{Name: "to_csv", Kind: EntryMethod, Signature: "df:to_csv([path]): string?", Summary: "Writes the frame to a CSV file, or returns the CSV text when no path is given."},
+			{Name: "show", Kind: EntryMethod, Signature: "df:show([max_rows])", Summary: "Prints the frame as an aligned table, at most max_rows rows (default 20)."},
 		},
 	},
 	{
@@ -512,8 +535,13 @@ print(df:select("name", "age")
 		Synopsis: `local net = require("ml").new(config)`,
 		SeeAlso:  []string{"ml", "classification"},
 		Entries: []Entry{
-			{Name: "train", Kind: EntryMethod, Signature: "net:train(data): number",
-				Summary: "Trains on an array of {input, output} pairs and returns the final loss."},
+			{Name: "train", Kind: EntryMethod, Signature: "net:train(opts): net",
+				Summary: "Trains the network in place and returns it.",
+				Detail: `opts keys: data (required, an array of { input = {...}, response = {...} }
+examples), validation (same shape), iterations (default 1000), verbosity
+(default 0), solver ({ kind = "adam", lr, beta, beta2, epsilon } or
+{ kind = "sgd", lr, momentum, decay, nesterov }; default adam) and batch
+({ size = 16, parallelism = 1 } for mini-batch training).`},
 			{Name: "predict", Kind: EntryMethod, Signature: "net:predict(input): table",
 				Summary: "Runs a forward pass and returns the output layer."},
 			{Name: "marshal", Kind: EntryMethod, Signature: "net:marshal(): string",

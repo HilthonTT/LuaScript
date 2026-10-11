@@ -1,4 +1,5 @@
--- `match` statement: parser-level desugar into `do; local s = ...; if/elseif end; end`.
+-- `match` statement: a real AST node (MatchStatement) that the bytecode
+-- generator lowers to a chain of tests against a hidden local.
 -- The scrutinee is evaluated exactly once. Each arm body is a single
 -- statement; for multiple statements wrap them in `do ... end`.
 

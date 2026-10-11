@@ -68,8 +68,8 @@ print(df:sort("age"):head(1))`,
 				Summary: "Builds a frame from a table of named columns, each an array of equal length."},
 			{Name: "from_rows", Kind: EntryFunction, Signature: "dataframe.from_rows(rows): frame",
 				Summary: "Builds a frame from an array of row tables, taking the column names from the keys."},
-			{Name: "from_csv", Kind: EntryFunction, Signature: "dataframe.from_csv(path): frame",
-				Summary: "Reads a CSV file into a frame, using the header line as the column names."},
+			{Name: "from_csv", Kind: EntryFunction, Signature: "dataframe.from_csv(path [, opts]): frame",
+				Summary: "Reads a CSV file into a frame, using the header line as the column names. Cells that parse as numbers become numbers unless opts.numbers is false."},
 			{Name: "VERSION", Kind: EntryConstant, Signature: "dataframe.VERSION: string", Summary: "The module's version string."},
 		},
 	},
@@ -77,23 +77,31 @@ print(df:sort("age"):head(1))`,
 		Name: "csv", Kind: KindModule, RuntimeModule: "csv",
 		Title:    "CSV reading and writing",
 		Synopsis: `local csv = require("csv")`,
-		Detail: `Rows are arrays of strings — no type inference happens here. For typed
-columns and column-wise operations, load the file with
-dataframe.from_csv instead.`,
+		Detail: `By default rows are arrays of strings. Every function takes an optional
+trailing opts table:
+
+  header      read: treat line 1 as column names and return records keyed
+              by name; write: emit a header line (requires columns)
+  numbers     read: convert cells that parse as integers or floats
+  columns     write with header: the ordered array of column names
+  delimiter   a single character (default ",")
+
+For column-wise operations, load the file with dataframe.from_csv.`,
 		Example: `local csv = require("csv")
 local rows = csv.read("data.csv")
 print(#rows, rows[1][1])
-csv.write("out.csv", rows)`,
+local recs = csv.read("data.csv", { header = true, numbers = true })
+csv.write("out.csv", recs, { header = true, columns = { "name", "age" } })`,
 		SeeAlso: []string{"dataframe", "json", "io"},
 		Entries: []Entry{
-			{Name: "read", Kind: EntryFunction, Signature: "csv.read(path): table",
-				Summary: "Reads a CSV file into an array of row arrays."},
-			{Name: "write", Kind: EntryFunction, Signature: "csv.write(path, rows)",
-				Summary: "Writes an array of row arrays to a CSV file."},
-			{Name: "parse", Kind: EntryFunction, Signature: "csv.parse(text): table",
-				Summary: "Parses CSV text already in memory into an array of row arrays."},
-			{Name: "stringify", Kind: EntryFunction, Signature: "csv.stringify(rows): string",
-				Summary: "Renders an array of row arrays as CSV text, quoting where needed."},
+			{Name: "read", Kind: EntryFunction, Signature: "csv.read(path [, opts]): table",
+				Summary: "Reads a CSV file into an array of row arrays (or records keyed by column name with opts.header)."},
+			{Name: "write", Kind: EntryFunction, Signature: "csv.write(path, rows [, opts])",
+				Summary: "Writes an array of row arrays (or records, with opts.header and opts.columns) to a CSV file."},
+			{Name: "parse", Kind: EntryFunction, Signature: "csv.parse(text [, opts]): table",
+				Summary: "Parses CSV text already in memory; the same opts as csv.read."},
+			{Name: "stringify", Kind: EntryFunction, Signature: "csv.stringify(rows [, opts]): string",
+				Summary: "Renders rows as CSV text, quoting where needed; the same opts as csv.write."},
 			{Name: "VERSION", Kind: EntryConstant, Signature: "csv.VERSION: string", Summary: "The module's version string."},
 		},
 	},
@@ -232,10 +240,13 @@ Raises when A is not symmetric.`},
 		Title:    "unsupervised clustering",
 		Synopsis: `local clustering = require("clustering")`,
 		Detail: `Data is an array of points, each point an array of coordinates.
-Results come back as a table with centroids, assignments (1-based
-cluster indices, parallel to the input) and iterations.
+kmeans and meanshift return a table with centroids, assignments (1-based
+cluster indices, parallel to the input) and iterations. dbscan and
+hierarchical return just the label array — 1-based cluster indices,
+parallel to the input — with no wrapper table.
 
-DBSCAN labels noise points rather than forcing them into a cluster.`,
+DBSCAN labels noise points 0 rather than forcing them into a cluster.
+kmeans is deterministic: opts.seed (default 1) seeds its initialisation.`,
 		Example: `local clustering = require("clustering")
 local pts = { {1, 1}, {1.2, 0.9}, {8, 8}, {8.1, 7.9} }
 local r = clustering.kmeans(pts, 2)
@@ -243,12 +254,12 @@ print(r.iterations, r.assignments[1], r.assignments[3])`,
 		SeeAlso: []string{"classification", "stats", "ml"},
 		Entries: []Entry{
 			{Name: "kmeans", Kind: EntryFunction, Signature: "clustering.kmeans(points, k [, opts]): table",
-				Summary: "Partitions the points into k clusters by Lloyd's algorithm."},
+				Summary: "Partitions the points into k clusters by Lloyd's algorithm. opts: seed (default 1), maxIter (default 100), delta (default 0.001)."},
 			{Name: "dbscan", Kind: EntryFunction, Signature: "clustering.dbscan(points, eps, min_pts): table",
-				Summary: "Density-based clustering: groups points within eps that have at least min_pts neighbours, and labels the rest as noise."},
-			{Name: "hierarchical", Kind: EntryFunction, Signature: "clustering.hierarchical(points, k): table",
-				Summary: "Agglomerative clustering, merging until k clusters remain."},
-			{Name: "meanshift", Kind: EntryFunction, Signature: "clustering.meanshift(points, bandwidth): table",
+				Summary: "Density-based clustering: groups points within eps that have at least min_pts neighbours. Returns a label array; noise points are labelled 0."},
+			{Name: "hierarchical", Kind: EntryFunction, Signature: "clustering.hierarchical(points, k [, opts]): table",
+				Summary: "Agglomerative clustering, merging until k clusters remain. Returns a label array. opts.linkage is \"single\", \"complete\" or \"average\" (the default)."},
+			{Name: "meanshift", Kind: EntryFunction, Signature: "clustering.meanshift(points, bandwidth [, opts]): table",
 				Summary: "Mode-seeking clustering with the given kernel bandwidth. The cluster count comes out of the data."},
 			{Name: "VERSION", Kind: EntryConstant, Signature: "clustering.VERSION: string", Summary: "The module's version string."},
 		},
@@ -259,11 +270,17 @@ print(r.iterations, r.assignments[1], r.assignments[3])`,
 		Synopsis: `local classification = require("classification")`,
 		Detail: `Each constructor returns a model object. The numeric models (knn,
 perceptron, logistic, svm) share a fit/predict interface: :fit(features,
-labels) with features an array of coordinate arrays, then :predict(x).
-logistic and the others also offer :predict_proba.
+labels) with features an array of coordinate arrays and labels an array
+of strings (numbers raise), then :predict(x), which returns a label.
+Only logistic adds :predict_proba(x), a single probability; svm adds
+:decision_function(x) and :support_vectors().
 
-naivebayes is text-oriented and has its own interface: :learn(doc,
-class), :classify(doc) and :classifyProb(doc).`,
+naivebayes is text-oriented and has its own interface: :learn(tokens,
+class) and :classify(tokens) / :classifyProb(tokens), where tokens is an
+array of word strings (tokenise the text yourself). Both classify methods
+return three values: the best class, an array of per-class scores (or
+probabilities, in :classes() order), and a strict flag that is false when the top score was
+tied.`,
 		Example: `local classification = require("classification")
 local knn = classification.knn(3)
 knn:fit({ {1, 1}, {2, 2}, {8, 8} }, { "a", "a", "b" })
@@ -273,13 +290,18 @@ print(knn:predict({1.5, 1.5}))`,
 			{Name: "knn", Kind: EntryFunction, Signature: "classification.knn([k]): model",
 				Summary: "A k-nearest-neighbours classifier (k defaults to 3)."},
 			{Name: "logistic", Kind: EntryFunction, Signature: "classification.logistic([opts]): model",
-				Summary: "Logistic regression, with :fit, :predict and :predict_proba."},
+				Summary: "Logistic regression, with :fit, :predict and :predict_proba. opts: lr (default 0.1), epochs (default 200)."},
 			{Name: "perceptron", Kind: EntryFunction, Signature: "classification.perceptron([opts]): model",
-				Summary: "A single-layer perceptron, with :fit and :predict."},
+				Summary: "A single-layer perceptron, with :fit and :predict. opts: lr (default 0.1), epochs (default 50)."},
 			{Name: "svm", Kind: EntryFunction, Signature: "classification.svm([opts]): model",
-				Summary: "A support vector machine, with :fit, :predict, :decision_function and :support_vectors."},
-			{Name: "naivebayes", Kind: EntryFunction, Signature: "classification.naivebayes(...): model",
-				Summary: "A naive Bayes text classifier over the named classes, with :learn, :classify, :classifyProb, :classes and :learned."},
+				Summary: "A support vector machine, with :fit, :predict, :decision_function and :support_vectors (which returns the support-vector count).",
+				Detail: `opts: kernel ("rbf" default, "linear" or "poly"), C (1.0), gamma (0.5),
+coef0 (0), degree (3), tol (1e-3), maxIter (100) and seed (1).`},
+			{Name: "naivebayes", Kind: EntryFunction, Signature: "classification.naivebayes(class1, class2, ... [, opts]): model",
+				Summary: "A naive Bayes text classifier over the named classes (at least two), with :learn, :classify, :classifyProb, :classes, :learned and :convert.",
+				Detail: `A trailing opts table with tfidf = true builds a TF-IDF classifier;
+call :convert() after learning to turn the term frequencies into TF-IDF
+weights before classifying.`},
 			{Name: "VERSION", Kind: EntryConstant, Signature: "classification.VERSION: string", Summary: "The module's version string."},
 		},
 	},
@@ -288,15 +310,26 @@ print(knn:predict({1.5, 1.5}))`,
 		Title:    "feed-forward neural networks",
 		Synopsis: `local ml = require("ml")`,
 		Detail: `A small dense network trained by backpropagation. ml.new takes a
-config table describing the layer sizes and hyperparameters; the
-resulting net has :train, :predict, :save and :save_file, and can be
-brought back with ml.load or ml.load_file.
+config table describing the layers; the resulting net has :train,
+:predict, :marshal and :save, and can be brought back with ml.load or
+ml.load_file.
+
+Weights are initialised from Go's global random source and there is no
+seed option, so two runs of the same script give (slightly) different
+networks and predictions.
 
 See examples/41_ml_module.lsc for a full run.`,
 		SeeAlso: []string{"ml.net", "classification", "ndarray"},
 		Entries: []Entry{
 			{Name: "new", Kind: EntryFunction, Signature: "ml.new(config): net",
-				Summary: "Creates a network from a config table (layer sizes, learning rate, activation)."},
+				Summary: "Creates a network from a config table.",
+				Detail: `config keys: inputs (required, input width), layout (required, array of
+layer sizes — the last is the output width), activation
+(sigmoid|tanh|relu|linear|softmax, default sigmoid), mode
+(default|multiclass|regression|binary|multilabel), bias (boolean), loss
+(crossentropy|binary_crossentropy|mse) and weight ({ kind =
+"uniform"|"normal", stddev, mean }). The learning rate is not here: it
+belongs to net:train's solver option.`},
 			{Name: "load", Kind: EntryFunction, Signature: "ml.load(blob): net",
 				Summary: "Restores a network from a string produced by net:marshal."},
 			{Name: "load_file", Kind: EntryFunction, Signature: "ml.load_file(path): net",
@@ -314,23 +347,27 @@ ticks and a legend appears when a series is named.
 
 The module-level line/scatter/bar/histogram are shorthands that create a
 figure with one series already added. For several series, start from
-plot.figure() and chain: every figure method returns the figure.`,
+plot.figure() and chain: every figure method returns the figure.
+
+A series' last argument is a label string or an options table
+{ label = ..., color = ... }; a label puts the series in the legend. xs may be omitted (plot.line(ys))
+to plot against 1, 2, 3, ...`,
 		Example: `local plot = require("plot")
-plot.figure()
+plot.figure({ width = 720, height = 420 })
   :line({1, 2, 3}, {2, 4, 8}, "growth")
   :title("demo"):xlabel("x"):ylabel("y")
   :save("out.svg")`,
 		SeeAlso: []string{"plot.figure", "dataframe", "stats", "ui"},
 		Entries: []Entry{
-			{Name: "figure", Kind: EntryFunction, Signature: "plot.figure(): figure",
-				Summary: "Creates an empty figure. See the plot.figure page for its methods."},
-			{Name: "line", Kind: EntryFunction, Signature: "plot.line(xs, ys [, label]): figure",
-				Summary: "A figure holding one line series."},
-			{Name: "scatter", Kind: EntryFunction, Signature: "plot.scatter(xs, ys [, label]): figure",
-				Summary: "A figure holding one scatter series."},
-			{Name: "bar", Kind: EntryFunction, Signature: "plot.bar(labels, values [, label]): figure",
-				Summary: "A figure holding one bar series."},
-			{Name: "histogram", Kind: EntryFunction, Signature: "plot.histogram(values [, bins [, label]]): figure",
+			{Name: "figure", Kind: EntryFunction, Signature: "plot.figure([opts]): figure",
+				Summary: "Creates an empty figure; opts may set title, xlabel, ylabel, width and height (default 640x400). See the plot.figure page for its methods."},
+			{Name: "line", Kind: EntryFunction, Signature: "plot.line([xs,] ys [, label | opts]): figure",
+				Summary: "A figure holding one line series. The last argument is a label string or { label = ..., color = ... }."},
+			{Name: "scatter", Kind: EntryFunction, Signature: "plot.scatter([xs,] ys [, label | opts]): figure",
+				Summary: "A figure holding one scatter series. The last argument is a label string or { label = ..., color = ... }."},
+			{Name: "bar", Kind: EntryFunction, Signature: "plot.bar(labels, values [, label | opts]): figure",
+				Summary: "A figure holding one bar series. The last argument is a label string or { label = ..., color = ... }."},
+			{Name: "histogram", Kind: EntryFunction, Signature: "plot.histogram(values [, bins [, label | opts]]): figure",
 				Summary: "A figure holding a histogram of values."},
 			{Name: "VERSION", Kind: EntryConstant, Signature: "plot.VERSION: string", Summary: "The module's version string."},
 		},

@@ -158,8 +158,9 @@ hand-written in `typecheck/stdlib_types.go`. Table literals are inferred as
 `any` so dynamic Lua patterns keep working.
 
 **In:** primitives, function types (params/returns/multi-return/varargs),
-optionals (`T?`), unions (`A | B`), type aliases including structural tables,
-type assertions, structs, tagged enums.
+optionals (`T?`), unions (`A | B`), intersections (`A & B`), string-literal
+types, type aliases including structural tables, type assertions, structs,
+tagged enums.
 
 **Also in (post-v1):**
 
@@ -189,13 +190,17 @@ skips the type pass entirely (but **not** `constcheck`).
 
 ### Deliberately out
 
-Intersections (`A & B`), string-singleton types (`"foo" | "bar"`), cross-module
-type checking (`require()` returns `any`), and recursive aliases (the parser
-accepts them; the resolver does not). These are named explicitly in error
-messages so users hit a clear wall rather than a silent miscompile.
+Recursive aliases (`type Node = { next: Node? }`): the parser accepts them, but
+the resolver does not — the self-reference reports `unknown type "Node"`, and a
+self-referential generic reports `recursive-generic`. Cross-module type checking
+of *script* modules is also out: `require("./mymod")` (or any non-literal name)
+is `any`. Intersections (`A & B`), string-literal types (`"up" | "down"`) and
+literal-name `require()` of a native module (`require("json")` resolves to that
+module's declared type, from `typecheck/native_types.go`) used to be on this
+list and are now supported.
 
-Also out at the language level: GC metamethods (`__gc`, and `__close`
-enforcement — the attribute is parse- and const-checked only); full `debug`
+Also out at the language level: GC metamethods (`__gc`; `<close>` *is*
+implemented — `__close` runs at scope exit, see `examples/59_to_be_closed.lsc`); full `debug`
 semantics (`debugx` ships real `traceback`/`getinfo` but hook **stubs**, not
 VM hooks); `finally` on try/catch and type-filtered `catch` clauses (`defer`
 already covers unconditional cleanup, and a handler can re-`throw` after
@@ -284,7 +289,10 @@ walks a chunk and its nested protos, and is called by whoever read the chunk:
 and Lua's `=`/`@` sigils), and `luascript profile`. It deliberately does not run
 in the generator and is not serialized, because the bytecode cache is keyed on
 *content*: one cached chunk may legitimately be loaded from two paths. A chunk
-nobody stamped reports as `script`.
+nobody stamped reports as `script`. The main script keeps the path as typed on
+the command line, but a `require`d module is stamped with the path `searchpath`
+resolved — normally absolute, because `repl.RunFile` prepends the script's own
+directory to `package.path` as an absolute path (`VM.AddScriptDir`).
 
 Captures are bounded: `Traceback` keeps the innermost 10 and outermost 11
 frames and collapses the rest into a `... (skipping N levels)` marker, so a
@@ -478,7 +486,9 @@ without a `SerialVersion` bump**.
 `require` and `loadfile` — but **not** by the REPL, `load()` strings, `-dis`, or
 bundled executables. Entries live under
 `os.UserCacheDir()/luascript/bytecode/<sha256>.lscb`, keyed by source +
-interpreter version + serial format + opcode count. They are written atomically
+interpreter version + serial format + opcode count + a `buildStamp` (the running
+binary's size and mtime, so a rebuilt interpreter with an unchanged version
+string never reuses stale chunks). They are written atomically
 and only after a fully successful compile, so type errors are never cached, and
 any decode failure falls back silently to a fresh compile.
 
@@ -573,11 +583,11 @@ programmatically; use `-bonsai-print` for non-interactive runs.
 └── assets/            logo and static assets
 ```
 
-> **Note:** the repository directory on disk is still named `sakura-lang`
-> (pre-rename), and a few Go comments carry sed-rename artifacts (e.g.
-> `.lsc profile`, `-tags.lsc_no_postgres` in `native/stdlib/db/db.go`, the
-> `scripts/build-pgo.sh` header). The module path, package names, env vars and
-> build tags are the authoritative current names.
+> **Note:** the repository is `LuaScript` but the Go module path is
+> `github.com/hilthontt/luascript`. A sed-rename artifact survives in the
+> `scripts/build-pgo.sh` header (`.lsc profile` for `luascript profile`). The
+> module path, package names, env vars and build tags are the authoritative
+> current names.
 
 ## Testing and verification
 

@@ -10,8 +10,13 @@ print("pi   =", math.pi)
 print("e    =", math.e)
 print("phi  =", math.phi)
 print("huge =", math.huge)
-print("maxinteger =", math.maxinteger)
-print("mininteger =", math.mininteger)
+-- The module spells the integer limits maxint/minint; maxinteger and
+-- mininteger live only on the global math (see 12_math_module.lsc), which the
+-- local above shadows -- so reach it through _G.
+print("maxint     =", math.maxint)
+print("minint     =", math.minint)
+print("maxinteger =", _G.math.maxinteger)
+print("mininteger =", _G.math.mininteger)
 
 -- Scalar functions -----------------------------------------------------------
 print("abs(-3)    =", math.abs(-3))      -- 3  (stays an integer)

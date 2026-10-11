@@ -16,7 +16,8 @@ mask <<= 2       -- 0xF0
 mask >>= 1       -- 0x78
 print(mask)
 
--- Works on table fields too. Note: the index is evaluated twice for v1.
+-- Works on table fields too. The parser hoists the object and index into
+-- temporaries, so in `t[k()] += 1` the call k() runs exactly once.
 local t = { hits = 0 }
 t.hits += 1
 t.hits += 2

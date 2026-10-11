@@ -9,12 +9,12 @@ var coreTopics = []Topic{
 		Title:         "base library — globals available without a require",
 		Synopsis:      `print("hello")   -- no require needed`,
 		Detail: `Every name here is installed directly into the global table when the
-VM starts. The auto-global namespaces (string, table, math, coroutine, io)
-have pages of their own; see SEE ALSO.
+VM starts. The auto-global namespaces (string, table, math, coroutine, io,
+os, utf8) have pages of their own; see SEE ALSO.
 
 Two of these are luascript extensions rather than Lua 5.4: typeof and
 sizeof.`,
-		SeeAlso: []string{"string", "table", "math", "coroutine", "io", "syntax"},
+		SeeAlso: []string{"string", "table", "math", "coroutine", "io", "os", "utf8", "syntax"},
 		Entries: []Entry{
 			{Name: "print", Kind: EntryFunction, Signature: "print(...)",
 				Summary: "Writes each argument to stdout separated by tabs, followed by a newline. Routes values through the __tostring metamethod."},
@@ -42,7 +42,7 @@ sizeof.`,
 				Summary: "Raises an error when v is nil or false, otherwise returns every argument unchanged.",
 				Detail:  "The typechecker narrows on assert: after `assert(x ~= nil)`, x is non-optional for the rest of the block."},
 			{Name: "pcall", Kind: EntryFunction, Signature: "pcall(f, ...): boolean, ...",
-				Summary: "Calls f in protected mode. Returns true plus f's results, or false plus the error value."},
+				Summary: "Calls f in protected mode. Returns true plus f's results, or false plus the error value. f may be any callable, including a table with a __call metamethod (xpcall too)."},
 			{Name: "xpcall", Kind: EntryFunction, Signature: "xpcall(f, msgh, ...): boolean, ...",
 				Summary: "Like pcall, but routes a raised error through the handler msgh before returning it."},
 			{Name: "select", Kind: EntryFunction, Signature: `select(n, ...): ...`,
