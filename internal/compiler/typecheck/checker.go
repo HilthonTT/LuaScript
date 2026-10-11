@@ -134,10 +134,10 @@ func (c *checker) installGlobals() {
 		}
 	}
 	c.builtins = map[string]*Type{
-		"assert": g["assert"],
-		"error":  g["error"],
-		"type":   g["type"],
-		"typeof": g["typeof"],
+		"assert":  g["assert"],
+		"error":   g["error"],
+		"type":    g["type"],
+		"typeof":  g["typeof"],
 		"require": g["require"],
 	}
 }
