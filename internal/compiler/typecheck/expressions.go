@@ -161,12 +161,12 @@ func staticIndexName(e *ast.IndexExpression) (string, bool) {
 
 func (c *checker) typeOfCall(call *ast.CallExpression) *Type {
 	callee := c.typeOfExpression(call.Func)
+	fn := callableShape(callee)
 	args := make([]*Type, len(call.Args))
 	for i, a := range call.Args {
-		args[i] = c.typeOfExpression(a)
+		args[i] = c.typeOfExpressionExpecting(a, contextualParam(fn, i))
 	}
 	c.invalidateCallRefinements()
-	fn := callableShape(callee)
 	if fn == nil {
 		if callee.Kind == KindAny {
 			return anyT
@@ -324,7 +324,7 @@ func (c *checker) checkNamedStructCall(call *ast.CallExpression, sc *StructCtor)
 			continue
 		}
 		provided[id.Name] = true
-		got := c.typeOfExpression(f.Value)
+		got := c.typeOfExpressionExpecting(f.Value, want)
 		if !assignable(got, want) {
 			c.errAssign(call.Line(), got, want)
 		}
@@ -390,13 +390,13 @@ func (c *checker) typeOfBinary(e *ast.BinaryExpression) *Type {
 		}
 		return booleanT
 	case "and":
-		falsy := keepKinds(left, KindNil, KindBoolean)
+		falsy := falsyPart(left)
 		if falsy.Kind == KindNever {
 			return right
 		}
 		return NewUnion(falsy, right)
 	case "or":
-		truthy := removeKind(left, KindNil)
+		truthy := truthyPart(left)
 		if truthy.Kind == KindNever {
 			return right
 		}
@@ -450,4 +450,50 @@ func sameOrderable(a, b *Type) bool {
 	}
 	return (assignable(a, numberT) && assignable(b, numberT)) ||
 		(assignable(a, stringT) && assignable(b, stringT))
+}
+
+// falsyPart is what `x and y` can yield from x: its nil and false members
+// (a plain boolean can only pass through as false).
+func falsyPart(t *Type) *Type {
+	t = keepKinds(t, KindNil, KindBoolean)
+	if t == nil || t.Kind == KindAny || t.Kind == KindUnknown {
+		return t
+	}
+	members := []*Type{t}
+	if t.Kind == KindUnion {
+		members = t.Union
+	}
+	out := make([]*Type, 0, len(members))
+	for _, m := range members {
+		switch {
+		case m.Kind == KindBoolean:
+			out = append(out, NewBooleanLiteral(false, ""))
+		case m.Kind == KindLiteral && m.Lit != nil && m.Lit.Base == KindBoolean && m.Lit.Bool:
+			// true never short-circuits an `and`.
+		default:
+			out = append(out, m)
+		}
+	}
+	return NewUnion(out...)
+}
+
+// truthyPart is what `x or y` can yield from x: everything but nil and the
+// literal false.
+func truthyPart(t *Type) *Type {
+	t = removeKind(t, KindNil)
+	if t == nil || t.Kind == KindAny || t.Kind == KindUnknown {
+		return t
+	}
+	members := []*Type{t}
+	if t.Kind == KindUnion {
+		members = t.Union
+	}
+	out := make([]*Type, 0, len(members))
+	for _, m := range members {
+		if m.Kind == KindLiteral && m.Lit != nil && m.Lit.Base == KindBoolean && !m.Lit.Bool {
+			continue
+		}
+		out = append(out, m)
+	}
+	return NewUnion(out...)
 }

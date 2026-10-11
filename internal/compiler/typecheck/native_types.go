@@ -11,7 +11,9 @@ func (c *checker) requireModuleType(call *ast.CallExpression) *Type {
 	if !ok {
 		return nil
 	}
-	if c.env.shadowsGlobal("require") {
+	// A user-defined require (a local of that name, or a reassignment of
+	// the global anywhere in the file) can return anything.
+	if !c.builtinInScope("require") || c.assignedSomewhere["require"] {
 		return nil
 	}
 	return nativeModules()[lit.Value]
@@ -138,9 +140,9 @@ func nativeModules() map[string]*Type {
 		{Key: "now_ms", Type: NewFunction(nil, []*Type{numberT}, false, nil)},
 		{Key: "clock", Type: NewFunction(nil, []*Type{numberT}, false, nil)},
 		{Key: "sleep", Type: NewFunction([]*Type{numberT}, nil, false, nil)},
-		{Key: "date", Type: NewFunction([]*Type{Optional(numberT), Optional(booleanT)},
+		{Key: "date", Type: NewFunction([]*Type{Optional(numberT), Optional(anyT)},
 			[]*Type{dateTableType()}, false, nil)},
-		{Key: "format", Type: NewFunction([]*Type{numberT, Optional(stringT), Optional(booleanT)},
+		{Key: "format", Type: NewFunction([]*Type{numberT, Optional(stringT), Optional(anyT)},
 			[]*Type{stringT}, false, nil)},
 		{Key: "parse", Type: NewFunction([]*Type{stringT, stringT}, []*Type{numberT}, false, nil)},
 		{Key: "parse_utc", Type: NewFunction([]*Type{stringT, stringT}, []*Type{numberT}, false, nil)},
@@ -163,17 +165,17 @@ func nativeModules() map[string]*Type {
 	})
 
 	m["compression"] = withVersion([]TableField{
-		{Key: "encode", Type: strToStr()},
-		{Key: "decode", Type: strToStr()},
+		{Key: "encode", Type: NewFunction([]*Type{stringT}, []*Type{huffmanEncodedType()}, false, nil)},
+		{Key: "decode", Type: NewFunction([]*Type{huffmanEncodedType()}, []*Type{stringT}, false, nil)},
 		{Key: "symbol_count", Type: NewFunction([]*Type{stringT}, []*Type{anyT}, false, nil)},
 		{Key: "codes", Type: NewFunction([]*Type{stringT}, []*Type{anyT}, false, nil)},
 		{Key: "rle_encode", Type: strToStr()},
 		{Key: "rle_decode", Type: strToStr()},
-		{Key: "gzip_encode", Type: strToStr()},
+		{Key: "gzip_encode", Type: leveledEncodeFn()},
 		{Key: "gzip_decode", Type: strToStr()},
-		{Key: "zlib_encode", Type: strToStr()},
+		{Key: "zlib_encode", Type: leveledEncodeFn()},
 		{Key: "zlib_decode", Type: strToStr()},
-		{Key: "deflate_encode", Type: strToStr()},
+		{Key: "deflate_encode", Type: leveledEncodeFn()},
 		{Key: "deflate_decode", Type: strToStr()},
 	})
 
@@ -190,18 +192,20 @@ func nativeModules() map[string]*Type {
 		{Key: "get_level", Type: NewFunction(nil, []*Type{anyT}, false, nil)},
 		{Key: "set_output", Type: NewFunction([]*Type{anyT}, nil, false, nil)},
 		{Key: "get_output", Type: NewFunction(nil, []*Type{anyT}, false, nil)},
-		{Key: "set_prefix", Type: NewFunction([]*Type{stringT}, nil, false, nil)},
+		{Key: "set_prefix", Type: NewFunction([]*Type{Optional(stringT)}, nil, false, nil)},
 		{Key: "close", Type: NewFunction(nil, nil, false, nil)},
 	})
 
 	m["debug"] = withVersion([]TableField{
-		{Key: "traceback", Type: NewFunction([]*Type{Optional(stringT), Optional(numberT)},
-			[]*Type{stringT}, false, nil)},
+		{Key: "traceback", Type: NewFunction([]*Type{Optional(anyT), Optional(numberT)},
+			[]*Type{anyT}, false, nil)},
 		{Key: "getinfo", Type: NewFunction([]*Type{anyT, Optional(stringT)}, []*Type{anyT}, false, nil)},
 		{Key: "sethook", Type: NewFunction([]*Type{Optional(anyT), Optional(stringT), Optional(numberT)},
 			nil, false, nil)},
 		{Key: "gethook", Type: NewFunction(nil, []*Type{anyT}, false, nil)},
 	})
+
+	m["io"] = ioModule()
 
 	m["http"] = httpModuleType()
 	m["os"] = osModuleType()
@@ -245,26 +249,34 @@ func nativeModules() map[string]*Type {
 		{Key: "eye", Type: NewFunction([]*Type{numberT}, []*Type{anyT}, false, nil)},
 		{Key: "arange", Type: NewFunction([]*Type{numberT, Optional(numberT), Optional(numberT)},
 			[]*Type{anyT}, false, nil)},
-		{Key: "linspace", Type: NewFunction([]*Type{numberT, numberT, Optional(numberT)},
+		{Key: "linspace", Type: NewFunction([]*Type{numberT, numberT, numberT},
 			[]*Type{anyT}, false, nil)},
 		{Key: "concat", Type: NewFunction(nil, []*Type{anyT}, true, anyT)},
 		{Key: "matmul", Type: NewFunction([]*Type{anyT, anyT}, []*Type{anyT}, false, nil)},
 		{Key: "is_ndarray", Type: NewFunction([]*Type{anyT}, []*Type{booleanT}, false, nil)},
 	})
 
+	// clustering.<algo>(data, <k | eps | bandwidth>, ...): see
+	// internal/native/datascience/clustering/clustering.go.
+	withOpts := func(params ...*Type) *Type {
+		return NewFunction(append(params, Optional(anyT)), []*Type{anyT}, false, nil)
+	}
 	m["clustering"] = withVersion([]TableField{
-		{Key: "kmeans", Type: fitFn()},
-		{Key: "dbscan", Type: fitFn()},
-		{Key: "hierarchical", Type: fitFn()},
-		{Key: "meanshift", Type: fitFn()},
+		{Key: "kmeans", Type: withOpts(anyT, numberT)},
+		{Key: "dbscan", Type: NewFunction([]*Type{anyT, numberT, numberT}, []*Type{anyT}, false, nil)},
+		{Key: "hierarchical", Type: withOpts(anyT, numberT)},
+		{Key: "meanshift", Type: withOpts(anyT, numberT)},
 	})
 
+	// The classification constructors build an untrained model; see
+	// internal/native/datascience/classification/classification.go.
 	m["classification"] = withVersion([]TableField{
-		{Key: "knn", Type: fitFn()},
-		{Key: "logistic", Type: fitFn()},
-		{Key: "naivebayes", Type: fitFn()},
-		{Key: "perceptron", Type: fitFn()},
-		{Key: "svm", Type: fitFn()},
+		{Key: "knn", Type: NewFunction([]*Type{Optional(numberT)}, []*Type{anyT}, false, nil)},
+		{Key: "logistic", Type: withOpts()},
+		// naivebayes("spam", "ham", ..., { tfidf = true }?)
+		{Key: "naivebayes", Type: NewFunction(nil, []*Type{anyT}, true, anyT)},
+		{Key: "perceptron", Type: withOpts()},
+		{Key: "svm", Type: withOpts()},
 	})
 
 	m["plot"] = withVersion([]TableField{
@@ -277,7 +289,7 @@ func nativeModules() map[string]*Type {
 
 	m["plugin"] = NewTable([]TableField{
 		{Key: "supported", Type: booleanT},
-		{Key: "unsupported_reason", Type: NewFunction(nil, []*Type{stringT}, false, nil)},
+		{Key: "unsupported_reason", Type: NewFunction(nil, []*Type{Optional(stringT)}, false, nil)},
 		{Key: "dir", Type: NewFunction(nil, []*Type{stringT}, false, nil)},
 		{Key: "open", Type: NewFunction([]*Type{stringT}, []*Type{anyT, Optional(stringT)}, false, nil)},
 		{Key: "generate", Type: NewFunction([]*Type{stringT, Optional(anyT)},
@@ -290,8 +302,21 @@ func nativeModules() map[string]*Type {
 	return m
 }
 
-func fitFn() *Type {
-	return NewFunction([]*Type{anyT, Optional(anyT)}, []*Type{anyT}, false, nil)
+// standardGlobalModules are the native modules that are also globals at
+// runtime; keep in sync with cmd/luascript/natives.go::stdGlobalModules.
+var standardGlobalModules = []string{"os", "io", "utf8"}
+
+func leveledEncodeFn() *Type {
+	return NewFunction([]*Type{stringT, Optional(numberT)}, []*Type{stringT}, false, nil)
+}
+
+// huffmanEncodedType is what compression.encode returns and
+// compression.decode accepts.
+func huffmanEncodedType() *Type {
+	return NewTable([]TableField{
+		{Key: "bits", Type: stringT},
+		{Key: "codes", Type: anyT},
+	}, nil)
 }
 
 func statsModuleType() *Type {
@@ -345,15 +370,16 @@ func linalgModuleType() *Type {
 		{Key: "scale", Type: NewFunction([]*Type{mat, numberT}, []*Type{mat}, false, nil)},
 		{Key: "transpose", Type: NewFunction([]*Type{mat}, []*Type{mat}, false, nil)},
 		{Key: "identity", Type: NewFunction([]*Type{numberT}, []*Type{mat}, false, nil)},
-		{Key: "zeros", Type: NewFunction([]*Type{numberT, Optional(numberT)}, []*Type{mat}, false, nil)},
-		{Key: "ones", Type: NewFunction([]*Type{numberT, Optional(numberT)}, []*Type{mat}, false, nil)},
+		{Key: "zeros", Type: NewFunction([]*Type{numberT, numberT}, []*Type{mat}, false, nil)},
+		{Key: "ones", Type: NewFunction([]*Type{numberT, numberT}, []*Type{mat}, false, nil)},
 		{Key: "det", Type: NewFunction([]*Type{mat}, []*Type{numberT}, false, nil)},
 		{Key: "trace", Type: NewFunction([]*Type{mat}, []*Type{numberT}, false, nil)},
 		{Key: "norm", Type: NewFunction([]*Type{mat}, []*Type{numberT}, false, nil)},
 		{Key: "dot", Type: NewFunction([]*Type{mat, mat}, []*Type{numberT}, false, nil)},
 		{Key: "distance", Type: NewFunction([]*Type{mat, mat}, []*Type{numberT}, false, nil)},
-		{Key: "inverse", Type: NewFunction([]*Type{mat}, []*Type{Optional(mat), Optional(anyT)}, false, nil)},
-		{Key: "solve", Type: NewFunction([]*Type{mat, mat}, []*Type{Optional(mat), Optional(anyT)}, false, nil)},
+		// inverse and solve raise on a singular matrix rather than returning nil, err.
+		{Key: "inverse", Type: NewFunction([]*Type{mat}, []*Type{mat}, false, nil)},
+		{Key: "solve", Type: NewFunction([]*Type{mat, mat}, []*Type{mat}, false, nil)},
 
 		{Key: "cholesky", Type: NewFunction([]*Type{mat}, []*Type{mat}, false, nil)},
 		{Key: "qr", Type: NewFunction([]*Type{mat}, []*Type{mat, mat}, false, nil)},
@@ -371,7 +397,7 @@ func testModuleType() *Type {
 		{Key: "it", Type: NewFunction([]*Type{stringT, anyT}, nil, false, nil)},
 		{Key: "test", Type: NewFunction([]*Type{stringT, anyT}, nil, false, nil)},
 		{Key: "skip", Type: NewFunction([]*Type{stringT, Optional(anyT)}, nil, false, nil)},
-		{Key: "fail", Type: NewFunction([]*Type{Optional(stringT)}, nil, false, nil)},
+		{Key: "fail", Type: NewFunction([]*Type{Optional(anyT)}, nil, false, nil)},
 		{Key: "before_each", Type: NewFunction([]*Type{anyT}, nil, false, nil)},
 		{Key: "after_each", Type: NewFunction([]*Type{anyT}, nil, false, nil)},
 	}
@@ -415,8 +441,9 @@ func nativeMathModuleType() *Type {
 			[]*Type{numberT}, false, nil)},
 		TableField{Key: "clamp", Type: NewFunction([]*Type{numberT, numberT, numberT},
 			[]*Type{numberT}, false, nil)},
-		TableField{Key: "max", Type: NewFunction([]*Type{numberT}, []*Type{numberT}, true, numberT)},
-		TableField{Key: "min", Type: NewFunction([]*Type{numberT}, []*Type{numberT}, true, numberT)},
+		// max/min/mean take either numbers or a single array of numbers.
+		TableField{Key: "max", Type: NewFunction([]*Type{anyT}, []*Type{numberT}, true, anyT)},
+		TableField{Key: "min", Type: NewFunction([]*Type{anyT}, []*Type{numberT}, true, anyT)},
 		TableField{Key: "modf", Type: NewFunction([]*Type{numberT},
 			[]*Type{numberT, numberT}, false, nil)},
 		TableField{Key: "random", Type: NewFunction(nil, []*Type{numberT}, true, numberT)},
@@ -424,7 +451,7 @@ func nativeMathModuleType() *Type {
 			[]*Type{Optional(numberT)}, false, nil)},
 		TableField{Key: "ult", Type: NewFunction([]*Type{numberT, numberT},
 			[]*Type{booleanT}, false, nil)},
-		TableField{Key: "mean", Type: NewFunction([]*Type{anyT}, []*Type{numberT}, false, nil)},
+		TableField{Key: "mean", Type: NewFunction([]*Type{anyT}, []*Type{numberT}, true, anyT)},
 		TableField{Key: "variance", Type: NewFunction([]*Type{anyT}, []*Type{numberT}, false, nil)},
 		TableField{Key: "standard_deviation", Type: NewFunction([]*Type{anyT},
 			[]*Type{numberT}, false, nil)},
@@ -547,7 +574,7 @@ func osModuleType() *Type {
 		{Key: "execute", Type: NewFunction([]*Type{Optional(stringT)}, []*Type{anyT}, true, anyT)},
 		{Key: "setlocale", Type: NewFunction([]*Type{Optional(stringT), Optional(stringT)},
 			[]*Type{Optional(stringT)}, false, nil)},
-		{Key: "hostname", Type: NewFunction(nil, []*Type{anyT, Optional(stringT)}, false, nil)},
+		{Key: "hostname", Type: NewFunction(nil, []*Type{stringT}, false, nil)},
 		{Key: "platform", Type: stringT},
 		{Key: "arch", Type: stringT},
 
@@ -560,11 +587,12 @@ func osModuleType() *Type {
 
 		{Key: "remove", Type: NewFunction([]*Type{stringT}, fsResult, false, nil)},
 		{Key: "rename", Type: NewFunction([]*Type{stringT, stringT}, fsResult, false, nil)},
-		{Key: "mkdir", Type: NewFunction([]*Type{stringT, Optional(anyT)}, fsResult, false, nil)},
-		{Key: "open", Type: NewFunction([]*Type{stringT, Optional(numberT), Optional(numberT)},
-			[]*Type{anyT, Optional(stringT)}, false, nil)},
+		// mkdir, open and create raise on failure instead of returning nil, err.
+		{Key: "mkdir", Type: NewFunction([]*Type{stringT, numberT}, nil, false, nil)},
+		{Key: "open", Type: NewFunction([]*Type{stringT, numberT, numberT},
+			[]*Type{anyT}, false, nil)},
 		{Key: "create", Type: NewFunction([]*Type{stringT},
-			[]*Type{anyT, Optional(stringT)}, false, nil)},
+			[]*Type{anyT}, false, nil)},
 
 		{Key: "o_rdonly", Type: numberT},
 		{Key: "o_wronly", Type: numberT},

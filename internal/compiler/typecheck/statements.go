@@ -97,11 +97,17 @@ func (c *checker) walkStatement(s ast.Statement) {
 }
 
 func (c *checker) walkLocalStatement(s *ast.LocalStatement) {
-	values := c.expandRHS(s.Values, len(s.Names))
+	expected := make([]*Type, len(s.Names))
+	for i, name := range s.Names {
+		if name.Type != nil {
+			expected[i] = c.resolveAST(name.Type)
+		}
+	}
+	values := c.expandRHSExpecting(s.Values, len(s.Names), expected)
 	for i, name := range s.Names {
 		var bound *Type
 		if name.Type != nil {
-			declared := c.resolveAST(name.Type)
+			declared := expected[i]
 			if !assignable(values[i], declared) {
 				c.errAssign(s.Line(), values[i], declared)
 			}
@@ -208,7 +214,11 @@ func (c *checker) walkFunctionDeclaration(s *ast.FunctionDeclaration) {
 }
 
 func (c *checker) walkAssignStatement(s *ast.AssignStatement) {
-	rhs := c.expandRHS(s.Values, len(s.Targets))
+	expected := make([]*Type, len(s.Targets))
+	for i, t := range s.Targets {
+		expected[i] = c.assignTargetType(t)
+	}
+	rhs := c.expandRHSExpecting(s.Values, len(s.Targets), expected)
 	for i, t := range s.Targets {
 		switch tgt := t.(type) {
 		case *ast.Identifier:
@@ -348,7 +358,7 @@ func (c *checker) walkReturn(r *ast.ReturnStatement) {
 		return
 	}
 	for i, v := range r.Values {
-		got := c.typeOfExpression(v)
+		got := c.typeOfExpressionExpecting(v, expectedFor(declared, i))
 		if i >= len(declared) {
 			c.errf(v.Line(), "extra-return",
 				"function returns more values (index %d) than declared (%d)",
@@ -389,7 +399,7 @@ func (c *checker) functionShapeFromExpr(fe *ast.FunctionExpression) *Type {
 			params[i] = anyT
 		}
 		if p.Default != nil {
-			got := c.typeOfExpression(p.Default)
+			got := c.typeOfExpressionExpecting(p.Default, params[i])
 			if !assignable(got, params[i]) {
 				c.errAssign(p.Default.Line(), got, params[i])
 			}

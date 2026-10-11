@@ -63,5 +63,5 @@ end)
 print("labels:", labels[1], labels[2], labels[3])
 
 -- A type error the checker catches (uncomment to see it):
---   local bad: Box<number> = { value = "oops" }   -- string ~= number
---   local n2: Box<number> = identity("str")        -- infers Box<string>
+--   local bad: Box<number> = { value = "oops" }   -- field "value": string ~= number
+--   local n2: Box<number> = identity("str")        -- infers string, not a Box

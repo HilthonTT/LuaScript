@@ -169,7 +169,8 @@ func TestMkdirAndRemove(t *testing.T) {
 func TestCreateRejectsNonString(t *testing.T) {
 	msg := runOSErr(t, `
 		local os = require("os")
-		os.create({})
+		local notAString: any = {} -- a {} literal would be rejected at compile time
+		os.create(notAString)
 	`)
 	if !strings.Contains(msg, "string expected") {
 		t.Errorf("error = %q, want it to mention 'string expected'", msg)
@@ -179,7 +180,8 @@ func TestCreateRejectsNonString(t *testing.T) {
 func TestOpenRequiresThreeArgs(t *testing.T) {
 	msg := runOSErr(t, `
 		local os = require("os")
-		os.open("foo")
+		local open: any = os.open -- the checker would reject a 1-arg call
+		open("foo")
 	`)
 	if msg == "" {
 		t.Errorf("expected an error message")

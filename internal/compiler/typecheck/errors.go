@@ -13,9 +13,17 @@ type TypeError struct {
 	Message string
 	Got     *Type
 	Want    *Type
+
+	// Field is the path inside a table literal where a contextual check
+	// failed ("age", "address.city", "[2]"); empty elsewhere.
+	Field string
 }
 
 func (e *TypeError) Format() string {
+	if e.Got != nil && e.Want != nil && e.Field != "" {
+		return fmt.Sprintf("Type %s could not be converted into %s in field %q at line %d",
+			quoteType(e.Got), quoteType(e.Want), e.Field, e.Line)
+	}
 	if e.Got != nil && e.Want != nil {
 		return fmt.Sprintf("Type %s could not be converted into %s at line %d",
 			quoteType(e.Got), quoteType(e.Want), e.Line)

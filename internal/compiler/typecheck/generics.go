@@ -238,9 +238,11 @@ func substitute(t *Type, subst map[string]*Type) *Type {
 		if t.Table == nil {
 			return t
 		}
+		changed := false
 		fields := make([]TableField, len(t.Table.Fields))
 		for i, f := range t.Table.Fields {
 			fields[i] = TableField{Key: f.Key, Type: substitute(f.Type, subst)}
+			changed = changed || fields[i].Type != f.Type
 		}
 		var idx *Indexer
 		if t.Table.Indexer != nil {
@@ -248,9 +250,13 @@ func substitute(t *Type, subst map[string]*Type) *Type {
 				Key:   substitute(t.Table.Indexer.Key, subst),
 				Value: substitute(t.Table.Indexer.Value, subst),
 			}
+			changed = changed || idx.Key != t.Table.Indexer.Key || idx.Value != t.Table.Indexer.Value
 		}
 		nt := NewTable(fields, idx)
-		nt.AliasName = t.AliasName
+		// A name like "Box<T>" would misdescribe the instantiated shape.
+		if !changed {
+			nt.AliasName = t.AliasName
+		}
 		return nt
 	}
 	return t

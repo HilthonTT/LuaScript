@@ -88,6 +88,12 @@ func (c *checker) widenLoopAssigned(b *ast.Block) {
 }
 
 func (c *checker) expandRHS(values []ast.Expression, n int) []*Type {
+	return c.expandRHSExpecting(values, n, nil)
+}
+
+// expandRHSExpecting is expandRHS with an expected type per slot, used to
+// check table constructors against the annotation they are assigned to.
+func (c *checker) expandRHSExpecting(values []ast.Expression, n int, expected []*Type) []*Type {
 	out := make([]*Type, n)
 	for i := range n {
 		out[i] = nilT
@@ -97,11 +103,11 @@ func (c *checker) expandRHS(values []ast.Expression, n int) []*Type {
 	}
 	m := len(values)
 	for i := 0; i < m-1 && i < n; i++ {
-		out[i] = c.typeOfExpression(values[i])
+		out[i] = c.typeOfExpressionExpecting(values[i], expectedFor(expected, i))
 	}
 	last := values[m-1]
 	if m-1 < n {
-		out[m-1] = c.typeOfExpression(last)
+		out[m-1] = c.typeOfExpressionExpecting(last, expectedFor(expected, m-1))
 	} else {
 		c.walkExpressionDiscard(last)
 	}
@@ -119,10 +125,19 @@ func (c *checker) installGlobals() {
 	for name, t := range g {
 		c.env.define(name, t)
 	}
+	// os, io and utf8 are globals at runtime (promoteStandardGlobals binds
+	// each to its require() table), so they share the require() types.
+	natives := nativeModules()
+	for _, name := range standardGlobalModules {
+		if t, ok := natives[name]; ok {
+			c.env.define(name, t)
+		}
+	}
 	c.builtins = map[string]*Type{
 		"assert": g["assert"],
 		"error":  g["error"],
 		"type":   g["type"],
 		"typeof": g["typeof"],
+		"require": g["require"],
 	}
 }

@@ -155,15 +155,6 @@ func (e *env) lookup(name string) (*Type, bool) {
 	return nil, false
 }
 
-func (e *env) shadowsGlobal(name string) bool {
-	for i := len(e.frames) - 1; i >= 1; i-- {
-		if _, ok := e.frames[i].bindings[name]; ok {
-			return true
-		}
-	}
-	return false
-}
-
 func (e *env) alias(name string) *Type {
 	if t, ok := e.aliases[name]; ok {
 		return t
