@@ -58,10 +58,10 @@
     "vscode:prepublish": "bun run build:server && bun run compile"
   },
   "dependencies": {
-    "vscode-languageclient": "^10.1.0"
+    "vscode-languageclient": "^10.1.2"
   },
   "devDependencies": {
-    "@types/node": "^26.1.2",
+    "@types/node": "^26.6.5",
     "@types/vscode": "^1.105.0",
     "typescript": "^7.0.2"
   }
