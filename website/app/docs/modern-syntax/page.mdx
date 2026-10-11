@@ -1,0 +1,341 @@
+export const metadata = { title: "Modern syntax" };
+
+# Modern syntax
+
+LuaScript keeps Lua 5.4's statements and expressions intact and layers a set of conveniences on top: compound assignment, `continue`, if-expressions, default parameters, destructuring, table spread, optional chaining, nil-coalescing, a pipeline operator and string interpolation. None of them changes what an existing Lua program means. Each one is either rewritten into ordinary Lua at parse time or compiled to a short, fixed instruction sequence.
+
+## At a glance
+
+| Syntax | Meaning | How it is implemented |
+| ------ | ------- | --------------------- |
+| `x += e` (also `-= *= /= \|= &= <<= >>=`) | `x = x + e` | Parser desugar |
+| `continue` | Skip to the next iteration of the innermost loop | Real AST node: jumps to the loop's continue anchor |
+| `if c then a else b` | A conditional that is a value | Real AST node: jump chain, folded when `c` is a literal |
+| `function f(x = 10)` | `x` gets `10` when the caller passes `nil` | Codegen prologue: `if x == nil then x = 10 end` |
+| `local { a, b } = t` | `local a, b = t.a, t.b` | Bytecode generator (field reads; rest via `__rest_record`) |
+| `local [ x, y ] = t` | `local x, y = t[1], t[2]` | Bytecode generator (index reads; rest via `__rest_array`) |
+| `{ ...a, ...b }` | Merge tables into a constructor | Bytecode generator, calling the `__tbl_spread` runtime helper |
+| `a?.b`, `a?[k]`, `a?:m()` | `nil` instead of an error when `a` is `nil` | Bytecode generator: `JumpIfNil` guards |
+| `a ?? b` | `b` only when `a` is `nil` | Bytecode generator: `JumpIfNil` |
+| `x \|> f(y)` | `f(x, y)` | Parser desugar to a call |
+| `` `hello {name}` `` | String interpolation | Parser desugar to `..` |
+
+The full table of what is desugared and where lives in [DESIGN.md](https://github.com/HilthonTT/LuaScript/blob/main/DESIGN.md#what-is-desugared-and-where). The [Architecture](/docs/architecture/) page explains the stages.
+
+## Compound assignment
+
+`x op= e` is shorthand for `x = x op e`. Eight operators are supported: the four arithmetic ones and the four bitwise ones.
+
+```luascript title="compound.lsc"
+local count = 10
+count += 3       -- 13
+count -= 5       -- 8
+count *= 4       -- 32
+count /= 2       -- / always produces a float
+print(count)     --> 16.0
+
+local mask = 0x0F
+mask |= 0x30
+mask &= 0x3C
+mask <<= 2
+mask >>= 1
+print(mask)      --> 120
+
+local stats = { hits = 0 }
+stats.hits += 1
+stats.hits += 2
+print(stats.hits) --> 3
+```
+
+| Operator | Expands to |
+| -------- | ---------- |
+| `+=` `-=` `*=` `/=` | `x = x + e`, `x - e`, `x * e`, `x / e` |
+| `\|=` `&=` | `x = x \| e`, `x & e` |
+| `<<=` `>>=` | `x = x << e`, `x >> e` |
+
+There is no `..=`, `//=`, `%=` or `^=`. The rewrite happens in the parser, so later stages only ever see a plain assignment. When the target is a field or an index, the object and key are evaluated once into hidden locals, so `t[key()] += 1` calls `key()` a single time.
+
+A compound assignment to a `<const>` local is a compile error, just like a plain assignment.
+
+## continue
+
+`continue` skips the rest of the current iteration of the innermost enclosing loop. It works in numeric `for`, generic `for`, `while` and `repeat`.
+
+```luascript title="continue.lsc"
+local odds = {}
+for i = 1, 10 do
+    if i % 2 == 0 then continue end
+    odds[#odds + 1] = i
+end
+print(table.concat(odds, ", "))   --> 1, 3, 5, 7, 9
+
+local c, sum = 0, 0
+repeat
+    c += 1
+    if c % 2 == 0 then continue end
+    sum += c
+until c >= 5
+print(sum)                        --> 9
+```
+
+`continue` is a real statement, not a `goto`. It closes any upvalues captured in the iteration on the way out, and like `break` it cannot escape a function body.
+
+### The repeat/until scoping rule
+
+In `repeat ... until cond`, `cond` can read locals declared in the loop body. `continue` jumps straight to the `until` check, so if a `continue` can skip a local's declaration, reading that local in the condition would see an uninitialized slot. LuaScript rejects this at compile time, as Luau does:
+
+```luascript
+local n = 0
+repeat
+    n += 1
+    if n < 3 then continue end
+    local done = n >= 5
+until done
+```
+
+```text
+luascript: line 6: local 'done' is used in the repeat...until condition but a 'continue' can skip its declaration
+```
+
+Declare the local before the first `continue`, or compute the condition from variables declared outside the loop.
+
+### Still a valid identifier
+
+`continue` is a contextual keyword. It is only special in statement position when nothing follows that could extend it into an expression, so existing Lua code that uses it as a name keeps working:
+
+```luascript
+local continue = "still a valid name"
+print(continue)   --> still a valid name
+```
+
+## If-expressions
+
+An if-expression is a conditional that produces a value:
+
+```luascript
+local x = 7
+local sign = if x > 0 then "positive" elseif x < 0 then "negative" else "zero"
+print(sign)                                 --> positive
+
+local n = 3
+print("item" .. (if n == 1 then "" else "s"))  --> items
+```
+
+It differs from the `if` statement in three ways: there is no closing `end`, each arm is a single expression rather than a block, and `else` is mandatory because the expression must always produce a value. Only the taken arm is evaluated.
+
+If-expressions replace the `cond and a or b` idiom, which silently breaks when `a` is `false` or `nil`:
+
+```luascript
+local verbose = true
+print(if verbose then false else "quiet")   --> false
+print(verbose and false or "quiet")         --> quiet
+```
+
+## Default parameters
+
+A parameter can declare a default value. It applies whenever the argument is `nil` or missing, and it composes with type annotations:
+
+```luascript
+local function greet(name: string, greeting: string = "hello")
+    return greeting .. ", " .. name .. "!"
+end
+print(greet("world"))            --> hello, world!
+print(greet("world", "howdy"))   --> howdy, world!
+
+local function flag(enabled = true) return enabled end
+print(flag(false))               --> false
+```
+
+An explicit `false` does not trigger the default. See [Functions](/docs/functions/) for the details: evaluation per call, and defaults that refer to earlier parameters.
+
+## Destructuring
+
+`local { ... } = t` binds named fields; `local [ ... ] = t` binds array positions. Both forms are `local` declarations only.
+
+### Named fields
+
+```luascript title="destructure.lsc"
+local config = { host = "localhost", port = 8080, debug = true }
+
+local { host, port } = config
+print(host, port)                --> localhost	8080
+
+-- Rename a field: `field = localName`
+local { host = address, port = listenPort } = config
+print(address, listenPort)       --> localhost	8080
+
+-- Fallback for a missing field: `name or default`
+local { timeout or 30, debug or "unset" } = config
+print(timeout, debug)            --> 30	true
+
+-- Rename and fallback together
+local { port = p or 80 } = {}
+print(p)                         --> 80
+```
+
+The fallback applies only when the field is `nil`, never when it is `false`.
+
+### Array positions
+
+```luascript
+local point = { 3, 4, 5 }
+local [ x, y, z ] = point
+print(x, y, z)          --> 3	4	5
+
+local [ a, b, c or 0 ] = { 1, 2 }
+print(a, b, c)          --> 1	2	0
+```
+
+### Rest bindings
+
+The last entry of a pattern may be `...name`. It collects everything not bound ahead of it into a fresh table. A positional rest is renumbered from 1.
+
+```luascript
+local config = { host = "localhost", port = 8080, debug = true }
+local { host, ...others } = config
+print(others.port, others.debug, others.host)   --> 8080	true	nil
+
+local [ first, ...tail ] = { 3, 4, 5 }
+print(first, #tail, tail[1], tail[2])           --> 3	2	4	5
+```
+
+A rest binding anywhere but last is a syntax error, and so is binding the same name twice.
+
+### Typed destructuring
+
+When the source has a known table type, the checker resolves each name against it, so a misspelled field is a compile error instead of a silent `nil`:
+
+```luascript
+type Server = { host: string, port: number }
+
+local function describe(s: Server): string
+    local { host, prot } = s
+    return host
+end
+```
+
+```text
+luascript: type "Server" has no field "prot" at line 4
+```
+
+Destructuring a `nil` value is an error: a compile error when the checker can see it, and `attempt to index a nil value` at run time otherwise.
+
+## Table spread
+
+`...expr` inside a table constructor copies another table's entries in place. Record fields are merged with later entries winning; array entries are appended in order.
+
+```luascript title="spread.lsc"
+local defaults = { retries = 1, timeout = 5 }
+local overrides = { timeout = 60 }
+local merged = { ...defaults, ...overrides, verbose = true }
+print(merged.retries, merged.timeout, merged.verbose)   --> 1	60	true
+
+local head = { 1, 2 }
+local rest = { 3, 4 }
+local all = { 0, ...head, ...rest, 5 }
+print(#all, table.concat(all, " "))                     --> 6	0 1 2 3 4 5
+```
+
+Spread is a shallow copy: nested tables are shared, not cloned.
+
+## Optional chaining
+
+`?.`, `?[ ]` and `?:` read through a value that may be `nil`. If the receiver is `nil`, the whole chain evaluates to `nil` instead of raising `attempt to index a nil value`.
+
+```luascript title="optional.lsc"
+local response = {
+    body = {
+        user = {
+            name = "Ada",
+            greet = function(self) return "hi, " .. self.name end,
+        },
+    },
+}
+
+print(response?.body?.user?.name)              --> Ada
+print(response?.missing?.user?.name)           --> nil
+print(response?["body"]?["user"]?["name"])     --> Ada
+print(response?.body?.user?:greet())           --> hi, Ada
+
+local nothing = nil
+print(nothing?.body?:greet())                  --> nil
+```
+
+The short-circuit covers the rest of the chain: once a guarded link sees `nil`, none of the following links run. Each `?` compiles to a `JumpIfNil` that skips to the end of the chain.
+
+## Nil-coalescing
+
+`a ?? b` evaluates to `a` unless `a` is `nil`, in which case it evaluates `b`. It differs from `or` in exactly one place: `false` is kept.
+
+```luascript
+print(nil ?? "default")     --> default
+print(false ?? "default")   --> false
+print(false or "default")   --> default
+print(0 ?? 1)               --> 0
+
+local response = {}
+local name = response?.body?.user?.name ?? "anonymous"
+print(name)                 --> anonymous
+```
+
+The right side is only evaluated when it is needed.
+
+### With types
+
+An optional access widens its result type with `nil`, and `??` removes it again, so the two pair naturally in typed code:
+
+```luascript
+type Profile = { nickname: string? }
+
+local function display(p: Profile?): string
+    return p?.nickname ?? "guest"
+end
+
+print(display(nil))                    --> guest
+print(display({ nickname = "ada" }))   --> ada
+```
+
+## The pipeline operator
+
+`x |> f` calls `f(x)`. `x |> f(a, b)` inserts `x` as the first argument: `f(x, a, b)`. Pipelines read left to right, which keeps chains of transformations flat.
+
+```luascript title="pipeline.lsc"
+local function double(n: number): number return n * 2 end
+local function add(a: number, b: number): number return a + b end
+
+print(5 |> double)                         --> 10
+print(5 |> add(3))                         --> 8
+print(5 |> double |> double |> add(1))     --> 21
+print("abc" |> string.upper)               --> ABC
+
+local s = "a,b,c"
+print(s |> string.gsub(",", ";"))          --> a;b;c	2
+```
+
+`|>` binds more loosely than every other operator, so the left side is fully evaluated first: `2 + 3 |> double` is `double(2 + 3)`, which is `10`.
+
+The right side must be a function or a call: a name, a field (`string.upper`), a parenthesized expression, a call, or a method call (`value |> obj:method(extra)`). Anything else is a parse error:
+
+```text
+luascript: pipeline: the right side of '|>' must be a function or a call, got 3 at line 1, column 9.
+       hint: write `value |> f`, `value |> f(extra)`, or `value |> obj:method(extra)`
+```
+
+The parser rewrites a pipeline into an ordinary call, so the type checker sees `add(5, 3)` and checks it like any other call.
+
+## String interpolation
+
+Backtick strings interpolate expressions inside braces:
+
+```luascript
+local name, n = "Ada", 3
+print(`hello {name}, you have {n * 2} messages`)   --> hello Ada, you have 6 messages
+```
+
+The parser lowers interpolation to `..` concatenation. Escaping rules and the call-shorthand trap are covered in [Strings](/docs/strings/).
+
+## See also
+
+- [examples/11_compounds.lsc](https://github.com/HilthonTT/LuaScript/blob/main/examples/11_compounds.lsc), [49_continue.lsc](https://github.com/HilthonTT/LuaScript/blob/main/examples/49_continue.lsc), [50_if_expressions.lsc](https://github.com/HilthonTT/LuaScript/blob/main/examples/50_if_expressions.lsc)
+- [examples/60_destructuring.lsc](https://github.com/HilthonTT/LuaScript/blob/main/examples/60_destructuring.lsc), [63_optional_chaining.lsc](https://github.com/HilthonTT/LuaScript/blob/main/examples/63_optional_chaining.lsc)
+- [Errors, try & defer](/docs/errors/) for `try`/`catch`, `defer` and `<close>`

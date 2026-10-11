@@ -1,0 +1,274 @@
+export const metadata = { title: "Strings & patterns" };
+
+# Strings & patterns
+
+Strings are immutable sequences of **bytes**. They can hold any byte, including zero, and `#s` counts bytes, not characters. The `string` library is Lua 5.4's, including the full Lua pattern language; LuaScript adds backtick string interpolation on top.
+
+## Literals
+
+```luascript
+local a = "double quotes"
+local b = 'single quotes'
+local c = "tab:\there, quote: \"x\", backslash: \\"
+local d = 'it\'s'
+print(a, b)                    --> double quotes	single quotes
+print(c)                       --> tab:	here, quote: "x", backslash: \
+print(d)                       --> it's
+print("\65\066", "\x41", "\u{48}\u{49}")   --> AB	A	HI
+```
+
+| Escape            | Meaning                                         |
+| ----------------- | ----------------------------------------------- |
+| `\n \t \r \a \b \f \v` | Newline, tab, carriage return and the other C escapes |
+| `\\ \" \'`        | Backslash and quotes                            |
+| `\ddd`            | Byte with decimal value `ddd` (up to 3 digits)  |
+| `\xhh`            | Byte with hex value `hh`                        |
+| `\u{XXX}`         | UTF-8 encoding of the code point `XXX`          |
+| `\z`              | Skip the following whitespace, including line breaks |
+
+### Long brackets
+
+`[[ ... ]]` delimits a long string. It can span lines and does not process escapes, which makes it convenient for embedded text. Put equals signs between the brackets when the content itself contains `]]`.
+
+```luascript
+local block = [[line one
+line two]]
+print(block)
+print([==[ contains ]] safely ]==])
+```
+
+```text
+line one
+line two
+ contains ]] safely
+```
+
+As in Lua, a newline that immediately follows the opening bracket is dropped, so the text can start on its own line. Line endings inside a long string are normalised to `"\n"`, so a file saved with CRLF line endings produces the same string as one saved with LF.
+
+```luascript
+local poem = [[
+Roses are red,
+violets are blue]]
+print(#[[
+hello]])   --> 5
+print(poem)
+```
+
+```text
+5
+Roses are red,
+violets are blue
+```
+
+## String interpolation
+
+Backtick strings interpolate any expression in braces:
+
+```luascript
+local name = "Ada"
+local items = { "pen", "ink" }
+print(`Hello, {name}! You have {#items} items.`)   --> Hello, Ada! You have 2 items.
+print(`first item: {items[1]:upper()}`)            --> first item: PEN
+print(`2 + 2 = {2 + 2}`)                           --> 2 + 2 = 4
+print(`nil is fine: {nil}`)                        --> nil is fine: nil
+```
+
+Only backtick strings interpolate. `"..."` and `'...'` are always verbatim, so JSON payloads, patterns and `string.format` templates are never touched.
+
+Interpolation is a parse-time desugar: the parser splits the string and joins the pieces with `..`, wrapping each `{expr}` in `tostring(...)`. Every value therefore converts cleanly (including `nil` and tables with a `__tostring` metamethod), and there is no runtime cost beyond the concatenation you would have written yourself.
+
+### Literal braces
+
+Interpolation is decided on the raw source text, before escapes are decoded. To put a literal `{` in a backtick string, use the unicode escapes `\u{7B}` and `\u{7D}`. A lone `}` needs no escaping.
+
+```luascript
+local name = "Ada"
+print(`literal: \u{7B}name\u{7D}`)    --> literal: {name}
+print(`a lone } is fine`)             --> a lone } is fine
+print(`\{name} keeps its backslash`)  --> \{name} keeps its backslash
+print("plain: {name}")                --> plain: {name}
+```
+
+`\{` also suppresses interpolation, but since it is not a real escape sequence, the backslash stays in the output.
+
+### The call-shorthand trap
+
+Lua lets you call a function with a bare string literal: `f"x"` means `f("x")`. A backtick string is a string literal too, and Lua ignores line breaks between tokens. So when a statement ends in a call and the next line starts with a backtick string, the two fuse into one call:
+
+```luascript title="trap.lsc"
+local name = "Ada"
+print(name)
+`{name} says hi`        -- parsed as print(name)(`...`)
+```
+
+```text
+Ada
+luascript: trap.lsc:3: attempt to call a nil value
+```
+
+End the first statement with `;` to separate them. The same applies to `"..."` literals; it is just easier to run into with backticks.
+
+For padding, precision or repeated arguments, `string.format` is still the better tool.
+
+## The string library
+
+Every string has the `string` table as its method table, so `s:upper()` is `string.upper(s)`. Indices start at 1, and negative indices count from the end.
+
+```luascript
+local s = "Hello, World"
+print(s:upper(), s:lower())        --> HELLO, WORLD	hello, world
+print(s:len(), #s)                 --> 12	12
+print(s:sub(1, 5), s:sub(-5))      --> Hello	World
+print(s:reverse())                 --> dlroW ,olleH
+print(("ab"):rep(3, ","))          --> ab,ab,ab
+print(s:byte(1), string.char(72, 105))   --> 72	Hi
+```
+
+A literal needs parentheses to take a method: `("ab"):rep(3)`.
+
+| Function                     | Returns                                                     |
+| ---------------------------- | ----------------------------------------------------------- |
+| `len upper lower reverse`    | Length, case conversions, byte-reversed copy                |
+| `sub(s, i [, j])`            | Substring from byte `i` to `j`                              |
+| `rep(s, n [, sep])`          | `n` copies, optionally separated                            |
+| `byte(s [, i [, j]])` / `char(...)` | Byte values to and from strings                      |
+| `format(fmt, ...)`           | Formatted string (below)                                    |
+| `find match gmatch gsub`     | Pattern matching (below)                                    |
+| `pack unpack packsize`       | Binary serialization (below)                                |
+
+### string.format
+
+`string.format` follows C `printf`, with `%s` accepting any value (via `tostring`) and `%q` producing a quoted, re-readable string.
+
+```luascript
+print(string.format("%5d|%-5d|%05.1f", 42, 42, 3.14159))
+print(string.format("%x %X %o %e", 255, 255, 8, 12345.678))
+print(string.format("%10s|%-10s|", "right", "left"))
+print(string.format("%.3f %g %s %%", 2 / 3, 1e20, nil))
+print(string.format("%q", 'say "hi"'))
+```
+
+```text
+   42|42   |003.1
+ff FF 10 1.234568e+04
+     right|left      |
+0.667 1e+20 nil %
+"say \"hi\""
+```
+
+## Patterns
+
+Lua patterns are not regular expressions: they are smaller, have no alternation (`|`), and use `%` as the escape character. In exchange they are fast and predictable. LuaScript implements the complete Lua 5.4 pattern surface.
+
+| Item            | Matches                                                                 |
+| --------------- | ----------------------------------------------------------------------- |
+| `.`             | Any byte                                                                |
+| `%a %d %l %u`   | Letters, digits, lowercase, uppercase                                   |
+| `%s %w %x`      | Whitespace, alphanumerics, hex digits                                   |
+| `%p %c %g`      | Punctuation, control characters, printable non-space                    |
+| `%A %D %S ...`  | Uppercase class letter: the complement                                  |
+| `%` + punctuation | `%.` `%%` `%(` `%[`: that character, literally                         |
+| `[set]` `[^set]`| Any byte in / not in the set; ranges like `[a-f]` and classes like `[%w_]` |
+| `* + -`         | 0 or more (greedy), 1 or more (greedy), 0 or more (lazy)                |
+| `?`             | Optional                                                                |
+| `^` `$`         | Anchor at the start / end (only at the pattern's edges)                 |
+| `( )`           | Capture; `()` captures the current position                             |
+| `%1`–`%9`       | Back-reference to an earlier capture                                    |
+| `%bxy`          | A balanced run from `x` to `y`, e.g. `%b()`                             |
+| `%f[set]`       | Frontier: the transition from not-in-set to in-set                      |
+
+### find and match
+
+`find` returns start and end positions plus any captures; `match` returns the captures, or the whole match if there are none. Both take an optional start position; `find`'s fourth argument `true` disables patterns for a plain substring search.
+
+```luascript
+print(string.find("hello world", "o w"))         --> 5	7
+print(string.find("a.b.c", ".", 1, true))        --> 2	2   plain search
+print(string.find("key = value", "(%w+)%s*=%s*(%w+)"))   --> 1	11	key	value
+
+print(("price: $42"):match("%$(%d+)"))           --> 42
+print(("2024-06-15"):match("(%d+)-(%d+)-(%d+)")) --> 2024	06	15
+print(("  trim me  "):match("^%s*(.-)%s*$"))     --> trim me
+print(("<a><b>"):match("<.*>"), ("<a><b>"):match("<.->"))   --> <a><b>	<a>
+print(("hello"):match("()ll()"))                 --> 3	5
+print(([[say "hi"]]):match("([\"'])(.-)%1"))     --> "	hi
+print(("f(x, y(z)) tail"):match("%b()"))         --> (x, y(z))
+print(string.match("x", "y"))                    --> nil
+```
+
+### gmatch
+
+`gmatch` returns an iterator over successive matches, yielding the captures of each:
+
+```luascript
+for word in ("the quick brown fox"):gmatch("%a+") do
+    io.write(word, " ")
+end
+print()                                          --> the quick brown fox
+
+for k, v in ("a=1, b=2, c=3"):gmatch("(%a+)=(%d+)") do
+    io.write(k, "->", v, " ")
+end
+print()                                          --> a->1 b->2 c->3
+```
+
+### gsub
+
+`gsub(s, pattern, repl [, n])` returns the new string **and** the number of substitutions. The replacement can be a string (with `%0` for the whole match and `%1`–`%9` for captures), a table (indexed by the first capture), or a function (called with the captures).
+
+```luascript
+print(("hello world"):gsub("o", "0"))                        --> hell0 w0rld	2
+print(("aaaa"):gsub("a", "b", 2))                            --> bbaa	2
+print(("John Smith"):gsub("(%w+) (%w+)", "%2 %1"))           --> Smith John	1
+print(("abc"):gsub("%w", "%0%0"))                            --> aabbcc	3
+
+local vars = { name = "Ada", lang = "LuaScript" }
+print(("$name writes $lang"):gsub("%$(%w+)", vars))          --> Ada writes LuaScript	2
+
+print(("THE (quick) fox"):gsub("%f[%a]%a+", function(w) return w:lower() end))
+--> the (quick) fox	3
+print(("cat concat cat"):gsub("%f[%w]cat%f[%W]", "dog"))     --> dog concat dog	2
+```
+
+Because `gsub` returns two values, wrap it in parentheses when you only want the string: `local s = (str:gsub("a", "b"))`.
+
+<Callout type="tip">
+When you need alternation, Unicode classes or other regex features, use the `regexp` module, which wraps Go's RE2 engine: `require("regexp").compile("([a-z]+)@([a-z.]+)")`. See [Native modules](/docs/native-modules/).
+</Callout>
+
+## Binary data: string.pack
+
+`string.pack`, `string.unpack` and `string.packsize` serialise values into binary strings using Lua 5.4 format strings: `<` / `>` for endianness, `i4` / `I2` for signed and unsigned integers of a given size, `z` for a zero-terminated string, and so on.
+
+```luascript
+local packed = string.pack(">I2 I4 z", 513, 70000, "hi")
+print(#packed, string.packsize(">I2 I4"))       --> 9	6
+print(string.unpack(">I2 I4 z", packed))        --> 513	70000	hi	10
+```
+
+`unpack` returns the decoded values followed by the position of the first unread byte.
+
+## UTF-8
+
+Because strings are bytes, `#s` and `s:sub` count bytes. The `utf8` library, available as a global, works in code points:
+
+```luascript
+local s = "héllo"
+print(#s, utf8.len(s))                   --> 6	5
+print(s:sub(1, 2))                       -- "h" plus half of the é: a broken byte
+print(utf8.char(72, 105, 0x4E2D))        --> Hi中
+print(utf8.codepoint("é"))               --> 233
+print(utf8.offset(s, 3))                 --> 4   byte position of the 3rd character
+
+for pos, code in utf8.codes("hé!") do
+    io.write(pos, ":", code, " ")
+end
+print()                                  --> 1:104 2:233 4:33
+```
+
+`utf8.charpattern` is a pattern that matches exactly one UTF-8 character, so `s:gmatch(utf8.charpattern)` iterates characters. `utf8.len` returns `nil` plus the position of the first invalid byte, which makes it a cheap validity check.
+
+## See also
+
+- Runnable sources: [examples/22_string_interpolation.lsc](https://github.com/HilthonTT/LuaScript/blob/main/examples/22_string_interpolation.lsc), [examples/26_patterns.lsc](https://github.com/HilthonTT/LuaScript/blob/main/examples/26_patterns.lsc), [examples/24_bit_utf8.lsc](https://github.com/HilthonTT/LuaScript/blob/main/examples/24_bit_utf8.lsc).
+- [Standard library](/docs/stdlib/) for the complete function reference.

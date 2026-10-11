@@ -1,0 +1,478 @@
+export const metadata = { title: "Core library" };
+
+# Core library
+
+The core library is everything you can use **without a `require`**: the base functions (`print`, `pairs`, `pcall`, …) and the auto-global libraries `string`, `table`, `math`, `coroutine`, `os`, `io` and `utf8`. It follows the Lua 5.4 standard library closely and adds two reflection helpers, `typeof` and `sizeof`.
+
+The base functions and the `string`, `table`, `math`, `coroutine`, `os`, `io` and `utf8` libraries have **hand-written type signatures**, so misuse is a compile error rather than a runtime surprise:
+
+```luascript
+print(math.sqrt(true))
+```
+
+```text
+luascript: Type "boolean" could not be converted into "number" at line 1
+```
+
+<Callout type="tip">
+Everything on this page is also available offline. `luascript doc` lists every topic, `luascript doc string` shows one library, `luascript doc math.clamp` shows one entry, and `luascript doc -k codepoint` searches. The same reference is available inside the REPL as `doc <topic>`.
+</Callout>
+
+For the `require()`-able modules (`json`, `http`, `crypto`, …), see [Native modules](/docs/native-modules/).
+
+## Base functions
+
+| Function | Description |
+| -------- | ----------- |
+| `print(...)` | Write the arguments to stdout, separated by tabs, followed by a newline. Honours `__tostring`. |
+| `type(v)` | The type name: `"nil"`, `"boolean"`, `"number"`, `"string"`, `"table"`, `"function"`, `"thread"` or `"userdata"`. |
+| `typeof(v)` | LuaScript extension. Like `type`, but finer-grained: `"integer"` / `"float"` for numbers, a table's `__type` metatable field, a struct's name. |
+| `sizeof(v)` | LuaScript extension. The byte length of a string, the entry count of a table (array and hash parts), or a scalar's size in bytes. |
+| `tostring(v)` | Convert to a string, honouring `__tostring`. |
+| `tonumber(v [, base])` | Convert to a number, optionally in base 2–36. `nil` if conversion fails. |
+| `ipairs(t)` | Iterate `t[1]`, `t[2]`, … up to the first `nil`. |
+| `pairs(t)` | Iterate every key/value pair. Array entries come first, then hash entries in insertion order. |
+| `next(t [, key])` | The pair after `key`, or `nil` at the end. `next(t)` starts a traversal. |
+| `select(n, ...)` | The arguments from index `n` on, or their count when `n` is `"#"`. |
+| `error(v [, level])` | Raise `v` as an error. The value need not be a string. |
+| `assert(v [, msg])` | Raise `msg` if `v` is `nil` or `false`, otherwise return every argument. |
+| `pcall(f, ...)` | Call `f` in protected mode: `true, results...` or `false, err`. |
+| `xpcall(f, msgh, ...)` | Like `pcall`, but pass a raised error through the handler `msgh` first. |
+| `setmetatable(t, mt)` | Set (or, with `nil`, remove) `t`'s metatable. Returns `t`. |
+| `getmetatable(t)` | `t`'s metatable, or `nil`. |
+| `rawget(t, k)` / `rawset(t, k, v)` | Read or write without `__index` / `__newindex`. |
+| `rawequal(a, b)` / `rawlen(v)` | Compare or measure without `__eq` / `__len`. |
+| `require(name)` | Load a module and cache it in `package.loaded`. See [Modules](/docs/modules/). |
+| `load(chunk [, chunkname])` | Compile a source string into a function. Returns `nil, err` if it doesn't compile. |
+| `loadfile(path)` / `dofile(path)` | Compile a file into a function, or compile and run it. |
+| `collectgarbage([opt [, arg]])` | Control the host garbage collector. Options mirror the `-gc-percent` and `-mem-limit` CLI flags. |
+| `package` | Module-system state: `package.path`, `package.loaded`, `package.preload`, `package.config`, `package.searchpath`. |
+| `_G` / `_VERSION` | The global table, and the string `"Lua 5.4"`. |
+
+### Values and conversions
+
+```luascript
+print(type(10), type(2.5), type("hi"), type({}), type(print))
+print(typeof(10), typeof(2.5), math.type(10))
+print(sizeof("hello"), sizeof({ 1, 2, a = 3 }), sizeof(10))
+print(tostring(3), tostring(3.0), tostring(nil))
+print(tonumber("42"), tonumber("0x1F"), tonumber("ff", 16), tonumber("nope"))
+print(_VERSION)
+```
+
+```text
+number	number	string	table	function
+integer	float	integer
+5	3	8
+3	3.0	nil
+42	31	255	nil
+Lua 5.4
+```
+
+Integers and floats are distinct subtypes of `number`, as in Lua 5.4. `typeof` and `math.type` tell them apart, and `tostring(3.0)` keeps the `.0`. See [`33_typeof_sizeof.lsc`](https://github.com/HilthonTT/LuaScript/blob/main/examples/33_typeof_sizeof.lsc) for the `__type` hook that lets your own tables name themselves.
+
+### Iteration
+
+```luascript
+local t = { "a", "b", "c", name = "letters" }
+for i, v in ipairs(t) do io.write(i, "=", v, " ") end
+print()
+for k, v in pairs(t) do io.write(tostring(k), "=", tostring(v), " ") end
+print()
+print(next({}))                         -- an empty table has no first key
+print(select("#", 1, nil, 3))           -- counts trailing nils too
+print(select(2, "x", "y", "z"))
+```
+
+```text
+1=a 2=b 3=c 
+1=a 2=b 3=c name=letters 
+nil
+3
+y	z
+```
+
+Unlike stock Lua, `pairs` order is deterministic: the array part in index order, then hash keys in insertion order.
+
+### Errors
+
+```luascript
+local ok, err = pcall(function() error("boom") end)
+print(ok, err)
+
+local ok3, e = pcall(error, { code = 42 })  -- error values need not be strings
+print(ok3, e.code)
+
+local ok2, msg = xpcall(function() error("deep") end, function(e)
+  return "handled: " .. e
+end)
+print(ok2, msg)
+
+print(assert(1 + 1 == 2, "math is broken"))
+print(pcall(assert, false, "assertion message"))
+```
+
+```text
+false	errors.lsc:1: boom
+false	42
+false	handled: errors.lsc:7: deep
+true	math is broken
+false	assertion message
+```
+
+String errors get a `file:line:` prefix pointing at where they were raised. LuaScript also has `try` / `catch` / `throw` and `defer`. See [Errors](/docs/errors/).
+
+### Metatables and `load`
+
+```luascript
+local defaults = { color = "red", size = 1 }
+local item = setmetatable({ size = 3 }, { __index = defaults })
+print(item.color, item.size, rawget(item, "color"))
+print(getmetatable(item).__index == defaults)
+
+local f = load("return 1 + ...")
+print(f(41))
+print(load("return +"))
+```
+
+```text
+red	3	nil
+true
+42
+nil	unexpected '+' at start of expression at line 1, column 8.
+```
+
+Metatables, operator overloading and inheritance are covered in [Tables](/docs/tables/).
+
+## `string`
+
+Every string shares the `string` table as its metatable's `__index`, so `s:upper()` and `string.upper(s)` are the same call. Lua patterns (`%a`, `%d`, captures, `%b()`, `%f[set]`) are fully supported. See [Strings](/docs/strings/) for patterns and interpolation.
+
+| Function | Description |
+| -------- | ----------- |
+| `string.len(s)` | Length in bytes. Same as `#s`. |
+| `string.sub(s, i [, j])` | Substring `i..j`. Negative indices count from the end. |
+| `string.upper(s)` / `string.lower(s)` | Change case. |
+| `string.reverse(s)` | Reverse the bytes. |
+| `string.rep(s, n [, sep])` | Repeat `n` times, joined by `sep`. |
+| `string.byte(s [, i [, j]])` / `string.char(...)` | Bytes to codes, and codes to a string. |
+| `string.format(fmt, ...)` | printf-style: `%d %i %s %q %x %X %o %c %e %f %g %%`, with width and precision. |
+| `string.find(s, pat [, init [, plain]])` | Start and end index of the first match, plus captures. `plain = true` disables patterns. |
+| `string.match(s, pat [, init])` | The captures (or whole match) of the first match. |
+| `string.gmatch(s, pat)` | An iterator over every match. |
+| `string.gsub(s, pat, repl [, n])` | Replace matches. `repl` may be a string, table or function. Returns the new string and the count. |
+| `string.pack(fmt, ...)` / `string.unpack(fmt, s [, pos])` / `string.packsize(fmt)` | Binary serialisation, Lua 5.4 format strings. |
+
+```luascript
+local s = "Hello, LuaScript"
+print(#s, s:upper(), s:sub(1, 5), s:sub(-6))
+print(s:find("Lua"))                        -- start and end index
+print(("1.5"):find("."), ("1.5"):find(".", 1, true))  -- pattern vs plain
+print(s:match("(%a+), (%a+)"))
+print(("a,b,,c"):gsub(",", ";"))
+print(string.format("%-6s|%5.2f|%04d|%q", "id", math.pi, 42, "a\"b"))
+print(("ab"):rep(3, "-"), ("abc"):reverse(), ("A"):byte(), string.char(72, 105))
+
+for word in ("one two three"):gmatch("%a+") do io.write(word, ".") end
+print()
+
+local packed = string.pack(">I2 s1", 513, "hi")
+print(#packed, string.unpack(">I2 s1", packed))
+```
+
+```text
+16	HELLO, LUASCRIPT	Hello	Script
+8	10
+1	2	2
+Hello	LuaScript
+a;b;;c	3
+id    | 3.14|0042|"a\"b"
+ab-ab-ab	cba	65	Hi
+one.two.three.
+5	513	hi	6
+```
+
+## `table`
+
+| Function | Description |
+| -------- | ----------- |
+| `table.insert(t, [pos,] v)` | Append `v`, or insert it at `pos` and shift later elements up. |
+| `table.remove(t [, pos])` | Remove and return the element at `pos` (default: the last). |
+| `table.concat(t [, sep [, i [, j]]])` | Join strings and numbers in `t[i..j]`. |
+| `table.sort(t [, cmp])` | Sort the array part in place. `cmp(a, b)` returns `true` when `a` comes first. |
+| `table.unpack(t [, i [, j]])` | Return `t[i..j]` as multiple values. |
+| `table.pack(...)` | Pack the arguments into a table with a field `n` holding the count. |
+| `table.move(a1, f, e, t [, a2])` | Copy `a1[f..e]` into `a2` starting at `t`. Handles overlapping ranges. |
+
+```luascript
+local t = { 5, 2, 8 }
+table.insert(t, 1)                 -- append
+table.insert(t, 1, 9)              -- insert at position 1
+print(table.concat(t, ", "))
+print(table.remove(t), table.remove(t, 1))
+table.sort(t)
+print(table.concat(t, " "))
+table.sort(t, function(a, b) return a > b end)
+print(table.concat(t, " "))
+
+local p = table.pack(10, nil, 30)
+print(p.n, table.unpack({ "x", "y", "z" }, 2))
+print(table.concat(table.move({ 1, 2, 3 }, 1, 3, 2, {}), ",", 2, 4))
+```
+
+```text
+9, 5, 2, 8, 1
+1	9
+2 5 8
+8 5 2
+3	y	z
+1,2,3
+```
+
+For spread (`{ ...a, ...b }`) and destructuring (`local { a, b } = t`), see [Modern syntax](/docs/modern-syntax/).
+
+## `math`
+
+<Callout type="warn">
+`math` exists **twice**, with different surfaces. The auto-global `math` is the Lua 5.4 library. `require("math")` returns a **different, larger table** that adds hyperbolics, `cbrt`, `erf`, `clamp`, statistics helpers and a full set of numeric limits, but **drops** `math.type`, `math.maxinteger`, `math.mininteger` and `math.randomseed`. Writing `local math = require("math")` shadows the global and quietly loses those four names, so require the module under its own name.
+</Callout>
+
+**The global `math`** (no require):
+
+| Name | Description |
+| ---- | ----------- |
+| `floor`, `ceil` | Round toward minus or plus infinity. The result is an integer. |
+| `abs`, `max`, `min` | Absolute value (keeps the integer subtype), largest and smallest argument. |
+| `sqrt`, `exp`, `log(x [, base])`, `pow(x, y)` | Roots, exponentials and logarithms. `^` is the idiomatic power operator. |
+| `fmod(x, y)`, `modf(x)` | Truncated remainder (unlike `%`, which floors), and integral/fractional split. |
+| `sin`, `cos`, `tan`, `asin`, `acos`, `atan(y [, x])` | Trigonometry, in radians. |
+| `deg(x)`, `rad(x)` | Radians to degrees and back. |
+| `tointeger(v)`, `type(v)` | Exact integer conversion, and `"integer"` / `"float"` / `nil`. |
+| `random([m [, n]])`, `randomseed([x])` | Pseudo-random numbers. |
+| `ult(m, n)` | Unsigned integer comparison. |
+| `pi`, `huge`, `maxinteger`, `mininteger` | Constants. |
+
+**The `require("math")` module** has the scalar functions above (except `type` and `randomseed`) plus:
+
+| Name | Description |
+| ---- | ----------- |
+| `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh` | Hyperbolic functions. |
+| `cbrt`, `erf`, `erfc` | Cube root (handles negatives) and the error functions. |
+| `clamp(x, min, max)` | Constrain `x` to a range. |
+| `mean(t \| ...)`, `variance(t)`, `standard_deviation(t)`, `softmax(t)` | Statistics over an array of numbers. |
+| `pi`, `e`, `phi`, `huge`, `nan`, `sqrt2`, `sqrte`, `sqrtpi`, `sqrtphi`, `ln2`, `ln10`, `log2e`, `log10e` | Mathematical constants. |
+| `maxint`, `minint`, `maxint8` … `maxint64`, `minint8` … `minint64`, `maxuint8` … `maxuint32`, `maxfloat32`, `maxfloat64`, `smallestnonzerofloat32`, `smallestnonzerofloat64` | Numeric limits. |
+
+```luascript
+local mathx = require("math")   -- the module: keep it under its own name
+
+print(math.type(3), math.type(3.0), math.maxinteger)    -- global only
+print(mathx.cbrt(-27), mathx.clamp(15, 0, 10))          -- module only
+print(mathx.mean({ 2, 4, 9 }), math.deg(math.pi))       -- deg/rad: both
+```
+
+```text
+integer	float	9223372036854775807
+-3.0	10.0
+5.0	180.0
+```
+
+Both tables are typed, so the type checker catches the mix-up for you. `mathx.maxinteger` fails to compile with `... has no field "maxinteger"`. (Under `--!nocheck` it's just `nil` at run time.)
+
+```luascript
+print(math.floor(3.7), math.ceil(3.2), math.abs(-3), math.sqrt(16))
+print(7 // 2, 7 / 2, 7 % 3, 2 ^ 10)
+print(math.max(2, 9, 4), math.min(2, 9, 4), math.tointeger(5.0))
+print(math.fmod(-7, 3), -7 % 3)
+```
+
+```text
+3	4	3	4.0
+3	3.5	1	1024.0
+9	2	5
+-1	2
+```
+
+See [`12_math_module.lsc`](https://github.com/HilthonTT/LuaScript/blob/main/examples/12_math_module.lsc) for the two surfaces side by side and [`36_math.lsc`](https://github.com/HilthonTT/LuaScript/blob/main/examples/36_math.lsc) for the module in depth. For arrays, statistics and linear algebra, see [Data science](/docs/data-science/).
+
+## `coroutine`
+
+| Function | Description |
+| -------- | ----------- |
+| `coroutine.create(f)` | Create a coroutine. It doesn't run until the first `resume`. |
+| `coroutine.resume(co, ...)` | Start or continue `co`. Returns `true` plus yielded or returned values, or `false, err`. |
+| `coroutine.yield(...)` | Suspend, handing values to the resumer. Returns what the next `resume` passes in. |
+| `coroutine.status(co)` | `"running"`, `"suspended"`, `"normal"` or `"dead"`. |
+| `coroutine.wrap(f)` | A function that resumes the coroutine on each call. Errors propagate. |
+| `coroutine.running()` | The running coroutine, plus `true` if it's the main one. On the main thread that is the main coroutine object, never `nil`. |
+| `coroutine.isyieldable()` | Whether the running code can yield. |
+| `coroutine.close(co)` | Close a suspended or dead coroutine. Returns `true`, or `false, err` if it died with an error. |
+
+```luascript
+local gen = coroutine.wrap(function()
+  for i = 1, 3 do coroutine.yield(i * 10) end
+end)
+print(gen(), gen(), gen())
+
+local co = coroutine.create(function(a)
+  local b = coroutine.yield(a + 1)
+  return b * 2
+end)
+print(coroutine.resume(co, 1))
+print(coroutine.status(co))
+print(coroutine.resume(co, 10))
+print(coroutine.status(co))
+```
+
+```text
+10	20	30
+true	2
+suspended
+true	20
+dead
+```
+
+More in [Coroutines](/docs/coroutines/). For timers, retries and channels, see [Jobs & channels](/docs/concurrency/).
+
+## `os`
+
+`os` is a global, as in Lua 5.4, and the same table `require("os")` returns. It has the Lua 5.4 functions plus host extras. The global and the `require` form share one type declaration, so calls through either are checked:
+
+```luascript
+local home: number = os.getenv("HOME")
+```
+
+```text
+luascript: Type "string | nil" could not be converted into "number" at line 1
+```
+
+| Function | Description |
+| -------- | ----------- |
+| `os.time([t])` | Current Unix time, or the time described by a `{ year, month, day [, hour, min, sec] }` table (local time). |
+| `os.date([fmt [, time]])` | strftime-style formatting. A leading `!` formats in UTC. `"*t"` returns a table (`year`, `month`, `day`, `hour`, `min`, `sec`, `wday`, `yday`, `isdst`). |
+| `os.clock()` | CPU time used so far, in seconds. |
+| `os.difftime(t2, t1)` | Seconds from `t1` to `t2`. |
+| `os.getenv(name)` | An environment variable, or `nil`. |
+| `os.execute([cmd])` | Run a shell command: `ok, "exit", code`. |
+| `os.exit([code])` | Terminate immediately. `defer` blocks don't run. |
+| `os.remove(path)` / `os.rename(from, to)` | Delete or move a file. `true` or `nil, err`. |
+| `os.tmpname()` | A path for a temporary file (not created). |
+| `os.setlocale([locale])` | Present for compatibility. Reports the current setting only. |
+
+Extras such as `os.getcwd`, `os.setenv`, `os.mkdir`, `os.hostname`, `os.platform` and `os.path_separator` are listed under [Native modules](/docs/native-modules/).
+
+```luascript
+print(os.date("!%Y-%m-%d %H:%M", 86400 * 365))     -- "!" formats in UTC
+
+local t = os.time({ year = 2026, month = 1, day = 1, hour = 12 })
+print(os.date("%Y-%m-%d %H:%M", t))                -- round-trips in local time
+
+local d = os.date("*t", t)
+print(d.year, d.month, d.day, d.wday)
+
+print(os.difftime(t + 90, t))
+print(os.getenv("NO_SUCH_VARIABLE"))
+
+local start = os.clock()
+for _ = 1, 1e5 do end
+print(os.clock() - start >= 0)
+```
+
+```text
+1971-01-01 00:00
+2026-01-01 12:00
+2026	1	1	5
+90.0
+nil
+true
+```
+
+## `io`
+
+The full Lua 5.4 `io` library: file handles, the standard streams, and default input and output files.
+
+| Function | Description |
+| -------- | ----------- |
+| `io.write(...)` | Write to the default output with no separator and no newline. |
+| `io.read([fmt])` | Read from the default input: `"l"` (line, default), `"L"` (line with newline), `"n"` (number), `"a"` (all). |
+| `io.open(path [, mode])` | Open a file: `"r"`, `"w"`, `"a"`, `"r+"`, `"w+"`, `"a+"`, optionally with `"b"`. Returns a handle, or `nil, err`. |
+| `io.lines([path])` | Iterate the lines of a file (closed when exhausted), or of stdin. |
+| `io.close([file])` / `io.flush()` | Close a handle, or flush the default output. |
+| `io.input([file \| path])` / `io.output([file \| path])` | Get or set the default input or output. |
+| `io.tmpfile()` | A temporary file removed when the program ends. |
+| `io.type(v)` | `"file"`, `"closed file"` or `nil`. |
+| `io.stdin`, `io.stdout`, `io.stderr` | The standard streams as file handles. |
+
+File handles have `f:read(...)`, `f:write(...)`, `f:lines(...)`, `f:seek([whence [, offset]])`, `f:flush()` and `f:close()`.
+
+```luascript
+local f = assert(io.open("notes.txt", "w"))
+f:write("first line\n", "second line\n", 42, "\n")
+f:close()
+
+for line in io.lines("notes.txt") do
+  io.write("[", line, "] ")
+end
+print()
+
+local r = assert(io.open("notes.txt", "r"))
+print(r:read("l"))         -- one line, without the newline
+print(r:read("n"))         -- nil: "second" is not a number
+print(r:seek("set", 0))    -- back to the start; returns the position
+print(#r:read("a"))        -- the whole file
+r:close()
+print(io.type(r), io.type(io.stdout), io.type(42))
+os.remove("notes.txt")
+```
+
+```text
+[first line] [second line] [42] 
+first line
+nil
+0
+26
+closed file	file	nil
+```
+
+File handles have a `__close` metamethod, so `local f <close> = assert(io.open(...))` closes the file when the scope exits, on every exit path. `defer f:close()` works too. See [`23_io.lsc`](https://github.com/HilthonTT/LuaScript/blob/main/examples/23_io.lsc).
+
+## `utf8`
+
+Lua strings are byte strings. `utf8` works in codepoints.
+
+| Function | Description |
+| -------- | ----------- |
+| `utf8.len(s [, i [, j]])` | Number of codepoints, or `nil` plus the position of the first invalid byte. |
+| `utf8.char(...)` | Build a string from codepoints. |
+| `utf8.codepoint(s [, i [, j]])` | The codepoints of the characters starting in `s[i..j]`. |
+| `utf8.offset(s, n [, i])` | Byte position of the `n`-th character. Negative `n` counts backwards. |
+| `utf8.codes(s)` | Iterate `(byte position, codepoint)` pairs. |
+| `utf8.charpattern` | A pattern matching exactly one UTF-8 sequence. |
+
+```luascript
+local s = "héllo, wörld"
+print(#s, utf8.len(s))                        -- bytes vs characters
+print(utf8.char(72, 233, 8364))
+print(utf8.codepoint(s, 2))
+for pos, cp in utf8.codes("aé") do print(pos, cp) end
+print(utf8.offset(s, 3))                      -- byte where the 3rd char starts
+for ch in s:gmatch(utf8.charpattern) do io.write(ch, "|") end
+print()
+```
+
+```text
+14	12
+Hé€
+233
+1	97
+2	233
+4
+h|é|l|l|o|,| |w|ö|r|l|d|
+```
+
+Like `os`, the `utf8` global is typed with the same declaration as `require("utf8")`, which returns the same table.
+
+## See also
+
+- [Native modules](/docs/native-modules/): `json`, `http`, `crypto`, `time`, `regexp`, `bit32`, `debug` and more.
+- [`examples/08_stdlib.lsc`](https://github.com/HilthonTT/LuaScript/blob/main/examples/08_stdlib.lsc), [`26_patterns.lsc`](https://github.com/HilthonTT/LuaScript/blob/main/examples/26_patterns.lsc), [`24_bit_utf8.lsc`](https://github.com/HilthonTT/LuaScript/blob/main/examples/24_bit_utf8.lsc), [`25_os_full.lsc`](https://github.com/HilthonTT/LuaScript/blob/main/examples/25_os_full.lsc).

@@ -1,0 +1,251 @@
+export const metadata = { title: "Modules & require" };
+
+# Modules & require
+
+A LuaScript module is a file that returns a value. `require` finds the file, compiles it, runs it once, and caches what it returned. This is the Lua 5.4 module system, with `.lsc` as the preferred extension, a search path that starts at your script's directory, and a small git-based package manager on top.
+
+## Writing a module
+
+A module is an ordinary chunk. It usually builds a table of functions and returns it:
+
+```luascript title="mathx.lsc"
+local M = {}
+
+function M.square(x)
+    return x * x
+end
+
+function M.clamp(x, lo, hi)
+    if x < lo then return lo end
+    if x > hi then return hi end
+    return x
+end
+
+M.PHI = 1.6180339887
+
+print("[mathx] module body executed")
+
+return M
+```
+
+Locals in the module stay private. Only what you put on the returned table is visible to callers.
+
+## Using require
+
+```luascript title="main.lsc"
+local mathx = require("mathx")
+
+print(mathx.square(7))
+print(mathx.clamp(42, 0, 9))
+
+local again = require("mathx")      -- cached: the body does not run again
+print(again == mathx)
+print(package.loaded.mathx == mathx)
+```
+
+```text
+[mathx] module body executed
+49
+9
+true
+true
+```
+
+`require(name)` does the following:
+
+1. If `package.loaded[name]` is set, return it. Nothing runs.
+2. If `package.preload[name]` holds a loader, call it. This is how [native modules](#native-and-script-modules) arrive.
+3. Otherwise search `package.path` for a file, compile it, and run it with two arguments: the module name and the resolved file path (available as `...`).
+4. Store the chunk's return value in `package.loaded[name]` and return it. A module that returns nothing is stored as `true`.
+
+Because of step 1, every `require` of the same name returns the same value, and the module body runs exactly once per VM. A module that requires itself, directly or through a cycle, gets the error `loop or previous error loading module`.
+
+## package.path and searchpath
+
+`package.path` is a `;`-separated list of templates. `require` replaces `?` in each template with the module name, with dots turned into `/`, and uses the first file that exists.
+
+`package.searchpath(name, path)` runs the same search without loading anything, which is handy for diagnostics. It returns the file path, or `nil` and a list of every place it looked:
+
+```luascript
+print(package.searchpath("geometry.vec", "./?.lsc;./?/init.lsc"))
+print(package.searchpath("nope", "./?.lsc;./?/init.lsc"))
+```
+
+```text
+./geometry/vec.lsc
+nil	
+	no file './nope.lsc'
+	no file './nope/init.lsc'
+```
+
+`require` reports the same list when it fails. You can read and modify `package.path` at run time; changes affect later `require` calls.
+
+`dofile(path)` runs a file every time it is called, with no caching. `loadfile(path)` compiles a file and returns the chunk as a function without running it, and `load(source)` does the same for a string.
+
+## Module resolution
+
+The default `package.path` is searched in this order:
+
+| Order | Templates | Where it comes from |
+| ----- | --------- | ------------------- |
+| 1 | `<script dir>/?.lsc`, `?.lua`, `?/init.lsc`, `?/init.lua` | Added automatically for the script being run |
+| 2 | `./?.lsc`, `./?.lua`, `./?/init.lsc`, `./?/init.lua` | Working directory |
+| 3 | `./src/?.lsc` (and the same four forms) | Working directory |
+| 4 | `./lua_modules/?.lsc` (and the same four forms) | Packages installed by [`luascript pkg`](#the-package-manager) |
+| 5 | `$LUASCRIPT_LIB/?.lsc` (and the same four forms) | Only when `LUASCRIPT_LIB` is set |
+
+The script-directory entry means a module next to your script is always found, no matter which directory you launch from:
+
+```sh
+luascript examples/07_modules.lsc        # from the repo root
+cd examples && luascript 07_modules.lsc  # from the examples directory
+```
+
+Both find `examples/mathx.lsc`. `.lsc` is tried before `.lua` at every location, so plain Lua modules can be required too.
+
+## Packages: dotted names and init files
+
+A dotted module name maps to a subdirectory, and a directory with an `init.lsc` file can be required by its own name. Given this layout:
+
+```text
+geometry/
+  init.lsc
+  vec.lsc
+pkgs.lsc
+```
+
+```luascript title="geometry/vec.lsc"
+local name, path = ...
+local vec = {}
+function vec.len(x, y) return math.sqrt(x * x + y * y) end
+vec.loadedAs = name
+return vec
+```
+
+```luascript title="geometry/init.lsc"
+local geometry = {}
+geometry.vec = require("geometry.vec")
+return geometry
+```
+
+```luascript title="pkgs.lsc"
+local vec = require("geometry.vec")       -- geometry/vec.lsc
+print(vec.len(3, 4), vec.loadedAs)        --> 5.0	geometry.vec
+
+local geometry = require("geometry")      -- geometry/init.lsc
+print(geometry.vec == vec)                --> true
+```
+
+The `init` file re-exports its submodules, so callers can write `require("geometry").vec` without a second `require`. Both names resolve to the same cached table.
+
+## Library roots with LUASCRIPT_LIB
+
+`LUASCRIPT_LIB` points `require` at a shared library directory. It is read once at VM startup, and appends four templates to the end of `package.path`:
+
+```text
+$LUASCRIPT_LIB/?.lsc
+$LUASCRIPT_LIB/?.lua
+$LUASCRIPT_LIB/?/init.lsc
+$LUASCRIPT_LIB/?/init.lua
+```
+
+The repository's [`examples/stdlib/`](https://github.com/HilthonTT/LuaScript/tree/main/examples/stdlib) is a small library set laid out this way: `strings` resolves to `strings.lsc`, `collections` to `collections/init.lsc`, and `collections.list` to `collections/list.lsc`.
+
+```sh
+# bash
+LUASCRIPT_LIB=./examples/stdlib luascript examples/08_stdlib.lsc
+# PowerShell
+$env:LUASCRIPT_LIB="./examples/stdlib"; luascript examples/08_stdlib.lsc
+```
+
+A relative `LUASCRIPT_LIB` resolves against your working directory, not the script's.
+
+## Native and script modules
+
+There are two kinds of module, and `require` treats them the same way:
+
+- **Script modules** are `.lsc` or `.lua` files found on `package.path`.
+- **Native modules** are written in Go and ship inside the interpreter: `json`, `http`, `db`, `crypto`, `time`, `std`, `queue`, the data-science modules, and more. They are registered in `package.preload` at startup, so they need no path entry and are found before any file. See [Native modules](/docs/native-modules/) for the list.
+
+```luascript
+local json = require("json")
+print(json.encode({ 1, 2, 3 }))   --> [1,2,3]
+```
+
+A few libraries are also available as globals without a `require`, as in Lua 5.4: `string`, `table`, `math`, `coroutine`, `os`, `io` and `utf8`. The `math` and `io` globals are smaller than the `require`-able modules of the same name. See [Standard library](/docs/stdlib/).
+
+## How the type checker sees require
+
+When you call `require` with a literal string that names a native module, the checker gives the result that module's declared type. Misusing it is a compile error:
+
+```luascript
+local json = require("json")
+print(json.encodee({}))
+```
+
+```text
+luascript: type "{ encode: (any, any) -> string, decode: (string, any) -> any, null: any, empty_array: any, VERSION: string }" has no field "encodee" at line 2
+```
+
+Everything else is `any`: script modules, and native modules required through a variable (`require(name)`). There is no cross-module type checking yet, so a typo in a field of a script module surfaces at run time instead:
+
+```luascript
+local mathx = require("mathx")
+print(mathx.squar)        -- no compile error; prints nil
+```
+
+## The compile cache
+
+Compiling a file is cached on disk. `luascript file.lsc`, `require` and `loadfile` look up the compiled bytecode by the SHA-256 of the source text, the interpreter version, the bytecode format, and the interpreter binary itself. A hit skips lexing, parsing, type checking and code generation entirely.
+
+- Entries live under your user cache directory, in `luascript/bytecode/<hash>.lscb`.
+- They are written atomically, and only after a fully successful compile, so a file with type errors is never cached.
+- A corrupted or stale entry is ignored silently and the file is recompiled.
+- The REPL, `load()` on strings, `-dis` and bundled executables do not use the cache.
+
+| Variable | Effect |
+| -------- | ------ |
+| `LUASCRIPT_NOCACHE=1` | Disable the cache |
+| `LUASCRIPT_CACHE_DIR=<dir>` | Store cache entries in `<dir>` instead |
+
+Because the key is the file's content, you never need to clear the cache after editing a file.
+
+## The package manager
+
+`luascript pkg` fetches third-party script packages from git into `./lua_modules/`, which is already on `package.path`. It records them in two files in the current directory.
+
+| Command | Effect |
+| ------- | ------ |
+| `luascript pkg add <host/path[@ref]> [name]` | Clone a package, record it in `luascript.json`, and pin the commit in `luascript-lock.json` |
+| `luascript pkg install` (or `i`) | Fetch every dependency in `luascript.json` that is not already in `lua_modules/`, at its locked commit |
+| `luascript pkg remove <name>` (or `rm`) | Delete `lua_modules/<name>` and drop it from both files |
+
+```sh
+luascript pkg add github.com/user/lsc-strings@v1.2.0
+luascript pkg add github.com/user/lsc-strings strings   # install under a different name
+luascript pkg install
+```
+
+A spec is a host and path, not a URL: `github.com/user/repo`, optionally followed by `@` and a branch, tag or commit. The package is cloned over HTTPS (`https://github.com/user/repo.git`) with `git`, which must be on your `PATH`; the `.git` directory is removed after the clone. The default name is the last path segment. You then require a package by that name: `require("lsc-strings")` resolves to `lua_modules/lsc-strings/init.lsc`, and a dotted name such as `require("lsc-strings.util")` reaches `lua_modules/lsc-strings/util.lsc`.
+
+```json title="luascript.json"
+{
+  "name": "",
+  "version": "",
+  "dependencies": {
+    "lsc-strings": "github.com/user/lsc-strings@v1.2.0"
+  }
+}
+```
+
+The lockfile stores, per package, its source, ref, clone URL and exact commit, so `pkg install` on another machine reproduces the same tree. There is no registry and no version resolution: a dependency is a git repository at a ref.
+
+<Callout type="info">
+`lua_modules/` is resolved relative to the working directory, so run your program from the directory that holds `luascript.json`.
+</Callout>
+
+## See also
+
+- [examples/07_modules.lsc](https://github.com/HilthonTT/LuaScript/blob/main/examples/07_modules.lsc) and [mathx.lsc](https://github.com/HilthonTT/LuaScript/blob/main/examples/mathx.lsc)
+- [examples/08_stdlib.lsc](https://github.com/HilthonTT/LuaScript/blob/main/examples/08_stdlib.lsc) and [examples/stdlib/](https://github.com/HilthonTT/LuaScript/tree/main/examples/stdlib)
+- [CLI](/docs/cli/) for `luascript build`, which bundles a script into a standalone executable

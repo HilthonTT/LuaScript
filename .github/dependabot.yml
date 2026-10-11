@@ -46,6 +46,39 @@ updates:
         patterns:
           - "*"
 
+  # The documentation site under website/ (Next.js).
+  - package-ecosystem: npm
+    directory: "/website"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - dependencies
+      - javascript
+    groups:
+      website-minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # The site's media generator (website/scripts/media) is its own Go module.
+  - package-ecosystem: gomod
+    directory: "/website"
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - dependencies
+      - go
+    groups:
+      website-go:
+        patterns:
+          - "*"
+
   # The VS Code extension / language client under client/.
   - package-ecosystem: npm
     directory: "/client"

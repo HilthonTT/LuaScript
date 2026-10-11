@@ -1,0 +1,275 @@
+export const metadata = { title: "Basics" };
+
+# Basics
+
+LuaScript is Lua 5.4 at its core. Values, variables, operators and control flow behave the way the [Lua 5.4 reference manual](https://www.lua.org/manual/5.4/) describes, so existing Lua knowledge carries over directly. This page covers that shared foundation. Everything here is untyped, which is fine: type annotations are optional, and an unannotated slot is `any`. See [Types](/docs/types/) when you want them.
+
+## Values and types
+
+Every value has one of eight types. `type` returns the name as a string.
+
+```luascript title="types.lsc"
+print(type(nil))                                    --> nil
+print(type(true))                                   --> boolean
+print(type(42))                                     --> number
+print(type("hi"))                                   --> string
+print(type({}))                                     --> table
+print(type(print))                                  --> function
+print(type(coroutine.create(function() end)))       --> thread
+```
+
+| Type       | Values                                                                 |
+| ---------- | ---------------------------------------------------------------------- |
+| `nil`      | The single value `nil`: "no value". Unset variables and missing keys read as `nil`. |
+| `boolean`  | `true` and `false`.                                                    |
+| `number`   | 64-bit integers and 64-bit floats (two subtypes of one type).          |
+| `string`   | Immutable byte strings. See [Strings & patterns](/docs/strings/).      |
+| `table`    | The only data structure. See [Tables & metatables](/docs/tables/).     |
+| `function` | First-class functions and closures. See [Functions](/docs/functions/). |
+| `thread`   | A coroutine. See [Coroutines](/docs/coroutines/).                      |
+| `userdata` | Opaque host values. Rare in practice; listed for Lua compatibility.    |
+
+## Integers and floats
+
+Lua 5.4 keeps a real integer subtype inside `number`. `math.type` tells the two apart, and the distinction shows up in division and in how values print.
+
+```luascript
+print(3, math.type(3))          --> 3	integer
+print(3.0, math.type(3.0))      --> 3.0	float
+print(3 == 3.0)                 --> true   (same value, different subtype)
+
+print(7 / 2)                    --> 3.5    `/` always produces a float
+print(7 // 2)                   --> 3      floor division keeps integers
+print(-7 // 2)                  --> -4     ...and rounds toward minus infinity
+print(7.0 // 2)                 --> 3.0    a float operand gives a float
+print(7 % 2, -7 % 3)            --> 1	2   the result takes the divisor's sign
+print(2 ^ 10)                   --> 1024.0 `^` always produces a float
+
+print(1 / 0, -1 / 0)            --> inf	-inf
+print(math.maxinteger + 1 == math.mininteger)   --> true (integers wrap)
+```
+
+Integer division or modulo by zero is an error (`attempt to perform 'n//0'`), while float division by zero yields `inf` or `nan` as usual.
+
+## Variables and scope
+
+A name declared with `local` is **block-scoped**: it lives until the `end` of the block that declared it. A name assigned without `local` is a **global**, visible everywhere. Use `local` essentially always; globals are slower to reach and easy to typo into existence.
+
+```luascript
+local greeting = "hello"
+do
+    local greeting = "shadowed"   -- a new binding, gone at `end`
+    print(greeting)               --> shadowed
+end
+print(greeting)                   --> hello
+
+counter = 5                       -- a global
+print(counter, _G.counter)        --> 5	5
+print(never_assigned)             --> nil
+```
+
+### Multiple assignment
+
+The right side is evaluated completely before anything is assigned. Extra targets receive `nil`; extra values are discarded.
+
+```luascript
+local a, b, c = 1, 2
+print(a, b, c)        --> 1	2	nil
+
+a, b = b, a           -- swap
+print(a, b)           --> 2	1
+```
+
+## Operators
+
+| Category   | Operators                         | Notes                                                       |
+| ---------- | --------------------------------- | ----------------------------------------------------------- |
+| Arithmetic | `+ - * / // % ^`, unary `-`       | `/` and `^` always return floats                            |
+| Comparison | `== ~= < > <= >=`                 | `~=` is "not equal"                                         |
+| Logical    | `and or not`                      | Short-circuit; return an operand, not necessarily a boolean |
+| Concat     | `..`                              | Numbers are converted to strings                            |
+| Length     | `#`                               | Bytes of a string, border of a sequence                     |
+| Bitwise    | `& \| ~ << >>`, unary `~`         | On 64-bit integers; binary `~` is XOR                       |
+
+```luascript
+print(5 & 3, 5 | 3, 5 ~ 3, ~0)    --> 1	7	6	-1
+print(1 << 4, 256 >> 4)           --> 16	16
+print(3.0 & 1)                    --> 1  (a float with an exact integer value is fine)
+
+print("hello" .. " " .. "world")  --> hello world
+print(10 .. 20)                   --> 1020
+print(#"hello", #{ 1, 2, 3 })     --> 5	3
+```
+
+Bitwise operators on a float without an integer representation, such as `3.5 & 1`, raise `bitwise operand has no integer representation`. Compound forms such as `+=` and `|=` are covered in [Modern syntax](/docs/modern-syntax/).
+
+### Comparison and equality
+
+Numbers compare by value across subtypes, strings compare lexicographically, and tables compare by **identity**. There is no coercion between types in `==`.
+
+```luascript
+print(1 == 1.0)      --> true
+print("a" < "b")     --> true
+print({} == {})      --> false   two distinct tables
+local t = {}
+print(t == t)        --> true
+print(1 == "1")      --> false
+print(1 ~= 2)        --> true
+```
+
+<Callout type="info">
+Lua coerces numeric strings in arithmetic (`"10" + 5` is `15` at run time), but the type checker rejects it when it can see the operand is a `string`: `Type "string" could not be converted into "number"`. Convert explicitly with `tonumber`, or opt the file out with `--!nocheck`. See [Strict mode](/docs/strict-mode/).
+</Callout>
+
+## Truthiness and logical operators
+
+Only `nil` and `false` are falsy. `0`, `""` and `{}` are all true, which surprises people coming from C, Python or JavaScript.
+
+`and` and `or` short-circuit and return one of their **operands**. That is what makes `or` work as a default:
+
+```luascript
+print(nil or "fallback")      --> fallback
+print("set" or "fallback")    --> set
+print(nil and "never")        --> nil
+print(not nil, not 0)         --> true	false
+
+local config = nil
+local port = config and config.port or 8080
+print(port)                   --> 8080
+
+-- The trap: `x and y or z` falls through to z when y is false or nil.
+print(true and false or "z")  --> z
+```
+
+For a real conditional expression, use an `if` expression (`if c then a else b`), described in [Modern syntax](/docs/modern-syntax/).
+
+## Control flow
+
+### if / elseif / else
+
+```luascript
+local count = 3
+if count > 5 then
+    print("many")
+elseif count > 0 then
+    print("some")             --> some
+else
+    print("none")
+end
+```
+
+### while and repeat
+
+`while` tests before each iteration. `repeat ... until` always runs its body once, and the `until` condition can see locals declared inside the body.
+
+```luascript
+local n = 10
+while n > 0 do
+    if n == 5 then break end
+    n = n - 1
+end
+print(n)                      --> 5
+
+local tries = 0
+repeat
+    tries = tries + 1
+    local done = tries >= 3
+until done
+print(tries)                  --> 3
+```
+
+### Numeric for
+
+`for var = start, stop [, step]` counts inclusively. The step defaults to `1` and may be negative or fractional. The loop variable is local to the loop, and each iteration gets a fresh copy (which matters for [closures](/docs/functions/)).
+
+```luascript
+for i = 5, 1, -1 do io.write(i, " ") end
+print()                       --> 5 4 3 2 1
+
+for x = 0, 1, 0.25 do io.write(x, " ") end
+print()                       --> 0.0 0.25 0.5 0.75 1.0
+```
+
+### Generic for
+
+The generic `for` drives an iterator function. `ipairs` walks `1..n` and stops at the first `nil`; `pairs` walks every key in unspecified order.
+
+```luascript
+local primes = { 2, 3, 5, 7 }
+for i, p in ipairs(primes) do
+    io.write(i, "=", p, " ")
+end
+print()                       --> 1=2 2=3 3=5 4=7
+
+local ages = { ada = 36 }
+for name, age in pairs(ages) do
+    print(name, age)          --> ada	36
+end
+```
+
+Any function can serve as an iterator; [`coroutine.wrap`](/docs/coroutines/) is the easiest way to write one.
+
+### break, goto and continue
+
+`break` exits the innermost loop. `goto label` jumps to a `::label::` visible in the enclosing blocks, which is how Lua 5.4 spells "skip to the next iteration":
+
+```luascript
+for i = 1, 3 do
+    for j = 1, 3 do
+        if j == 2 then goto skip end
+        io.write(i, ":", j, " ")
+        ::skip::
+    end
+end
+print()                       --> 1:1 1:3 2:1 2:3 3:1 3:3
+```
+
+LuaScript also has a real `continue` statement, so the label is rarely needed:
+
+```luascript
+for i = 1, 8 do
+    if i % 2 == 0 then continue end
+    io.write(i, " ")
+end
+print()                       --> 1 3 5 7
+```
+
+`goto` cannot jump into or out of a `try` block; that is a compile error. See [Errors](/docs/errors/).
+
+## Local attributes
+
+Lua 5.4 attributes go in angle brackets after the name.
+
+`<const>` declares a binding that can never be reassigned. Violations are **compile** errors, and unlike type errors they are reported even under `--!nocheck`:
+
+```luascript
+local MAX_RETRIES <const> = 3
+-- MAX_RETRIES = 4   --> cannot assign to const variable 'MAX_RETRIES'
+
+local config <const> = { retries = 3 }
+config.retries = 5   -- fine: the binding is const, not the table
+print(config.retries)   --> 5
+```
+
+`<close>` marks a to-be-closed variable: its value's `__close` metamethod runs when the block exits, whether normally, through `break`/`return`, or by an error. It also gets the no-reassignment protection of `<const>`. See [Errors & cleanup](/docs/errors/) for the details. Any other attribute is a parse error (`local: unknown attribute 'frozen'`).
+
+## Comments
+
+```luascript
+-- A line comment runs to the end of the line.
+
+--[[ A block comment
+     spans lines. ]]
+
+--[==[ Add equals signs when the body contains ]] itself. ]==]
+print("comments are ignored")   --> comments are ignored
+```
+
+A comment on the very first line that starts with `--!` is a mode directive (`--!strict`, `--!nonstrict`, `--!nocheck`) that controls the type checker. See [Strict mode](/docs/strict-mode/).
+
+## Next steps
+
+- [Functions](/docs/functions/): closures, multiple returns, varargs, default parameters.
+- [Tables & metatables](/docs/tables/): records, arrays and operator overloading.
+- [Modern syntax](/docs/modern-syntax/): compound assignment, `if` expressions, destructuring and more.
+- The runnable source for this page is [examples/01_basics.lsc](https://github.com/HilthonTT/LuaScript/blob/main/examples/01_basics.lsc).

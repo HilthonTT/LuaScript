@@ -1,0 +1,301 @@
+export const metadata = { title: "Functions" };
+
+# Functions
+
+Functions are first-class values. `function f() end` is sugar for `f = function() end`, which is why functions can be stored in tables, passed as arguments and returned without ceremony. Everything on this page is standard Lua 5.4, except default parameters, which are a LuaScript addition.
+
+## Declaring functions
+
+There are four common spellings, and they all produce the same kind of value:
+
+```luascript
+local function named(x) return x + 1 end          -- preferred: local + name
+local anonymous = function(x) return x + 1 end    -- an anonymous function in a local
+local t = {}
+function t.field(x) return x + 1 end              -- sugar for t.field = function ...
+function t:method(x) return x + 1 end             -- sugar with an implicit `self`
+
+print(named(1), anonymous(1), t.field(1), t:method(1))   --> 2	2	2	2
+```
+
+`function name() end` without `local` assigns a **global**. Prefer `local function` unless the function genuinely needs to be global.
+
+## Local functions and recursion
+
+`local function f` and `local f = function` differ in one way: with `local function`, the name is already in scope inside the body, so the function can call itself.
+
+```luascript title="recursion.lsc"
+local function fib(n)
+    if n < 2 then return n end
+    return fib(n - 1) + fib(n - 2)
+end
+print(fib(20))          --> 6765
+
+local broken = function(n)
+    if n < 2 then return n end
+    return broken(n - 1) + broken(n - 2)   -- `broken` is not in scope yet
+end
+print(pcall(broken, 5)) --> false	recursion.lsc:9: attempt to call a nil value
+```
+
+For mutual recursion, declare both names first so each body captures the local rather than looking up a global:
+
+```luascript
+local is_even, is_odd
+function is_even(n) return n == 0 or is_odd(n - 1) end
+function is_odd(n) return n ~= 0 and is_even(n - 1) end
+print(is_even(10))      --> true
+```
+
+## Arguments are adjusted
+
+At run time Lua never raises on arity: missing arguments are `nil` and extra ones are discarded.
+
+```luascript
+local function show(a, b) return tostring(a) .. "," .. tostring(b) end
+print(show(1))          --> 1,nil
+print(show(1, 2))       --> 1,2
+```
+
+The type checker is stricter in one direction. Passing **more** arguments than a function declares is a compile error, even when the function has no annotations:
+
+```text
+luascript: call passes 3 args, function expects at most 2 at line 2
+```
+
+Passing fewer is still fine, since `nil` is a legitimate value for an unannotated parameter. Use `...` when you want a variable number of arguments, or `--!nocheck` to opt the file out of checking.
+
+## Multiple returns
+
+A function can return several values. Assignment adjusts them: extra values are dropped, missing ones become `nil`.
+
+```luascript
+local function divmod(a, b)
+    return a // b, a % b
+end
+local q, r = divmod(17, 5)
+print(q, r)                     --> 3	2
+```
+
+A call expands to all of its values **only in the last position** of an expression list. Anywhere else, and inside parentheses, it is truncated to one value:
+
+```luascript
+local function divmod(a, b) return a // b, a % b end
+
+print(divmod(17, 5))            --> 3	2     last position: both values
+print(divmod(17, 5), "x")       --> 3	x     not last: truncated to one
+print((divmod(17, 5)))          --> 3        parentheses: truncated to one
+print(#{ divmod(17, 5) })       --> 2        last in a table constructor: both
+
+local function nothing() end
+local a, b = nothing()
+print(a, b)                     --> nil	nil
+```
+
+## Varargs
+
+A function declared with `...` accepts any number of extra arguments. Inside it, `...` is an expression that yields all of them.
+
+```luascript
+local function sum(...)
+    local total = 0
+    for _, v in ipairs({ ... }) do
+        total = total + v
+    end
+    return total
+end
+print(sum(1, 2, 3, 4, 5))               --> 15
+
+local function log(fmt, ...)
+    print(string.format(fmt, ...))      -- forward the varargs unchanged
+end
+log("%s scored %d", "ada", 42)          --> ada scored 42
+```
+
+`select` and `table.pack` handle the cases where `nil` values matter. `{ ... }` and `#` lose track of trailing `nil`s; these do not.
+
+```luascript
+local function count(...) return select("#", ...) end
+print(count(1, nil, 3))                 --> 3
+
+local function tail(...) return select(2, ...) end
+print(tail(1, 2, 3))                    --> 2	3
+
+local function last(...) return select(-1, ...) end
+print(last(1, 2, 3))                    --> 3
+
+local function describe(...)
+    local args = table.pack(...)        -- args.n records the true count
+    return args.n .. " args, first=" .. tostring(args[1])
+end
+print(describe(nil, nil))               --> 2 args, first=nil
+
+print(table.unpack({ 10, 20, 30 }))     --> 10	20	30
+```
+
+| Expression           | Result                                           |
+| -------------------- | ------------------------------------------------ |
+| `select("#", ...)`   | Number of arguments, counting `nil`s             |
+| `select(n, ...)`     | All arguments from position `n` on              |
+| `select(-n, ...)`    | The last `n` arguments                           |
+| `table.pack(...)`    | A table of the arguments plus a field `n`        |
+| `table.unpack(t)`    | The elements of `t` as multiple values           |
+
+## Closures and upvalues
+
+A function captures the local variables of the scopes around it. Captured variables are called **upvalues**, and they are captured **by reference**: the closure sees later changes, and its own writes persist between calls.
+
+```luascript
+local function counter()
+    local n = 0                  -- an upvalue of the returned function
+    return function()
+        n = n + 1
+        return n
+    end
+end
+
+local next_id = counter()
+print(next_id(), next_id(), next_id())   --> 1	2	3
+
+local one, two = counter(), counter()
+print(one(), two())                      --> 1	1   each call makes a fresh `n`
+```
+
+Two closures created by the same call share the same upvalue:
+
+```luascript
+local function pair()
+    local n = 0
+    return function() n = n + 1 return n end,
+           function() return n end
+end
+local bump, peek = pair()
+bump(); bump()
+print(peek())                            --> 2
+```
+
+The classic loop-capture bug does not happen here: each iteration of a `for` loop gets its own copy of the loop variable.
+
+```luascript
+local fns = {}
+for i = 1, 3 do
+    fns[i] = function() return i end
+end
+print(fns[1](), fns[2](), fns[3]())      --> 1	2	3
+```
+
+## Higher-order functions
+
+Because functions are values, the usual functional building blocks are a few lines each:
+
+```luascript
+local function map(list, f)
+    local out = {}
+    for i, v in ipairs(list) do out[i] = f(v) end
+    return out
+end
+
+local function filter(list, pred)
+    local out = {}
+    for _, v in ipairs(list) do
+        if pred(v) then out[#out + 1] = v end
+    end
+    return out
+end
+
+local nums = { 1, 2, 3, 4, 5, 6 }
+print(table.concat(map(nums, function(x) return x * 2 end), " "))         --> 2 4 6 8 10 12
+print(table.concat(filter(nums, function(x) return x % 2 == 0 end), " ")) --> 2 4 6
+```
+
+A table of functions replaces long `if`/`elseif` chains:
+
+```luascript
+local ops = {
+    ["+"] = function(a, b) return a + b end,
+    ["*"] = function(a, b) return a * b end,
+}
+print(ops["+"](6, 3), ops["*"](6, 3))    --> 9	18
+```
+
+For chaining calls left to right, see the `|>` pipeline operator in [Modern syntax](/docs/modern-syntax/).
+
+## Methods and the colon
+
+The colon is sugar for passing the receiver as the first argument, named `self`:
+
+- `function obj:m(x)` declares `function obj.m(self, x)`.
+- `obj:m(x)` calls `obj.m(obj, x)`, evaluating `obj` once.
+
+```luascript
+local account = { balance = 0 }
+
+function account:deposit(amount)
+    self.balance = self.balance + amount
+    return self
+end
+
+account:deposit(50):deposit(25)          -- returning self allows chaining
+account.deposit(account, 25)             -- the same call, spelled out
+print(account.balance)                   --> 100
+
+print(("hello"):upper())                 --> HELLO   strings have methods too
+```
+
+Methods are how objects work in Lua; [Tables & metatables](/docs/tables/) shows how to share them between instances.
+
+## Default parameters
+
+LuaScript lets a parameter declare a default: `function f(x = expr)`. The default fills `x` whenever the caller passes `nil` or nothing at all. It is applied by a prologue equivalent to `if x == nil then x = expr end`, which means:
+
+- an explicit `false` does **not** trigger the default (unlike the `x = x or default` idiom),
+- defaults are evaluated on every call, left to right,
+- a default may refer to parameters declared before it.
+
+```luascript title="defaults.lsc"
+local function greet(name: string, greeting: string = "hello")
+    return greeting .. ", " .. name .. "!"
+end
+print(greet("world"))              --> hello, world!
+print(greet("world", nil))         --> hello, world!
+print(greet("world", "howdy"))     --> howdy, world!
+
+local function flag(enabled = true)
+    return enabled
+end
+print(flag(), flag(false))         --> true	false
+
+local function rectangle(width: number, height: number = width)
+    return width * height
+end
+print(rectangle(4), rectangle(4, 2))   --> 16	8
+```
+
+Defaults work on methods too (`function account:deposit(amount: number = 10)`). A defaulted parameter is optional at every call site, and inside the body the checker knows it holds the declared type.
+
+## Typed signatures
+
+Parameters and return values can carry type annotations. They are checked at compile time and erased before the program runs:
+
+```luascript
+local function divmod(a: number, b: number): (number, number)
+    return a // b, a % b
+end
+
+local function greet(name: string?): string
+    return "hello, " .. (name or "stranger")
+end
+
+local apply: (number) -> number = function(x) return x * 2 end
+
+print(divmod(17, 5))                 --> 3	2
+print(greet(), greet("Ada"))         --> hello, stranger	hello, Ada
+print(apply(21))                     --> 42
+```
+
+Calling `divmod("17", 5)` would now be a compile error. See [Types](/docs/types/) for the full annotation syntax and [Generics](/docs/generics/) for type-parameterised functions such as a typed `map`.
+
+## See also
+
+- [examples/02_functions.lsc](https://github.com/HilthonTT/LuaScript/blob/main/examples/02_functions.lsc) and [examples/51_default_params.lsc](https://github.com/HilthonTT/LuaScript/blob/main/examples/51_default_params.lsc), the runnable sources for this page.
+- [Errors & cleanup](/docs/errors/) for `pcall`, `try`/`catch` and `defer`.

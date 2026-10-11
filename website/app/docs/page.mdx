@@ -1,0 +1,116 @@
+export const metadata = { title: "Introduction" };
+
+# Introduction
+
+LuaScript is a Lua-flavored scripting language with **Luau-style gradual types**, implemented in Go as a compiler and a stack-based virtual machine. If you know Lua 5.4, you already know most of LuaScript: the same chunks, scoping rules, metatables, coroutines and standard-library shape. On top of that core it adds optional type annotations that are checked at compile time, a set of modern syntax features, a large library of native modules, and the tooling you expect from a modern language.
+
+<Media src="run.gif" alt="Running a LuaScript file from the terminal and seeing its output" caption="Running a script with the luascript CLI." />
+
+## Why LuaScript
+
+| | |
+| --- | --- |
+| **Lua 5.4 compatible core** | `goto` and labels, metatables, coroutines, varargs, generic and numeric `for`, `<const>` / `<close>` attributes, integer and float subtypes, and the full Lua pattern surface (`find`, `match`, `gmatch`, `gsub`). |
+| **Gradual types, erased before bytecode** | Annotations follow Luau: primitives, function types, optionals (`T?`), unions, intersections, literal types, aliases, generics, structs and tagged enums. Unannotated code is `any`. Types are checked and then thrown away, so the VM runs exactly the program it would run without them. |
+| **Modern syntax** | String interpolation, `match`, `enum`, `struct` and `impl`, `try` / `catch` / `throw`, `defer`, `continue`, if-expressions, default parameters, destructuring and spread, `?.`, `??` and the `\|>` pipeline. |
+| **Batteries included** | `require()`-able native modules for JSON, HTTP client and server, SQL databases, crypto, regular expressions, compression, data structures, job queues and channels, plus a data-science stack (`ndarray`, `dataframe`, `stats`, `linalg`, `ml`, `plot`). |
+| **Tooling** | A REPL, a formatter, a static analyzer, a test runner, a language server with a VS Code extension, a CPU profiler for PGO builds, a package manager, and a bundler that turns a script into a standalone executable. |
+
+The implementation is a clean-room rewrite meant to be readable end to end. There is no LLVM, no JIT and no generated parser.
+
+## A taste
+
+```luascript title="taste.lsc"
+-- Plain Lua 5.4: closures, multiple returns, metatables
+local function counter()
+    local n = 0
+    return function() n = n + 1; return n end
+end
+
+-- Optional types, checked at compile time and erased before bytecode
+type Point = { x: number, y: number }
+
+local function dist(p: Point): number
+    return math.sqrt(p.x * p.x + p.y * p.y)
+end
+
+-- Tagged enums and pattern matching
+enum Shape
+    Circle(number),
+    Rect(number, number),
+end
+
+local function area(s: Shape): number
+    match s do
+        Shape.Circle(r)  -> return math.pi * r * r
+        Shape.Rect(w, h) -> return w * h
+    end
+    return 0
+end
+
+local next_id = counter()
+next_id()
+print(`id = {next_id()}`)       --> id = 2
+print(dist({ x = 3, y = 4 }))   --> 5.0
+print(area(Shape.Rect(2, 3)))   --> 6
+```
+
+Because the type checker runs before any code executes, a mistake like this is rejected at compile time instead of failing halfway through a run:
+
+```luascript title="bad.lsc"
+local function dist(x: number, y: number): number
+    return math.sqrt(x * x + y * y)
+end
+
+print(dist(3, "4"))
+```
+
+```text
+luascript: Type "string" could not be converted into "number" at line 5
+```
+
+The standard library has hand-written signatures too, so `math.sqrt(true)` is a compile error, and `require("json")` with a literal module name gives you the module's real type.
+
+## How it is built
+
+Source goes through a straight pipeline. The AST is the only contract between stages: the parser never produces instructions, and the VM never sees source text or types.
+
+| Stage | Package | What it does |
+| --- | --- | --- |
+| Lex | `internal/compiler/lexer/` | Lua 5.4 tokens, long-bracket strings and comments, and the `--!strict` / `--!nonstrict` / `--!nocheck` mode directive on line 1. |
+| Parse | `internal/compiler/parser/` | Recursive descent with Pratt-style expressions. Parses both Lua and Luau type syntax, and desugars a few constructs (compound assignment, string interpolation, the `\|>` pipeline) on the spot. |
+| Const-check | `internal/compiler/constcheck/` | Rejects assignment to `<const>` and `<close>` locals. Always on, even under `--!nocheck`. |
+| Type-check | `internal/compiler/typecheck/` | The gradual type system. Gated by the mode directive. Types are erased after this point. |
+| Optimize | `internal/compiler/optimize/` | AST constant folding over a Lua-5.4-safe subset. |
+| Bytecode | `internal/compiler/bytecode/` | Turns the AST into an instruction set. |
+| Run | `internal/vm/` | A stack VM with closures and upvalues, metatables, coroutines and `pcall` / `error` unwinding. |
+
+You can watch the later stages work with `luascript -dis`. Here the constant folder has already reduced `1 + 2 * 3` to `7` before any bytecode was generated:
+
+```luascript title="fold.lsc"
+print(1 + 2 * 3)
+```
+
+```text
+ProgramStart ProgramStart (0+ params, 0 locals, 0 upvalues, 4 instructions)
+     0  [src    1]  getglobal        "print"
+     1  [src    1]  loadint          7
+     2  [src    1]  call             1 0
+     3  [src    1]  leave
+```
+
+Read [Architecture](/docs/architecture/) for the full tour of each stage.
+
+## Where to go next
+
+- [Installation](/docs/installation/): get a `luascript` binary, from a release or from source.
+- [Quick start](/docs/quick-start/): write and run your first script, and try the REPL.
+- [Basics](/docs/basics/): values, variables and control flow, the shared Lua foundation.
+- [Types](/docs/types/): annotations, aliases, unions and narrowing. Then [Strict mode](/docs/strict-mode/), [Structs](/docs/structs/), [Enums](/docs/enums/), [Match](/docs/match/) and [Generics](/docs/generics/).
+- [Modern syntax](/docs/modern-syntax/): everything LuaScript adds on top of Lua 5.4.
+- [Native modules](/docs/native-modules/) and [Data science](/docs/data-science/): the libraries that ship with the interpreter.
+- [CLI & tooling](/docs/cli/): every subcommand and flag.
+
+<Callout type="info">
+LuaScript draws on **Lua 5.4** for syntax and semantics, **Luau** for the shape of its type system, and **Goby** for the original stack VM and bytecode-generator scaffolding. It is MIT licensed.
+</Callout>

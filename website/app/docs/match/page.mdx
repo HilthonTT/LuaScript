@@ -1,0 +1,327 @@
+export const metadata = { title: "Pattern matching" };
+
+# Pattern matching
+
+`match` tests one value against a list of patterns, top to bottom, and runs the first arm that fits. Patterns can compare values, test runtime types, destructure [tagged enums](/docs/enums/) and [structs](/docs/structs/), and carry `if` guards. When the subject has a finite domain, the checker proves that every case is handled.
+
+<Media src="match.gif" alt="A terminal running a LuaScript file that matches over a tagged enum Shape" caption="Destructuring a tagged enum with match." />
+
+## Syntax
+
+```luascript
+local function classify(n)
+    match n do
+        0       -> print("zero")
+        1, 2, 3 -> print("small")
+        _       -> print("other")
+    end
+end
+
+classify(0)    -- zero
+classify(2)    -- small
+classify(42)   -- other
+```
+
+- `match <expr> do ... end`. The subject is evaluated **exactly once**, even if it has side effects.
+- Each arm is `pattern -> statement`. The body is a single statement; wrap several in `do ... end`.
+- Arms are tried in order and the first match wins. There is no fall-through between arms.
+- If no arm matches, the statement does nothing and control continues after `end`.
+
+```luascript
+local x = 2
+match x do
+    1 -> print("one")
+    2 -> do
+        print("two")
+        print("(and a second line)")
+    end
+    _ -> print("?")
+end
+```
+
+<Callout type="warn">
+`match` is a **statement**, not an expression. `local label = match n do ... end` is a parse error. Assign inside the arms, or `return` from them in a helper function.
+</Callout>
+
+## Patterns
+
+| Pattern | Matches when |
+| --- | --- |
+| `0`, `"hi"`, `true`, `nil` | The subject `==` the literal. |
+| `1, 2, 3` | Any of the comma-joined alternatives matches. |
+| `_` | Always. The catch-all. |
+| `n: number` | `type(subject) == "number"`; binds it as `n`. |
+| `p: Point` | `typeof(subject) == "Point"` (structs and enums); binds it. |
+| `_: string` | Type test without binding. |
+| `x: any` | Always; binds the subject. |
+| `Shape.Circle(r)` | The subject is that variant; binds the payload positionally. |
+| `Point{ x = px }` | The subject is a `Point`; binds the named fields. |
+| `Color.RED`, `double(4)` | Any other expression is a value pattern, compared with `==`. |
+
+Any arm can add a guard: `pattern if cond -> body`.
+
+### Values and typed bindings
+
+```luascript
+struct Point { x: number, y: number }
+
+local function describe(v): string
+    match v do
+        nil        -> return "nothing"
+        0          -> return "zero"
+        n: number  -> return "number " .. n
+        s: string  -> return "string of length " .. #s
+        p: Point   -> return "point at " .. p.x .. "," .. p.y
+        _: boolean -> return "a boolean"
+        _          -> return "something else: " .. typeof(v)
+    end
+    return "unreachable"
+end
+
+print(describe(nil))           -- nothing
+print(describe(0))             -- zero
+print(describe(7))             -- number 7
+print(describe("hey"))         -- string of length 3
+print(describe(Point(1, 2)))   -- point at 1,2
+print(describe(false))         -- a boolean
+print(describe({}))            -- something else: table
+```
+
+Primitive type names probe `type()`; struct and enum names probe `typeof()`. Inside the arm the binder has the named type, so `#s` and `p.x` are checked.
+
+<Callout type="warn">
+A string literal right after a call chains as a call in Lua (`f"x"` is `f("x")`). When one arm's body ends in a call and the next pattern starts with a string, end the arm with `;`:
+
+```luascript
+local function greet(s)
+    match s do
+        "hi", "hello" -> print("greeting");
+        "bye"         -> print("farewell");
+        _             -> print("?")
+    end
+end
+greet("hello")   -- greeting
+```
+</Callout>
+
+### Guards
+
+`pattern if cond -> body` matches only when the pattern fits **and** the guard is true. If the guard fails, matching continues with the next arm, so overlapping patterns can be split by guard:
+
+```luascript
+local function sign(n: number): string
+    match n do
+        x: number if x > 0 -> return "positive"
+        x: number if x < 0 -> return "negative"
+        _                  -> return "zero"
+    end
+    return "?"
+end
+
+print(sign(7), sign(-3), sign(0))   -- positive	negative	zero
+```
+
+### Destructuring tagged enums
+
+`Enum.Variant(a, b)` matches on the variant tag and binds the payload positionally. Use `_` to skip a position. A nullary variant is matched by name alone.
+
+```luascript
+enum Shape
+    Circle(number),
+    Rect(number, number),
+    Unit,
+end
+
+local function area(s: Shape): number
+    match s do
+        Shape.Circle(r)  -> return 3.14159 * r * r
+        Shape.Rect(w, h) -> return w * h
+        Shape.Unit       -> return 0
+    end
+    return -1
+end
+
+local function height(s: Shape): number
+    match s do
+        Shape.Rect(_, h) -> return h
+        _                -> return 0
+    end
+    return -1
+end
+
+print(area(Shape.Circle(5)))       -- 78.53975
+print(area(Shape.Rect(3, 4)))      -- 12
+print(height(Shape.Rect(3, 4)))    -- 4
+```
+
+### Destructuring structs
+
+`Struct{ field = binder }` matches by nominal type and binds the fields you name. Unnamed fields are ignored.
+
+```luascript
+struct Point { x: number, y: number }
+
+local function quadrant(p): string
+    match p do
+        Point{ x = px, y = py } if px >= 0 and py >= 0 -> return "Q1"
+        Point{ x = px, y = py } if px < 0 and py >= 0  -> return "Q2"
+        Point{ x = px }                                -> return "lower half (x=" .. px .. ")"
+        _                                              -> return "not a Point"
+    end
+    return "?"
+end
+
+print(quadrant(Point(1, 2)))    -- Q1
+print(quadrant(Point(-1, 2)))   -- Q2
+print(quadrant(Point(1, -2)))   -- lower half (x=1)
+print(quadrant(42))             -- not a Point
+```
+
+### When a call-shaped pattern is just a value
+
+Destructuring is gated on names declared **in the same file**: `Circle(r)` reads a tag only because `Circle` is a payload variant declared here, and `Point{ x = a }` only because `Point` is a struct declared here. Any other call-shaped pattern is an ordinary value pattern, compared with `==`:
+
+```luascript
+local function double(n) return n * 2 end
+
+match 8 do
+    double(4) -> print("8 == double(4), compared by value")
+    _         -> print("no match")
+end
+```
+
+Variants and structs imported from another module are therefore matched by value too. Use a guard on `__tag` for those, e.g. `v: any if v.__tag == "Ok" -> ...`.
+
+## Exhaustiveness
+
+When the subject's type has a finite domain, the checker requires the arms to cover all of it. A missing case is a compile error:
+
+```luascript
+enum Shape
+    Circle(number),
+    Rect(number, number),
+    Unit,
+end
+
+local function area(s: Shape): number
+    match s do
+        Shape.Circle(r)  -> return 3.14159 * r * r
+        Shape.Rect(w, h) -> return w * h
+    end
+    return -1
+end
+```
+
+```text
+luascript: `match` on enum "Shape" does not handle 1 case: Shape.Unit at line 8
+```
+
+This matters because an unmatched `match` is a no-op at run time. In a function whose arms all `return`, a forgotten case would surface as a silent `nil` far from the real mistake.
+
+A subject is enumerable in exactly three situations:
+
+| Subject type | Domain |
+| --- | --- |
+| A tagged enum | Its variants: `Shape.Circle`, `Shape.Rect`, `Shape.Unit`. |
+| A literal union, including a bare `enum` | Its members: `"read" \| "write" \| "append"`, or `Color.RED`, ... |
+| `boolean` | `true` and `false`. |
+
+```luascript
+type Mode = "read" | "write" | "append"
+local function verb(m: Mode): string
+    match m do
+        "read" -> return "reading"
+    end
+    return "?"
+end
+
+local function yesno(b: boolean): string
+    match b do
+        true -> return "yes"
+    end
+    return "?"
+end
+
+enum Color RED, GREEN, BLUE end
+local function hex(c: Color): string
+    match c do
+        Color.RED -> return "#f00"
+    end
+    return "?"
+end
+```
+
+```text
+luascript: `match` on type "Mode" does not handle 2 cases: "write", "append" at line 3
+`match` on a boolean does not handle 1 case: false at line 10
+`match` on enum "Color" does not handle 2 cases: Color.GREEN, Color.BLUE at line 18
+```
+
+Anything else (`any`, `string`, `number`, an unannotated local) has no finite domain, so nothing is reported and plain Lua is unaffected.
+
+### Rules of coverage
+
+- Comma-joined alternatives cover every value they list: `"write", "append" -> ...`.
+- A `_` arm covers everything. It is the explicit way to opt out.
+- A typed arm the subject flows into also covers everything, such as `n: number` over a bare enum.
+- A **guarded** arm never counts as covering its case, because the guard can fail:
+
+```luascript
+type Mode = "read" | "write"
+local function f(m: Mode): string
+    match m do
+        "read" if true -> return "r";
+        "write"        -> return "w"
+    end
+    return "?"
+end
+```
+
+```text
+luascript: `match` on type "Mode" does not handle 1 case: "read" at line 3
+```
+
+## A Result pipeline
+
+Everything together: a tagged `Result`, a fallible function, and an exhaustive `match` with no `_` arm.
+
+```luascript
+enum Result
+    Ok(number),
+    Err(string),
+end
+
+local function checked_sqrt(n: number): Result
+    if n < 0 then
+        return Result.Err("cannot sqrt a negative")
+    end
+    return Result.Ok(math.sqrt(n))
+end
+
+-- No `_` arm: the checker confirms Ok and Err are the whole of Result.
+local function render(r: Result): string
+    match r do
+        Result.Ok(v)    -> return "ok: " .. v
+        Result.Err(msg) -> return "error: " .. msg
+    end
+    return "?"
+end
+
+for _, n in ipairs({ 16, -4, 2 }) do
+    print(string.format("sqrt(%d) -> %s", n, render(checked_sqrt(n))))
+end
+```
+
+```text
+sqrt(16) -> ok: 4.0
+sqrt(-4) -> error: cannot sqrt a negative
+sqrt(2) -> ok: 1.4142135623731
+```
+
+Add a third variant to `Result` and every non-exhaustive `match` over it becomes a compile error that points at the line to fix.
+
+## How it compiles
+
+`match` is a real statement in the AST, not a parse-time desugar. The type checker binds and narrows arm binders and runs the exhaustiveness check; the bytecode generator lowers each arm to one test-and-branch, so the arms compile to a plain jump chain.
+
+The runnable tours are [examples/14_match.lsc](https://github.com/HilthonTT/LuaScript/blob/main/examples/14_match.lsc) and [examples/44_match.lsc](https://github.com/HilthonTT/LuaScript/blob/main/examples/44_match.lsc).

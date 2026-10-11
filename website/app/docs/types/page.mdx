@@ -1,0 +1,368 @@
+export const metadata = { title: "Gradual typing" };
+
+# Gradual typing
+
+LuaScript has a Luau-style **gradual** type system. Annotations are optional, they are checked at compile time, and they are **erased** before bytecode is generated. The VM never sees a type, so typed code runs exactly as fast as untyped code.
+
+<Media src="types.gif" alt="A terminal running a LuaScript file that fails to compile with a type error, then running again after the annotation is fixed" caption="A wrong annotation is a compile error: nothing runs until it is fixed." />
+
+## The model
+
+- **Optional.** You can write plain Lua and never annotate anything. Precision arrives exactly where you write it down.
+- **Checked at compile time.** The checker runs between the parser and the bytecode generator. A type error stops the file before a single instruction executes.
+- **Erased.** Types carry no runtime cost and no runtime meaning. A type assertion emits no code.
+- **Untyped means `any`.** An unannotated parameter is `any`, which flows into and out of every typed slot. This is what keeps existing Lua code working unchanged.
+
+```luascript
+local function untyped(x) return x * 2 end   -- x is any, the result is any
+local doubled: number = untyped(21)          -- any flows into number
+print(doubled)                               -- 42
+```
+
+How much the checker *requires* is set per file with a mode directive (`--!strict`, `--!nonstrict`, `--!nocheck`). See [Strict mode](/docs/strict-mode/).
+
+## Annotations
+
+Annotate a local, a parameter or a return type with `: Type`. Multiple return values are a parenthesised list.
+
+```luascript
+local count: number = 42
+local name: string = "Ada"
+
+local function add(a: number, b: number): number
+    return a + b
+end
+
+local function divmod(a: number, b: number): (number, number)
+    return a // b, a % b
+end
+
+local q, r = divmod(17, 5)
+print(add(2, 3), q, r)   -- 5	3	2
+```
+
+A vararg can be annotated too: `function sum(...: number): number`.
+
+Unannotated locals are **inferred** from their initialiser, and the inferred type sticks:
+
+```luascript
+local x = 5
+x = "five"
+```
+
+```text
+luascript: Type "string" could not be converted into "number" at line 2
+```
+
+Two exceptions keep dynamic Lua working: a local initialised with `nil`, and an unannotated table literal, are both `any`. A table literal that meets an annotation is checked against it; see [Checking table literals](#checking-table-literals).
+
+## Primitives
+
+| Type | Meaning |
+| --- | --- |
+| `number` | Integers and floats alike. There is no separate `integer` type. |
+| `string` | Strings. |
+| `boolean` | `true` / `false`. |
+| `nil` | The nil value. |
+| `any` | The gradual escape hatch: flows both in and out of anything. |
+| `unknown` | The safe top type: anything flows in, nothing flows out until you narrow or assert. |
+| `never` | The empty type. No value inhabits it. |
+
+```luascript
+local opaque: unknown = "payload"
+local s: string = opaque
+```
+
+```text
+luascript: Type "unknown" could not be converted into "string" at line 2
+```
+
+## Table types
+
+Three shapes cover tables:
+
+```luascript
+type Point = { x: number, y: number }   -- record: named fields
+type Numbers = { number }               -- array: shorthand for { [number]: number }
+type Ages = { [string]: number }        -- map: an explicit indexer
+
+local origin: Point = { x = 0, y = 0 }
+local primes: Numbers = { 2, 3, 5, 7 }
+local ages: Ages = { ada = 36 }
+print(origin.x, primes[3], ages.ada)    -- 0	5	36
+```
+
+Field access through a typed record is checked:
+
+```luascript
+local p: { x: number, y: number } = { x = 1, y = 2 }
+print(p.z)
+```
+
+```text
+luascript: type "{ x: number, y: number }" has no field "z" at line 2
+```
+
+### Checking table literals
+
+On its own a table literal is `any`. When it meets a known type, the checker checks the literal against that type. This happens with a local or field annotation, a typed parameter at a call site, a declared return type, or a default parameter value. Record fields are checked against their field types. Array elements are checked against the element type, and map entries against the key and value types. Nested literals are checked recursively.
+
+```luascript
+type User = { name: string, age: number, nick: string? }
+type Point = { x: number, y: number }
+
+local u: User = { name = "Ada", age = "36" }
+local p: Point = { x = 1 }
+local q: Point = { x = 1, y = 2, z = 3 }
+local xs: { number } = { 1, "two" }
+```
+
+```text
+luascript: Type "string" could not be converted into "number" in field "age" at line 4
+table literal is missing required field "y" of type "number" at line 5
+table literal has field "z", which type "Point" does not declare at line 6
+Type "string" could not be converted into "number" in field "[2]" at line 7
+```
+
+The same checks apply to arguments and return values:
+
+```luascript
+type Point = { x: number, y: number }
+local function len(p: Point): number return p.x + p.y end
+print(len({ x = 1, y = "2" }))
+local function origin(): Point
+  return { x = 0 }
+end
+```
+
+```text
+luascript: Type "string" could not be converted into "number" in field "y" at line 3
+table literal is missing required field "y" of type "number" at line 5
+```
+
+The rules:
+
+- **Optional fields** (`nick: string?`) may be left out. Every other declared field must be present.
+- **Extra fields** are rejected when the literal is checked against a record, which catches misspelled optional fields. A variable that already holds a wider table still passes, because table types are structural.
+- **`any` stays unchecked.** A target of `any`, `unknown` or a generic type parameter is not checked, and neither is a value whose type is `any`.
+- **An empty `{}`** is accepted for any record, so you can still build a table field by field: `local p: Point = {}` then `p.x = 1`.
+- **Spread** (`{ ...base, x = 3 }`) turns off the missing-field check, because the spread may supply those fields.
+- **Unions** pick the member the literal fits, so `{ kind = "circle", r = 1 }` checks against the right arm of a discriminated union.
+- **Struct types** check only the declared fields. Members added with `impl` live on the class table, so a literal does not need to provide them.
+
+## Optionals and unions
+
+`T?` is sugar for `T | nil`. A union `A | B` accepts a value of either type.
+
+```luascript
+local maybe: string? = nil
+local id: number | string = "user-7"
+
+-- `x or default` drops nil from the result type:
+local resolved: string = maybe or "anonymous"
+print(resolved, id)   -- anonymous	user-7
+```
+
+## Literal types
+
+A string, number or boolean literal is a type of its own, inhabited by exactly one value. A union of literals is a closed set, the closest thing to a string enum:
+
+```luascript
+type Mode = "read" | "write" | "append"
+
+local function open(m: Mode)
+    print("opening for", m)
+end
+
+open("read")
+open("nope")
+
+local s: string = "read"
+local m: Mode = s
+```
+
+```text
+luascript: Type '"nope"' could not be converted into "Mode" at line 8
+Type "string" could not be converted into "Mode" at line 11
+```
+
+A literal is assignable to its base primitive, never the reverse. Inference *widens*: `local m = "read"` is a `string`, not `"read"`, so you can reassign it. Annotate to keep the singleton. Number and boolean literals work the same way (`type Bit = 0 | 1`).
+
+## Function types
+
+A function type is written `(Params) -> Return`. Use `()` for "returns nothing" and a parenthesised list for multiple returns.
+
+```luascript
+type Callback = (number) -> string
+
+local render: Callback = function(n: number): string
+    return "<" .. n .. ">"
+end
+
+local log: (string) -> () = function(s: string) print(s) end
+local swap: (number, number) -> (number, number) = function(a: number, b: number): (number, number)
+    return b, a
+end
+
+log(render(9))     -- <9>
+print(swap(1, 2))  -- 2	1
+```
+
+Calls are checked for argument types and arity:
+
+```luascript
+local function add(a: number, b: number): number
+    return a + b
+end
+add(1, "2")
+add(1)
+```
+
+```text
+luascript: Type "string" could not be converted into "number" at line 4
+call passes 1 args, function expects at least 2 at line 5
+```
+
+## Type aliases
+
+`type Name = T` names any type: a primitive, a union, a record, a function type. Aliases can be [generic](/docs/generics/) (`type Box<T> = { value: T }`), and `interface Name { ... }` is an alias whose target is a table shape.
+
+Aliases are local to the file that declares them. There is no `export type`, and a recursive alias (`type Tree = { children: { Tree } }`) is rejected with `unknown type "Tree"`.
+
+## Type assertions
+
+`expr :: T` tells the checker to believe you. It is a compile-time cast: it emits no code and checks nothing at run time.
+
+```luascript
+local opaque: unknown = "some payload"
+local revealed: string = opaque :: string
+print(revealed)
+
+local lie: any = "not a number"
+local n = lie :: number
+print(type(n))   -- string: the assertion did not convert anything
+```
+
+## Narrowing
+
+The checker tracks what a branch proves about a local and narrows its type inside that branch. Narrowings never escape the branch that established them, and assigning to the local widens it back to its declared type.
+
+```luascript
+-- nil guard
+local function len(s: string?): number
+    if s == nil then
+        return 0
+    end
+    return #s           -- s is a string here
+end
+
+-- truthiness and `not`
+local function first_char(s: string?): string
+    if not s then
+        return ""
+    end
+    return s:sub(1, 1)
+end
+
+-- type guards, with elseif negation
+local function fmt(v: number | string | boolean): string
+    if type(v) == "number" then
+        return string.format("%.1f", v)
+    elseif type(v) == "string" then
+        return v
+    end
+    return tostring(v)  -- only boolean is left
+end
+
+-- assert() narrows the rest of the block
+local function shout(s: string?): string
+    assert(s, "need a string")
+    return s:upper()
+end
+
+-- short-circuit: the right-hand side sees the left-hand side's proof
+local function non_empty(s: string?): boolean
+    return s ~= nil and #s > 0
+end
+
+print(len(nil), first_char("xyz"), fmt(2), fmt(true), shout("hi"), non_empty("a"))
+```
+
+Without the guard, the same code is rejected:
+
+```luascript
+local function len(s: string?): number
+    return #s
+end
+```
+
+```text
+luascript: the # operator expects a string or table, got "string | nil" at line 2
+```
+
+The full set of refinements:
+
+| Form | Effect |
+| --- | --- |
+| `x == nil` / `x ~= nil` | Removes or keeps `nil`. |
+| `if x then` / `if not x then` | Truthiness removes `nil`. (`false` is not split out of `boolean`.) |
+| `type(x) == "number"` | Narrows a union to the named primitive; sees through literal types. |
+| `x == "read"` | Narrows a literal union to that member. |
+| `and` / `or` / `not` | Propagate through compound conditions. |
+| `elseif` | Accumulates the negations of earlier clauses. |
+| `assert(cond)` | Narrows for the rest of the block. |
+| Early exit | A leading `if` that always `return`s, `break`s, `continue`s, `throw`s or calls `error()` narrows everything after its `end`. `goto` does not count. |
+| `x or default` | Drops `nil` (and a literal `false`) from the result, so `cond and 0.1 or -0.1` is a `number`. |
+
+<Callout type="warn">
+Only simple identifiers narrow. Field paths such as `t.name` are not tracked, so `if t.name ~= nil then return #t.name end` is still an error. Copy the field into a local first: `local name = t.name`.
+</Callout>
+
+## Standard library signatures
+
+The globals and auto-loaded libraries (`math`, `string`, `table`, `os`, `io`, `utf8`, ...) have hand-written signatures, so misuse is a compile error rather than a runtime surprise:
+
+```luascript
+print(math.sqrt(true))
+print(string.rep("ab", "3"))
+local n: string = math.floor(3.7)
+```
+
+```text
+luascript: Type "boolean" could not be converted into "number" at line 1
+Type "string" could not be converted into "number" at line 2
+Type "number" could not be converted into "string" at line 3
+```
+
+Native modules are typed too. When `require` is called with a literal module name, the result has that module's declared type:
+
+```luascript
+local json = require("json")
+local text: string = json.encode({ a = 1 })   -- fine
+local bad: number = json.encode({ a = 1 })
+```
+
+```text
+luascript: Type "string" could not be converted into "number" at line 3
+```
+
+Requiring one of your own `.lsc` files returns `any`; there is no cross-module type checking. If you shadow `require` with your own function (`local require = ...`, or by assigning the global), its results are `any` too. See [Native modules](/docs/native-modules/) for the module list.
+
+## Runtime reflection: `typeof`
+
+Because types are erased, there is no type-level `typeof` operator. `typeof(v)` is a runtime function: like `type`, but it distinguishes `integer` from `float` and honours a metatable's `__type` field, which is how [structs](/docs/structs/) and [tagged enums](/docs/enums/) report their names.
+
+```luascript
+print(type(10), typeof(10), typeof(2.5))   -- number	integer	float
+```
+
+## What is deliberately out
+
+- **Cross-module type checking.** A `require()` of a script module is `any`; only native modules carry types.
+- **Recursive aliases.** The parser accepts them; the resolver does not.
+- **Exported types.** Aliases do not cross file boundaries.
+- **Explicit type arguments at a call site** (`id<number>(5)`); type arguments are always inferred. See [Generics](/docs/generics/).
+
+Intersections (`A & B`) and literal types, listed as out in earlier designs, are now supported. See [Generics & interfaces](/docs/generics/) and [Literal types](#literal-types).
+
+The runnable tour is [examples/05_types.lsc](https://github.com/HilthonTT/LuaScript/blob/main/examples/05_types.lsc).

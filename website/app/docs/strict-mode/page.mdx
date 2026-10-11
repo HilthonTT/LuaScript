@@ -1,0 +1,174 @@
+export const metadata = { title: "Strict mode" };
+
+# Strict mode
+
+Every LuaScript file is type-checked. A **mode directive** at the top of the file decides how much the checker *requires* of you. It never changes what counts as a type error.
+
+## The three directives
+
+| Directive | Effect |
+| --- | --- |
+| `--!nonstrict` | The default. An unannotated parameter is an implicit `any`. Writing it out just states the default. |
+| `--!strict` | Every function parameter must be annotated. Implicit `any` becomes an error. |
+| `--!nocheck` | Skips the type pass for this file entirely. |
+
+The directive is an ordinary comment that starts with `--!`. Put it on line 1:
+
+```luascript title="greet.lsc"
+--!strict
+local function greet(name: string, count: number): string
+    local result: string = ""
+    for _ = 1, count do
+        result = result .. "hi " .. name .. " "
+    end
+    return result
+end
+
+print(greet("Ada", 3))
+```
+
+```text
+hi Ada hi Ada hi Ada
+```
+
+<Callout type="info">
+Precisely, the lexer honours the directive only if it appears in a comment **before the first token** of the file. Blank lines and other comments above it are fine. After the first statement, `--!strict` is just a comment. An unrecognised word after `--!` is ignored.
+</Callout>
+
+## What strict adds
+
+Exactly one rule: an unannotated parameter is an error rather than an implicit `any`. It applies to every function form: `local function`, anonymous functions, and methods, including an explicit `self`.
+
+```luascript title="loose.lsc"
+--!strict
+local function double(n) return n * 2 end
+local function scale(v, k: number) return v * k end
+local add = function(a, b) return a + b end
+local t = {}
+function t.m(self, y) return y end
+```
+
+```text
+luascript: parameter "n" has no type annotation (--!strict) at line 2
+parameter "v" has no type annotation (--!strict) at line 3
+parameter "a" has no type annotation (--!strict) at line 4
+parameter "b" has no type annotation (--!strict) at line 4
+parameter "self" has no type annotation (--!strict) at line 6
+parameter "y" has no type annotation (--!strict) at line 6
+```
+
+Two things are deliberately exempt:
+
+- **Locals** are still inferred. `local inferred = 42` is a `number`; an annotation on a local rarely tells the reader anything the initialiser doesn't.
+- **Varargs** may stay unannotated. `function sum(...): number` is accepted. You can still write `...: number` if you want the elements checked.
+
+```luascript
+--!strict
+local inferred = 42
+local doubled: number = inferred * 2
+
+local function sum(...): number
+    local total: number = 0
+    for _, v in ipairs({ ... }) do
+        total = total + v
+    end
+    return total
+end
+
+print(doubled, sum(1, 2, 3))   -- 84	6
+```
+
+Return types are not required in strict mode either. An unannotated return is inferred.
+
+## What strict does not add
+
+Strict is about *requiring* annotations, not enforcing them harder. A wrong annotation is an error in every checked mode, including the default:
+
+```luascript
+local n: number = "not a number"
+```
+
+```text
+luascript: Type "string" could not be converted into "number" at line 1
+```
+
+The same holds for stdlib misuse (`math.sqrt(true)`), arity mismatches, missing fields and non-exhaustive [`match`](/docs/match/) statements. See [Gradual typing](/docs/types/) for the full surface.
+
+## Opting out with `--!nocheck`
+
+`--!nocheck` is the only switch that turns type checking off. Annotations are still parsed and still erased; they are just not checked.
+
+```luascript
+--!nocheck
+local n: number = "not a number"
+print(n, math.sqrt(16))
+```
+
+```text
+not a number	4.0
+```
+
+`--!nocheck` does **not** disable the const check. Assigning to a `<const>` local is a compile error in every mode:
+
+```luascript
+--!nocheck
+local limit <const> = 10
+limit = 20
+```
+
+```text
+luascript: cannot assign to const variable 'limit' at line 3.
+```
+
+## Reading type errors
+
+The checker reports **every** error it finds, sorted by line, not just the first. The first line carries the `luascript:` prefix; the process exits with status 1 and nothing runs.
+
+```luascript
+local function add(a: number, b: number): number
+    return a + b
+end
+add(1, "2")
+add(1)
+print(math.sqrt(true))
+```
+
+```text
+luascript: Type "string" could not be converted into "number" at line 4
+call passes 1 args, function expects at least 2 at line 5
+Type "boolean" could not be converted into "number" at line 6
+```
+
+Most messages follow one of a few shapes:
+
+| Message | Cause |
+| --- | --- |
+| `Type "A" could not be converted into "B"` | A value of type A flows into a slot declared B. |
+| `call passes N args, function expects ...` | Arity mismatch. |
+| `Type "A" could not be converted into "B" in field "f"` | A table literal's field `f` does not match the type the literal is checked against. |
+| `table literal is missing required field "f" of type "T"` | A table literal checked against a record leaves out a non-optional field. |
+| `table literal has field "f", which type "T" does not declare` | A table literal checked against a record has a field the record does not declare. |
+| `type "T" has no field "f"` | Field access on a record or module that doesn't declare it. |
+| `parameter "x" has no type annotation (--!strict)` | Strict mode only. |
+| `match on ... does not handle N case(s): ...` | A non-exhaustive [`match`](/docs/match/). |
+
+## Adopting types incrementally
+
+Because untyped code is `any`, you never have to annotate a whole codebase at once.
+
+1. **Leave the project in the default mode.** Existing Lua runs as is; annotations you add are checked immediately.
+2. **Type the boundaries first.** Function parameters and returns are where annotations pay off most: every caller is checked against them.
+3. **Put `--!strict` at the top of the file you are working on.** The errors list exactly which signatures are still undecided.
+4. **Use `any` deliberately.** An explicit `value: any` is honest: it says "this really can be anything", where an implicit `any` says "nobody decided yet". It satisfies strict mode.
+5. **Reach for `--!nocheck` sparingly**, for generated code or a file that does something the checker cannot model.
+
+```luascript
+--!strict
+local function log_anything(label: string, value: any): string
+    return label .. "=" .. tostring(value)
+end
+print(log_anything("count", 7))   -- count=7
+print(log_anything("flag", true)) -- flag=true
+```
+
+The runnable tour is [examples/06_strict_mode.lsc](https://github.com/HilthonTT/LuaScript/blob/main/examples/06_strict_mode.lsc).

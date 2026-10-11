@@ -1,0 +1,700 @@
+export const metadata = { title: "Native modules" };
+
+# Native modules
+
+Native modules are libraries implemented in Go and shipped inside the `luascript` binary. You load one with `require`, exactly like a module written in LuaScript, but nothing is read from disk: the host registers each one in `package.preload` at startup, so they work from any directory and inside [bundled executables](/docs/cli/).
+
+```luascript
+local json = require("json")
+local crypto = require("crypto")
+
+print(json.encode({ ok = true }))           --> {"ok":true}
+print(crypto.sha256("hello"):sub(1, 16))    --> 2cf24dba5fb0a30e
+```
+
+## They are typed
+
+Every native module except `ui` has a hand-written type declaration. When you call `require` with a **literal** module name, the type checker resolves it to that module's type, so typos and wrong argument types are compile errors rather than runtime surprises:
+
+```luascript
+local crypto = require("crypto")
+print(crypto.sha256(42))
+```
+
+```text
+luascript: Type "number" could not be converted into "string" at line 2
+```
+
+Misspelling a field (`crypto.sha265`) is also rejected, with a message listing the module's real fields. If the name is not a literal (`require(name)`), the result is `any` and nothing is checked. Two guard tests in the repository compare these declarations and the reference docs against a live VM, so they stay in step with the runtime. See [Types](/docs/types/) for how gradual typing treats `any`.
+
+<Callout type="tip">
+Every module documented here is also in the offline reference: `luascript doc json`, `luascript doc regexp.regex`, `luascript doc -k sqlite`. The REPL has the same data under `doc <topic>`.
+</Callout>
+
+## Overview
+
+All modules below ship in the default build. The registry that decides this is [`cmd/luascript/natives.go`](https://github.com/HilthonTT/LuaScript/blob/main/cmd/luascript/natives.go).
+
+| Group | Module | What it is |
+| ----- | ------ | ---------- |
+| Data formats | [`json`](#json) | JSON encode/decode, integer-preserving |
+| | [`compression`](#compression) | gzip, zlib, raw deflate, plus teaching RLE/Huffman codecs |
+| Network | [`http`](#http) | HTTP client: shorthands, full requests, reusable clients |
+| | [`httpserver`](#httpserver) | Blocking HTTP server with serialised handlers |
+| Security | [`crypto`](#crypto) | Hashes, HMAC, argon2id passwords, PBKDF2, encodings, secure randomness |
+| | [`uuid`](#uuid) | Version-4 UUIDs |
+| Text | [`regexp`](#regexp) | RE2 (Go) regular expressions |
+| Time | [`time`](#time) | Wall and monotonic clocks, layouts, parsing, sleeping |
+| Algorithms | [`sort`](#sort) | Stable and unstable sorts, reverse, `is_sorted` |
+| | [`std`](#std) | Stack, queue, deque, set, list, heap, hashmap, trie, B-tree |
+| | [`bit32`](#bit32) | 32-bit bitwise operations with wraparound |
+| Diagnostics | [`log`](#log) | Levelled logging |
+| | [`debug`](#debug) | Tracebacks and `getinfo` |
+| Storage | [`db`](#db) | SQL over Go's `database/sql`: SQLite in-process, MySQL, PostgreSQL, SQL Server |
+| System | [`os`](#os) | The Lua `os` library plus descriptor-level files and platform constants |
+| | [`io`](#io) | The full Lua 5.4 `io` library |
+| Concurrency | `queue` | Priority job queue and Go-backed channels: see [Jobs & channels](/docs/concurrency/) |
+| Testing | `test` | Unit tests and the `luascript test` runner: see [Testing](/docs/testing/) |
+| Data science | `ndarray`, `dataframe`, `csv`, `stats`, `linalg`, `ml`, `clustering`, `classification`, `plot` | See [Data science](/docs/data-science/) |
+| Gated | [`ui`](#ui) | Desktop GUI (Fyne); needs `-tags luascript_ui` |
+| | [`plugin`](#plugin) | Load Go packages at run time; cgo, never on Windows |
+
+`math` and `utf8` also have `require`-able forms; they are covered with the rest of the core library in [Core library](/docs/stdlib/).
+
+## json
+
+Encodes Lua values to JSON text and decodes JSON back. Decoding keeps integers as integers, so a round trip does not turn `1` into `1.0`. Because Lua has one table type for both objects and arrays, `encode` picks by shape: keys exactly `1..n` become an array, anything else an object. Two sentinels cover the places the models disagree: `json.empty_array` encodes as `[]` (an empty table encodes as `{}`), and `json.null` lets you keep JSON nulls distinguishable from absent keys.
+
+| Function | Description |
+| -------- | ----------- |
+| `json.encode(value [, opts])` | Serialise to JSON. `opts.indent` is a number of spaces or an indent string. Raises on functions and other unrepresentable values. |
+| `json.decode(text [, opts])` | Parse JSON. Nulls become `nil` unless you pass `{ null = json.null }`. Raises on malformed input or trailing content. |
+| `json.null` | Sentinel for JSON `null`. Compare by identity: `v == json.null`. |
+| `json.empty_array` | Marker that encodes as `[]`. |
+
+```luascript title="json.lsc"
+local json = require("json")
+
+print(json.encode({ name = "ada", tags = { "x", "y" } }))
+--> {"name":"ada","tags":["x","y"]}
+
+local t = json.decode('{"id": 7, "score": 9.5, "tags": ["a", "b"]}')
+print(t.id, math.type(t.id), t.score, #t.tags)   --> 7	integer	9.5	2
+
+print(json.encode({ items = json.empty_array }))  --> {"items":[]}
+
+-- Without the sentinel, a null inside an array would truncate it.
+local arr = json.decode("[1, null, 3]", { null = json.null })
+print(#arr, arr[2] == json.null)                  --> 3	true
+
+print(json.encode({ a = 1 }, { indent = 2 }))
+--> {
+-->   "a": 1
+--> }
+```
+
+## http
+
+An HTTP client. The shorthands (`get`, `post`, ...) take a URL directly; `http.request` takes one options table; `http.new_client` shares a base URL, default headers and a connection pool across calls. Every call returns a response table with `status`, `status_text`, `body`, `ok` (true for 2xx), `headers`, `headers_raw` and `url` (after redirects). Transport failures raise, so wrap calls in `pcall` when the network may be absent.
+
+| Function | Description |
+| -------- | ----------- |
+| `http.get(url [, opts])` | GET. Also `head`, `options`, `delete` with the same shape. |
+| `http.post(url [, body [, opts]])` | POST a body string. Also `put`, `patch`. |
+| `http.request(opts)` | Full surface: `method`, `url`, `body`, `json`, `form`, `headers`, `query`, `timeout` (seconds), `username`/`password`, `follow_redirects`. |
+| `http.new_client([opts])` | Reusable client with `base_url`, `headers`, `timeout`, `follow_redirects`. Has the same methods (`c:get`, `c:post`, `c:request`, ...). |
+| `http.encode_url(t)` | Percent-encode a table as a query string. Array values repeat the key. |
+| `http.MethodGet` ... `http.MethodTrace` | Method-name constants. |
+
+Any call accepts `opts.json` (serialised, sets `Content-Type`) or `opts.form` (URL-encoded) in place of a body string. Read `Set-Cookie` from `headers_raw`: `headers` comma-joins repeated headers, which breaks cookies.
+
+```luascript title="http.lsc"
+local http = require("http")
+
+-- No network needed.
+print(http.encode_url({ q = "lua script", page = 2 }))   --> page=2&q=lua+script
+print(http.encode_url({ tag = { "a", "b" } }))           --> tag=a&tag=b
+
+-- Network calls raise on transport errors, so guard them.
+local ok, res = pcall(http.get, "https://httpbin.org/get", { timeout = 5 })
+if ok and res.ok then
+    print(res.status, #res.body)
+else
+    print("request failed:", ok and res.status or res)
+end
+
+local api = http.new_client({
+    base_url = "https://httpbin.org",
+    headers = { ["User-Agent"] = "luascript-docs" },
+    timeout = 5,
+})
+local ok2, r = pcall(function()
+    return api:post("/post", nil, { json = { name = "ada" } })
+end)
+if ok2 then print(r.status, r.headers["Content-Type"]) end
+```
+
+## httpserver
+
+A blocking HTTP server. `server:listen(addr)` blocks the VM goroutine and dispatches handlers **one at a time**: the VM has no locks, so running Lua on two goroutines would corrupt it. In exchange, handlers can share any script state without synchronisation. Keep them quick; long work belongs on a [job queue](/docs/concurrency/).
+
+A handler receives a request table (`method`, `path`, `query` as the raw string, `body`, `host`, `remote_addr`, `headers`) and returns either a string (200, `text/plain`) or a table with `status`, `body` and `headers`. Request bodies are capped at 8 MiB (larger ones get a 413).
+
+| Function / method | Description |
+| ----------------- | ----------- |
+| `httpserver.new()` | A server with no routes. |
+| `server:route(method, path, handler)` | Register a handler. `server:get`, `post`, `put`, `patch`, `delete`, `head`, `options` are shorthands. |
+| `server:set_not_found(handler)` | Handler used when no route matches. |
+| `server:listen(addr)` | Bind (for example `":8080"`) and serve until `:stop()`. Blocks. |
+| `server:stop()` | Shut down; the blocked `:listen` returns. Safe to call from a handler. |
+
+Handlers are plain functions, so you can test them without opening a socket:
+
+```luascript title="server.lsc"
+local httpserver = require("httpserver")
+local json = require("json")
+
+local server = httpserver.new()
+local hits = 0
+
+local function index(req)
+    return "hello from " .. req.path          -- a string means 200 text/plain
+end
+
+local function stats(req)
+    hits += 1                                 -- no lock needed: handlers are serialised
+    return {
+        status = 200,
+        headers = { ["Content-Type"] = "application/json" },
+        body = json.encode({ hits = hits }),
+    }
+end
+
+server:get("/", index)
+server:get("/stats", stats)
+server:route("PUT", "/item", function(req) return { status = 204, body = "" } end)
+server:set_not_found(function(req)
+    return { status = 404, body = "no route for " .. req.method .. " " .. req.path }
+end)
+
+print(index({ method = "GET", path = "/" }))          --> hello from /
+print(stats({ method = "GET", path = "/stats" }).body) --> {"hits":1}
+
+if os.getenv("SERVE") then
+    server:listen(":8080")   -- blocks until server:stop()
+end
+```
+
+## crypto
+
+Digests, MACs, password hashing and encodings. Digest functions return lowercase hex. `md5` and `sha1` exist for interoperability only. Compare secrets with `constant_time_equal` or `hmac_verify` rather than `==`, so timing does not leak where they differ. For stored passwords use `password_hash`, which runs argon2id with an automatic salt and returns a self-describing PHC string.
+
+| Function | Description |
+| -------- | ----------- |
+| `crypto.sha256(s)`, `sha512`, `sha3`, `sha1`, `md5` | Hex digest of `s`. `sha3` is SHA3-256. |
+| `crypto.hmac_sha256(key, msg)` | HMAC-SHA256, hex. |
+| `crypto.hmac(alg, key, msg)` | HMAC with `alg` = `sha256`, `sha384`, `sha512`, `sha1` or `md5`. |
+| `crypto.hmac_verify(key, msg, expected_hex)` | Recompute and compare in constant time. |
+| `crypto.password_hash(password [, opts])` | argon2id hash. `opts`: `time`, `memory` (KiB), `threads`, `key_length`, `salt_length`. |
+| `crypto.password_verify(password, encoded)` | Check a password; returns `false` (never raises) on a malformed hash. |
+| `crypto.pbkdf2(password, salt, iterations, keylen [, alg])` | Derive `keylen` raw bytes. `alg` defaults to `sha256`. |
+| `crypto.constant_time_equal(a, b)` | Constant-time string comparison. |
+| `crypto.random_bytes(n)`, `crypto.random_int(n)` | Secure random bytes; uniform integer in `[0, n)`. |
+| `crypto.hex_encode` / `hex_decode`, `base64_encode` / `base64_decode`, `base64url_encode` / `base64url_decode` | Encodings. `base64url` is unpadded (RFC 4648 section 5). |
+
+```luascript title="crypto.lsc"
+local crypto = require("crypto")
+
+print(crypto.sha256("hello"))
+--> 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824
+
+local mac = crypto.hmac_sha256("secret", "message")
+print(crypto.hmac_verify("secret", "message", mac))   --> true
+
+local stored = crypto.password_hash("hunter2")
+print(stored:sub(1, 9))                               --> $argon2id
+print(crypto.password_verify("hunter2", stored),
+      crypto.password_verify("wrong", stored))        --> true	false
+
+local token = crypto.hex_encode(crypto.random_bytes(16))
+print(#token)                                         --> 32
+print(crypto.base64url_encode("hi?"), crypto.base64_decode("aGk/"))   --> aGk_	hi?
+```
+
+## uuid
+
+Random (version 4) UUIDs and validation.
+
+| Function | Description |
+| -------- | ----------- |
+| `uuid.v4()` | A random UUID in canonical `8-4-4-4-12` form. |
+| `uuid.is_valid(s)` | Whether `s` is a well-formed UUID. |
+
+```luascript
+local uuid = require("uuid")
+local id = uuid.v4()
+print(id)                                        --> 51367656-de78-4bae-9815-69228ad0174e (random)
+print(uuid.is_valid(id), uuid.is_valid("nope"))  --> true	false
+```
+
+## regexp
+
+RE2 regular expressions, the syntax Go's `regexp` package uses. RE2 guarantees linear-time matching, so there are no backreferences or lookaround. For Lua patterns use `string.match` and friends (see [Strings & patterns](/docs/strings/)). The match method is called `:capture` because `match` is a keyword.
+
+| Function / method | Description |
+| ----------------- | ----------- |
+| `regexp.compile(pattern)` | Compile to a regex object. Raises on an invalid pattern. |
+| `regexp.is_valid(pattern)` | Whether the pattern compiles, without raising. |
+| `regexp.quote(s)` | Escape metacharacters so `s` matches literally. |
+| `re:test(s)` | Whether the pattern matches anywhere in `s`. |
+| `re:capture(s)` | The whole first match, then its groups; `nil` if none. |
+| `re:find(s [, init])` | Start and end indices of the first match, then groups. |
+| `re:groups(s)` | Named groups (`(?P<name>...)`) of the first match, as a table. |
+| `re:find_all(s [, n])`, `re:find_all_captures(s [, n])` | Every match, or every match with its groups. |
+| `re:replace(s, repl)` | Replace every match; `$0`, `$1` refer to the match and its groups. |
+| `re:replace_func(s, fn)` | Replace every match with `fn(match, ...groups)`. |
+| `re:split(s [, n])` | Split `s` around the matches. |
+
+Long-bracket strings (`[[...]]`) save you from doubling every backslash:
+
+```luascript title="regexp.lsc"
+local regexp = require("regexp")
+
+local email = regexp.compile([[(\w+)@(\w+)\.com]])
+print(email:test("mail ada@example.com today"))   --> true
+print(email:capture("ada@example.com"))           --> ada@example.com	ada	example
+
+local date = regexp.compile([[(?P<year>\d{4})-(?P<month>\d{2})]])
+local g = date:groups("released 2026-10")
+print(g.year, g.month)                            --> 2026	10
+
+local num = regexp.compile([[\d+]])
+print(table.concat(num:find_all("a1 b22 c333"), ","))   --> 1,22,333
+print(num:replace("a1 b22", "<$0>"))                    --> a<1> b<22>
+print(num:replace_func("a1 b22", function(m) return ("#"):rep(#m) end))   --> a# b##
+print(table.concat(regexp.compile([[\s*,\s*]]):split("a , b,c"), "|"))     --> a|b|c
+print(regexp.quote("1+1=2?"), regexp.is_valid("(unclosed"))               --> 1\+1=2\?	false
+```
+
+## time
+
+Clocks, formatting, parsing and sleeping. Layouts are Go reference-time layouts (the reference instant is `2006-01-02 15:04:05`), with the common ones exported as constants. `time.format` also accepts a strftime layout (anything containing `%`), but `parse` and `parse_utc` do not. Everything works in the local zone unless you pass `utc = true` or use `parse_utc`.
+
+| Function | Description |
+| -------- | ----------- |
+| `time.now()`, `time.now_ms()` | Current Unix time in seconds (fractional) or milliseconds. |
+| `time.clock()` | Monotonic seconds, for measuring elapsed time. |
+| `time.sleep(seconds)` | Block the VM. Fractions allowed. |
+| `time.date([unix [, utc]])` | Break a timestamp into `year`, `month`, `day`, `hour`, `min`, `sec`, `wday`, `yday`, `isdst`. |
+| `time.format(unix [, layout [, utc]])` | Format a timestamp. Layout defaults to `RFC3339`. |
+| `time.parse(layout, s)`, `time.parse_utc(layout, s)` | Parse to a Unix time, in local time or UTC. Raises on mismatch. |
+| `time.RFC3339`, `DATE`, `DATETIME`, `KITCHEN` | Layout constants. |
+
+```luascript title="time.lsc"
+local time = require("time")
+
+local t = time.parse_utc(time.DATE, "2026-01-31")
+print(t)                                       --> 1769817600
+print(time.format(t, time.DATETIME, true))     --> 2026-01-31 00:00:00
+print(time.format(t, "%Y/%m/%d", true))        --> 2026/01/31
+print(pcall(time.parse, "%Y-%m-%d", "2026-01-31"))   --> false	... cannot parse ...
+
+local d = time.date(t, true)
+print(d.year, d.month, d.day, d.wday)          --> 2026	1	31	7
+
+local start = time.clock()
+time.sleep(0.01)
+print(time.clock() - start >= 0.01)            --> true
+```
+
+<Callout type="warn">
+`time.sleep` blocks the whole VM. To wait without stalling other work, use `queue.after` or `queue.tick` from the [`queue` module](/docs/concurrency/).
+</Callout>
+
+## sort
+
+Sorting helpers over the array part of a table. `sort.sort` is the one to reach for (it is what `table.sort` uses); `sort.stable` preserves the order of equal elements. Every function sorts in place **and** returns the table. Comparators follow the Lua convention: `cmp(a, b)` is true when `a` comes strictly before `b`. The named algorithms `quicksort`, `bubble`, `circle` and `simple` sort numbers and exist for teaching and benchmarking.
+
+| Function | Description |
+| -------- | ----------- |
+| `sort.sort(t [, cmp])` | Efficient unstable sort, ascending by default. |
+| `sort.stable(t [, cmp])` | Stable sort. |
+| `sort.is_sorted(t [, cmp])` | Whether `t` is already in order. |
+| `sort.reverse(t)` | Reverse the array part in place. |
+| `sort.quicksort(t)`, `bubble`, `circle`, `simple` | Reference implementations over numbers. |
+
+```luascript title="sort.lsc"
+local sort = require("sort")
+
+local people = {
+    { name = "ada", age = 36 }, { name = "bob", age = 25 }, { name = "cy", age = 36 },
+}
+sort.stable(people, function(a, b) return a.age > b.age end)
+for _, p in ipairs(people) do io.write(p.name, " ") end
+print()                                        --> ada cy bob
+
+local t = sort.sort({ 5, 2, 9, 1 })
+print(table.concat(t, ","), sort.is_sorted(t)) --> 1,2,5,9	true
+print(table.concat(sort.reverse(t), ","))      --> 9,5,2,1
+```
+
+## std
+
+Classic data structures. Each constructor returns an object with methods, and the objects store Lua values directly. Where a plain table does the job it is usually faster; these earn their keep when you want an operation to be explicit and cheap, such as a deque's `push_front`, a heap's ordering or a trie's lookup. `std.new_queue` is a plain FIFO and is unrelated to the [`queue` module](/docs/concurrency/), which schedules jobs.
+
+| Constructor | Methods |
+| ----------- | ------- |
+| `std.new_stack()` | `push`, `pop`, `peek`, `size`, `empty`, `clear` |
+| `std.new_queue()` | `push`, `pop`, `peek`, `size`, `empty`, `clear` |
+| `std.new_deque()` | `push_front`, `push_back`, `pop_front`, `pop_back`, `front`, `back`, `size`, `empty`, `clear` |
+| `std.new_set()` | `add`, `remove`, `contains`, `values`, `size`, `empty`, `clear` |
+| `std.new_list()` | Doubly linked list: deque methods plus `to_array` |
+| `std.new_hashmap()` | `put`, `get`, `contains`, `size` |
+| `std.new_heap(cmp)` | `push`, `pop`, `top`, `size`, `empty`. `cmp(a, b)` is true when `a` has priority. |
+| `std.new_trie()` | `insert(...)`, `find`, `remove(...)`, `compact`, `size`, `capacity` |
+| `std.new_btree([max_keys])` | Ordered keys: `insert(...)`, `search`, `remove`, `min`, `max`, `size`, `empty`. The first insert fixes the key type (number or string). |
+
+```luascript title="std.lsc"
+local std = require("std")
+
+local s = std.new_stack()
+s:push(1); s:push(2)
+print(s:pop(), s:size())                       --> 2	1
+
+local d = std.new_deque()
+d:push_back("b"); d:push_front("a")
+print(d:front(), d:back())                     --> a	b
+
+local seen = std.new_set()
+print(seen:add("x"), seen:add("x"), seen:contains("x"))   --> true	false	true
+
+local h = std.new_heap(function(a, b) return a < b end)   -- min-heap
+for _, v in ipairs({ 5, 1, 4 }) do h:push(v) end
+print(h:pop(), h:pop(), h:top())               --> 1	4	5
+
+local t = std.new_trie()
+t:insert("car", "cart")
+print(t:find("car"), t:find("ca"), t:size())   --> true	false	2
+
+local b = std.new_btree()
+b:insert(30, 10, 20)                           -- every argument is a key
+print(b:min(), b:max(), b:search(20))          --> 10	30	true
+```
+
+## compression
+
+The `gzip`, `zlib` and raw `deflate` pairs are the practical codecs: they take and return strings. RLE and the Huffman functions (`encode`, `decode`, `codes`, `symbol_count`) are teaching implementations with their own formats; do not expect them to interoperate with other tools.
+
+| Function | Description |
+| -------- | ----------- |
+| `compression.gzip_encode(s [, level])` / `gzip_decode(s)` | gzip format. Decoding raises on corrupt input. |
+| `compression.zlib_encode(s [, level])` / `zlib_decode(s)` | zlib format. |
+| `compression.deflate_encode(s [, level])` / `deflate_decode(s)` | Raw DEFLATE, no wrapper. |
+| `compression.rle_encode(s)` / `rle_decode(s)` | Run-length coding (teaching format). |
+| `compression.encode(s)` / `decode(t)` | Huffman coding: `encode` returns a table with `bits` (the bit string) and `codes`; `decode` takes that table back. |
+| `compression.codes(s)`, `compression.symbol_count(s)` | The Huffman code per symbol; symbol frequencies. |
+
+```luascript title="compression.lsc"
+local compression = require("compression")
+
+local text = ("hello luascript "):rep(100)
+local packed = compression.gzip_encode(text)
+print(#text, #packed, compression.gzip_decode(packed) == text)   --> 1600	50	true
+print(compression.zlib_decode(compression.zlib_encode(text)) == text)   --> true
+
+print(compression.rle_decode(compression.rle_encode("aaabccdddd")))     --> aaabccdddd
+print(compression.decode(compression.encode("abracadabra")))           --> abracadabra
+```
+
+The `*_encode` functions take an optional compression level from 1 (fastest) to 9 (smallest); leave it out for the default. A level outside the range raises an error.
+
+```luascript
+local compression = require("compression")
+local text = ("hello luascript "):rep(100)
+local small = compression.gzip_encode(text, 9)
+print(#small, compression.gzip_decode(small) == text)   --> 50	true
+
+local enc = compression.encode("abracadabra")
+print(enc.bits, compression.decode(enc))               --> 01101110100010101101110	abracadabra
+```
+
+## bit32
+
+Lua 5.2's `bit32` library. Arguments are truncated to unsigned 32-bit and results come back in `[0, 2^32)`; shift counts outside `0..31` yield 0. LuaScript also has native bitwise operators (`&`, `|`, `~`, `<<`, `>>`, unary `~`) that work on full 64-bit integers. Use `bit32` when you specifically need 32-bit wraparound.
+
+| Function | Description |
+| -------- | ----------- |
+| `bit32.band(...)`, `bor(...)`, `bxor(...)` | AND, OR, XOR of every argument. |
+| `bit32.bnot(x)` | Complement. |
+| `bit32.btest(...)` | Whether the AND of every argument is non-zero. |
+| `bit32.lshift(x, n)`, `rshift(x, n)`, `arshift(x, n)` | Logical and arithmetic shifts. |
+| `bit32.lrotate(x, n)`, `rrotate(x, n)` | Rotations. |
+| `bit32.extract(n, field [, width])`, `replace(n, v, field [, width])` | Read or write a bit field. |
+| `bit32.bswap(x)` | Reverse the four bytes (endianness swap). |
+
+```luascript title="bit32.lsc"
+local bit32 = require("bit32")
+print(bit32.band(0xF0, 0x3C), bit32.bor(1, 2, 4), bit32.bxor(0xFF, 0x0F))   --> 48	7	240
+print(bit32.bnot(0))                           --> 4294967295
+print(bit32.lrotate(0x80000001, 1))            --> 3
+print(bit32.extract(0xFF00, 8, 8), bit32.replace(0, 5, 4, 3))   --> 255	80
+print(string.format("%08x", bit32.bswap(0x11223344)))           --> 44332211
+print(~0)                                      --> -1   (native operators are 64-bit)
+```
+
+## log
+
+Levelled logging with six levels: `trace`, `debug`, `info`, `warn`, `error`, `fatal`. Messages below the current threshold (default `info`) are dropped. Output goes to stderr unless redirected. `log.fatal` writes its message and then **exits the process**; deferred blocks do not run. `log.error` only logs; it does not raise.
+
+| Function | Description |
+| -------- | ----------- |
+| `log.trace(...)` ... `log.fatal(...)` | Log at that level. Arguments are tab-separated, like `print`. |
+| `log.log(level, ...)` | Log at a named level. |
+| `log.set_level(level)`, `log.get_level()` | Threshold. |
+| `log.set_prefix(s)` | Prefix printed before every message. |
+| `log.set_output(dest)`, `log.get_output()` | A file path, `"stdout"` or `"stderr"`. |
+| `log.close()` | Close the log file, if output went to one. |
+| `log.LEVELS` | Level name to ordinal (`trace = 0` ... `fatal = 5`). |
+
+```luascript title="log.lsc"
+local log = require("log")
+
+log.set_output("stdout")       -- default is stderr
+log.set_prefix("worker")
+log.info("started", 3, "jobs")
+log.debug("hidden: below the default info threshold")
+log.set_level("debug")
+log.debug("now visible")
+print(log.get_level(), log.LEVELS.warn)
+```
+
+```text
+2026-10-11T22:02:10 [INFO] worker started	3	jobs
+2026-10-11T22:02:10 [DEBUG] worker now visible
+debug	3
+```
+
+## debug
+
+A deliberate subset of Lua's `debug` library. `traceback` and `getinfo` are real and walk the same frames the runtime prints for an uncaught error. `sethook` and `gethook` are stubs (the VM has no hook mechanism), and nothing here can read or modify locals and upvalues.
+
+| Function | Description |
+| -------- | ----------- |
+| `debug.traceback([message [, level]])` | A stack traceback string, with `message` prepended. |
+| `debug.getinfo(f)` | A function's `what`, `source`, `short_src`, `currentline`, `name`, `namewhat`, `nparams`, `isvararg`. A stack level fills `currentline` from the live frame. |
+| `debug.sethook(...)`, `debug.gethook()` | Compatibility stubs: accepted and ignored; `gethook` returns `nil`. |
+
+```luascript title="debug.lsc"
+local debug = require("debug")
+
+local function inner()
+    print(debug.traceback("checkpoint"))
+end
+local function outer() inner() end
+outer()
+
+local info = debug.getinfo(outer)
+print(info.what, info.nparams, info.short_src)
+```
+
+```text
+checkpoint
+stack traceback:
+	debug.lsc:4: in function 'inner'
+	debug.lsc:6: in function 'outer'
+	debug.lsc:7: in main chunk
+Lua	0	debug.lsc
+```
+
+See [Errors](/docs/errors/) for how uncaught errors report their position and stack.
+
+## db
+
+SQL databases through Go's `database/sql`. Four drivers are linked in by default: **SQLite** (pure Go, runs in-process, so no server is needed), **MySQL/MariaDB**, **PostgreSQL** and **SQL Server**. Aliases resolve: `"pg"`/`"postgresql"`, `"mariadb"` and `"mssql"` all work. Always pass values as extra arguments rather than splicing them into the SQL string; the driver escapes them.
+
+Values come back typed: number columns are Lua numbers on every driver, `NULL` is `nil`, timestamps are RFC 3339 strings (with fractional seconds), and `DECIMAL`/`NUMERIC` stay strings on purpose because a float cannot hold them exactly. The one dialect difference the module surfaces is bind-parameter syntax (`?`, `$1`, `@p1`): it reports the spelling through `placeholder` instead of rewriting your SQL.
+
+| Function / method | Description |
+| ----------------- | ----------- |
+| `db.open(driver, datasource)` | Open a connection pool. Pings first, so a bad DSN raises here. |
+| `db.drivers()` | Driver names this binary can open, sorted. SQL Server appears twice: its driver registers both `sqlserver` and the legacy name `mssql`. Prefer `sqlserver`. |
+| `db.placeholder(driver [, n])` | How `driver` spells its `n`th parameter, even for drivers not compiled in. |
+| `conn:query(sql, ...)` | Run a query; rows as an array of tables keyed by column name. |
+| `conn:exec(sql, ...)` | Run a statement; returns rows affected and the last insert id. |
+| `conn:placeholder([n])` | This connection's parameter syntax. |
+| `conn.driver` | The resolved driver name. |
+| `conn:ping()`, `conn:close()` | Check liveness; close the pool. |
+
+```luascript title="db.lsc"
+local db = require("db")
+print(table.concat(db.drivers(), ", "))   --> mssql, mysql, postgres, sqlite, sqlserver
+
+local conn = db.open("sqlite", ":memory:")
+conn:exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER)")
+
+local affected, id = conn:exec("INSERT INTO users (name, age) VALUES (?, ?)", "ada", 36)
+conn:exec("INSERT INTO users (name, age) VALUES (?, ?)", "bob", 25)
+print(affected, id)                       --> 1	1
+
+local p = conn:placeholder(1)
+local rows = conn:query("SELECT id, name, age FROM users WHERE age > " .. p, 30)
+for _, r in ipairs(rows) do print(r.id, r.name, r.age) end   --> 1	ada	36
+
+print(conn.driver, db.placeholder("postgres", 2), db.placeholder("sqlserver", 1))
+--> sqlite	$2	@p1
+conn:close()
+```
+
+An SQLite `":memory:"` database is pinned to a single pooled connection, because each in-memory SQLite connection is a separate database. Building with `-tags luascript_sqlite_cgo` swaps in the cgo `mattn/go-sqlite3` driver; the name `"sqlite"` resolves to whichever backend is compiled in.
+
+## os
+
+`os` is available as a global, as in Lua 5.4, and `require("os")` returns the same table. Beyond the standard surface (`time`, `date`, `clock`, `difftime`, `getenv`, `execute`, `exit`, `remove`, `rename`, `tmpname`, `setlocale`), it adds environment and directory helpers, platform constants, and descriptor-level file access through `os.open`. The file object `os.open` returns is a different type from the one `io.open` returns: it seeks by numeric `whence` constant and can `stat`, `chmod` and `truncate`.
+
+| Function / constant | Description |
+| ------------------- | ----------- |
+| `os.getenv(name)`, `os.setenv(name, value)` | Read or set an environment variable. |
+| `os.getcwd()` (alias `os.pwd()`), `os.hostname()` | Working directory; machine name. |
+| `os.mkdir(path, perm)` | Create a directory. |
+| `os.open(path, flags, perm)`, `os.create(path)` | Open with `o_*` flags; create or truncate. Return an `os.file`. |
+| `os.platform`, `os.arch` | For example `"linux"` / `"windows"`, `"amd64"`. |
+| `os.path_separator`, `os.path_list_separator`, `os.dev_null` | Platform path constants. |
+| `os.o_rdonly`, `o_wronly`, `o_rdwr`, `o_append`, `o_create`, `o_excl`, `o_sync`, `o_trunc` | Open flags; combine with `\|`. |
+| `os.seek_set`, `seek_cur`, `seek_end` | `whence` values for `f:seek`. |
+| `os.mode_dir`, `mode_perm`, `mode_type`, ... | File-mode bits for `f:stat().mode`. |
+| `f:read(n)`, `f:write(s)`, `f:seek(offset, whence)` | Byte-level I/O on an `os.file`. |
+| `f:stat()`, `f:chmod(mode)`, `f:truncate(size)`, `f:sync()`, `f:name()`, `f:close()` | Metadata and control. |
+
+```luascript title="os.lsc"
+print(os.platform, os.arch, os.path_separator)   --> windows	amd64	\   (varies)
+print(os.date("!%Y-%m-%d", 0))                   --> 1970-01-01
+
+-- LuaScript has no octal literals: 0644 is decimal 644.
+-- Write tonumber("644", 8), or its decimal value 420.
+local f = os.open("demo.bin", os.o_rdwr | os.o_create | os.o_trunc, 420)
+f:write("hello world")
+f:seek(0, os.seek_set)
+print(f:read(5), f:stat().size)                  --> hello	11
+f:truncate(5)
+f:close()
+
+print(os.rename("demo.bin", "demo2.bin"))        --> true
+print(os.remove("demo2.bin"))                    --> true
+```
+
+## io
+
+The full Lua 5.4 `io` library. Like `os`, it is a global and `require("io")` returns the same table; writing the `require` just makes the dependency visible. `io.open` returns a stream-oriented handle with `read`, `write`, `lines`, `seek`, `flush` and `close`; `read` takes the Lua 5.4 formats (`"l"`, `"L"`, `"n"`, `"a"`, or a byte count).
+
+| Function | Description |
+| -------- | ----------- |
+| `io.open(path [, mode])` | Open a file; returns the handle, or `nil` and a message. |
+| `io.lines([path])` | Iterate lines of a file (closing it at the end), or of the default input. |
+| `io.read([fmt])`, `io.write(...)` | Read from default input; write to default output. |
+| `io.input([file \| path])`, `io.output([file \| path])` | Get or set the default streams. |
+| `io.close([file])`, `io.flush()` | Close; flush default output. |
+| `io.tmpfile()` | An anonymous temporary file. |
+| `io.type(v)` | `"file"`, `"closed file"` or `nil`. |
+| `io.stdin`, `io.stdout`, `io.stderr` | The standard streams. |
+
+```luascript title="io.lsc"
+local f = assert(io.open("notes.txt", "w"))
+f:write("one\n", "two\n"):write("three\n")     -- write returns the handle
+f:close()
+
+for line in io.lines("notes.txt") do io.write("[", line, "] ") end
+print()                                        --> [one] [two] [three]
+
+local r = assert(io.open("notes.txt", "r"))
+print(r:read("l"), r:seek("end"))              --> one	14
+r:close()
+print(io.type(r), io.type(io.stdout))          --> closed file	file
+os.remove("notes.txt")
+```
+
+File handles support the Lua 5.4 `<close>` attribute: the handle is closed when its block is left, including on an error. If the script already closed it, `__close` does nothing.
+
+```luascript title="io_close.lsc"
+local handle
+do
+    local f <close> = assert(io.open("log.txt", "w"))
+    f:write("saved\n")
+    handle = f
+end                                            -- f is closed here
+print(io.type(handle))                         --> closed file
+print(io.lines("log.txt")())                   --> saved
+os.remove("log.txt")
+```
+
+## ui
+
+A small desktop GUI module backed by [Fyne](https://fyne.io): windows, labels, buttons, text entries and vertical/horizontal boxes. It is **off by default** because Fyne pulls in OpenGL through cgo, which needs a C toolchain and OpenGL headers (MSYS2 MinGW-w64 on Windows). In the standard build `require("ui")` still resolves, to a stub whose `ui.supported` is `false` and whose constructors (and `run`/`quit`) raise `ui.new_window: this luascript was built without -tags luascript_ui ...`. Check `ui.supported` if a script should run either way.
+
+```sh
+go run -tags luascript_ui ./cmd/luascript examples/31_ui_module.lsc
+```
+
+| Function / method | Description |
+| ----------------- | ----------- |
+| `ui.new_window(title, w, h)` | A window: `set_content`, `show`, `hide`, `close`, `set_title`, `resize`, `show_and_run`. |
+| `ui.new_label(text)` | A label: `set_text`, `get_text`. |
+| `ui.new_button(text)` | A button: `on_click(fn)`, `set_text`, `get_text`, `disable`. |
+| `ui.new_entry(placeholder)` | A text field: `get_text`, `set_text`, `on_changed(fn)`, `on_submitted(fn)`. |
+| `ui.new_vbox(children)`, `ui.new_hbox(children)` | Layout containers: `add`, `remove_all`. |
+| `ui.run()`, `ui.quit()` | Run the event loop (blocks until the last window closes); stop it. |
+| `ui.supported` | `true` in a `-tags luascript_ui` build, `false` in the default stub. |
+
+```luascript title="greeter.lsc"
+local ui = require("ui")
+
+local label = ui.new_label("Type your name and click Greet.")
+local entry = ui.new_entry("name")
+local greet = ui.new_button("Greet")
+greet:on_click(function()
+    label:set_text(`Hello, {entry:get_text()}!`)
+end)
+
+local win = ui.new_window("greeter", 360, 200)
+win:set_content(ui.new_vbox({ label, entry, greet }))
+win:show()
+ui.run()          -- blocks until the last window closes
+```
+
+The widget surface exists only in the tagged build, so `ui` has no type declaration and is `any` to the checker.
+
+## plugin
+
+Loads Go packages at run time. `plugin.generate` writes a Go source file re-exporting the packages and functions you list, compiles it with `go build -buildmode=plugin`, opens the result and dispatches calls through reflection. Arguments are converted by the Go parameter type, so one Lua number satisfies an `int`, a `float64` or a `time.Duration`; values with no Lua counterpart come back as Go values whose methods and exported fields are reachable by name. Builds are cached by the hash of the generated source.
+
+Go supports plugins only on Linux, macOS and FreeBSD, and only with cgo, so this module **never works on Windows** (use WSL). `require("plugin")` resolves everywhere; check `plugin.supported` first.
+
+| Function / field | Description |
+| ---------------- | ----------- |
+| `plugin.supported` | Whether this platform and build can load plugins. |
+| `plugin.unsupported_reason()` | Why not, or `nil` when supported. |
+| `plugin.generate(name, spec)` | Render, compile and open a plugin. `spec.packages` lists `{ name = "import/path" }`; `spec.functions` lists `{ pkg, name, as }`. |
+| `plugin.open(path)` | Open a prebuilt `.so`. |
+| `plugin.dir()` | Where generated builds live; `$LUASCRIPT_PLUGIN_DIR` relocates it. |
+
+```luascript title="plugin.lsc"
+local plugin = require("plugin")
+
+if not plugin.supported then
+    print("plugins unavailable:", plugin.unsupported_reason())
+    return
+end
+
+local strutil = plugin.generate("strutil", {
+    packages  = { { name = "strings" } },
+    functions = { { pkg = "strings", name = "ToUpper", as = "Upper" } },
+})
+print(strutil.Upper("hi"))     -- HI (Linux, macOS and FreeBSD only)
+```
+
+<Callout type="warn">
+`plugin.generate` compiles and loads native code: it is arbitrary code execution by design. The spec is validated to turn typos into Lua errors, not as a security boundary.
+</Callout>
+
+## Writing your own
+
+A native module is a Go function that builds a table of `GoFunc` values and registers it with `vm.RegisterPreload`, plus one line in `nativeRegistrars`. It also needs a type declaration and a reference-doc entry, and tests enforce that all three agree. See [Contributing](/docs/contributing/) and the walkthrough in [`CLAUDE.md`](https://github.com/HilthonTT/LuaScript/blob/main/CLAUDE.md).

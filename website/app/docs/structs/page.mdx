@@ -1,0 +1,240 @@
+export const metadata = { title: "Structs & impl" };
+
+# Structs & impl
+
+A `struct` is a **nominal product type**: a fixed set of named, typed fields plus a constructor. `impl` attaches functions to it, giving you statics and methods without writing a metatable by hand.
+
+## Declaring a struct
+
+```luascript
+struct Point {
+    x: number,
+    y: number,
+}
+```
+
+The declaration does two things:
+
+1. binds `Point` to a constructor value, and
+2. registers `Point` as a type, so `: Point` annotations type-check against the declared fields.
+
+Fields are `name: Type`, separated by `,` or `;`. A trailing separator is allowed. `struct` is a soft keyword like `type`: it is only special in the `struct Name` position, so existing code that uses `struct` as a variable keeps working.
+
+## Construction
+
+There are two ways to build an instance.
+
+```luascript
+struct Point { x: number, y: number }
+
+-- Positional: fields are filled in declaration order.
+local a = Point(3, 4)
+
+-- Named (Lua's f{} call sugar): order-independent.
+local b = Point{ y = 20, x = 10 }
+
+print(tostring(a))   -- Point{ x = 3, y = 4 }
+print(tostring(b))   -- Point{ x = 10, y = 20 }
+```
+
+Both forms are checked against the declaration:
+
+```luascript
+struct Point { x: number, y: number }
+local a = Point("3", 4)
+local b = Point{ x = 1 }
+local c = Point{ x = 1, y = 2, z = 3 }
+local d = Point(1, 2, 3)
+```
+
+```text
+luascript: Type "string" could not be converted into "number" at line 2
+struct "Point" is missing required field "y" at line 3
+struct "Point" has no field "z" at line 4
+call passes 3 args, function expects at most 2 at line 5
+```
+
+### Optional fields
+
+There is no default-value syntax. A field typed `T?` may be omitted and is `nil`:
+
+```luascript
+struct Config {
+    name: string,
+    timeout: number?,
+}
+
+local c1 = Config{ name = "svc" }
+local c2 = Config{ name = "svc", timeout = 30 }
+print(c1.timeout, c2.timeout)   -- nil	30
+```
+
+To get real defaults, write a static constructor with [`impl`](#impl-blocks) or use [default parameters](/docs/functions/).
+
+### Nesting
+
+A field can be any type, including another struct:
+
+```luascript
+struct Point { x: number, y: number }
+struct Line {
+    from: Point,
+    to: Point,
+}
+
+local seg = Line{ from = Point(0, 0), to = Point(3, 4) }
+print(seg.to.x)   -- 3
+```
+
+## Using struct types
+
+Because the struct name is also a type, functions can take and return it, and field access is checked:
+
+```luascript
+struct Point { x: number, y: number }
+
+local function distance_sq(a: Point, b: Point): number
+    local dx = a.x - b.x
+    local dy = a.y - b.y
+    return dx * dx + dy * dy
+end
+
+local p = Point(0, 0)
+print(distance_sq(p, Point(3, 4)))   -- 25
+
+local label: string = p.x
+print(p.z)
+```
+
+```text
+luascript: Type "number" could not be converted into "string" at line 12
+type "Point" has no field "z" at line 13
+```
+
+Instances are ordinary mutable tables: `p.x = 99` is fine.
+
+## Identity and `typeof`
+
+`type` still reports `"table"`, but `typeof` reports the struct name, so you can tell a `Point` from a plain table at run time. [`match`](/docs/match/) uses the same mechanism for `p: Point ->` arms and `Point{ x = px }` destructuring.
+
+```luascript
+struct Point { x: number, y: number }
+local p = Point(3, 4)
+print(typeof(p), type(p))   -- Point	table
+```
+
+## Generic structs
+
+Structs take type parameters. They are inferred from the constructor arguments, or written out in an annotation:
+
+```luascript
+struct Pair<A, B> {
+    first: A,
+    second: B,
+}
+
+local p = Pair(1, "one")
+local q: Pair<string, number> = Pair("age", 7)
+print(p.first, p.second, typeof(p))   -- 1	one	Pair
+print(q.first, q.second)              -- age	7
+```
+
+A type parameter may be bounded (`struct Tagged<T: Named>`). See [Generics & interfaces](/docs/generics/).
+
+## impl blocks
+
+`impl Name ... end` attaches functions to an existing name. Each member lowers to an assignment, `Point.magnitude = function(self) ... end`, so an `impl` block is pure sugar.
+
+```luascript
+struct Point {
+    x: number,
+    y: number,
+}
+
+impl Point
+    -- No `self`: a static, called as Point.origin().
+    function origin(): Point
+        return Point(0, 0)
+    end
+
+    -- First parameter named `self`: a method, called as p:magnitude().
+    function magnitude(self): number
+        return math.sqrt(self.x * self.x + self.y * self.y)
+    end
+
+    function translate(self, dx: number, dy: number): Point
+        return Point(self.x + dx, self.y + dy)
+    end
+
+    function scale(self, k: number): Point
+        return Point(self.x * k, self.y * k)
+    end
+end
+
+local p = Point(3, 4)
+print(tostring(Point.origin()))                    -- Point{ x = 0, y = 0 }
+print(p:magnitude())                               -- 5.0
+print(tostring(p:scale(2):translate(-1, -1)))      -- Point{ x = 5, y = 7 }
+```
+
+Rules:
+
+- An `impl` block holds only `function` declarations, each with a unique name.
+- An unannotated `self` is typed as the struct, so `self.x` is a `number`. (Under `--!strict` it still counts as unannotated; write `self: Point` there.)
+- The target must already be defined: `impl Nowhere` is a compile error, `impl target "Nowhere" is not defined`.
+- `impl` is a contextual keyword; it is only special when followed by a name.
+- You can have several `impl` blocks for the same name.
+
+The checker knows the member types, so callers are checked:
+
+```luascript
+struct Point { x: number, y: number }
+impl Point
+    function magnitude(self): number
+        return math.sqrt(self.x * self.x + self.y * self.y)
+    end
+end
+local s: string = Point(3, 4):magnitude()
+```
+
+```text
+luascript: Type "number" could not be converted into "string" at line 7
+```
+
+### impl on plain tables
+
+`impl` is not limited to structs. Any name already bound to a table works, which makes it a compact way to build a namespace:
+
+```luascript
+local Text = {}
+
+impl Text
+    function shout(s: string): string
+        return string.upper(s) .. "!"
+    end
+
+    function repeated(s: string, n: number): string
+        return string.rep(s, n)
+    end
+end
+
+print(Text.shout("hello"))        -- HELLO!
+print(Text.repeated("ab", 3))     -- ababab
+```
+
+## How structs work at run time
+
+All struct checking happens at compile time. At run time, a `struct` declaration calls a small runtime helper (`__struct_define`) that returns a **callable class table**:
+
+- The class table's metatable has `__call` (the constructor), `__type` (the struct name) and `__tostring`.
+- Each instance is a plain table whose metatable has `__type`, `__tostring`, and `__index` pointing back at the class table.
+
+That `__index` link is what makes `impl` work: members assigned onto `Point` are reachable both as statics (`Point.origin()`) and, through `__index`, as methods on every instance (`p:magnitude()`).
+
+The constructor treats a call with exactly one argument that is a plain table, whose keys are all field names, as **named** construction; anything else is positional. Fields are copied onto the instance, so `pairs(p)` yields them like any other table.
+
+<Callout type="warn">
+The constructor itself does not validate anything. In a `--!nocheck` file, `Point(1)` builds `Point{ x = 1, y = nil }` without complaint. The guarantees on this page come from the type checker.
+</Callout>
+
+The runnable tours are [examples/42_structs.lsc](https://github.com/HilthonTT/LuaScript/blob/main/examples/42_structs.lsc) and [examples/62_impl.lsc](https://github.com/HilthonTT/LuaScript/blob/main/examples/62_impl.lsc).

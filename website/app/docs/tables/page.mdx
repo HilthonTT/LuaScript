@@ -1,0 +1,284 @@
+export const metadata = { title: "Tables & metatables" };
+
+# Tables & metatables
+
+The table is the only data structure in LuaScript, as in Lua. Records, arrays, sets, objects, modules and namespaces are all tables. A **metatable** is a second table attached to the first that says what to do when the normal rules run out: a missing key, an operator applied to something that is not a number, a value passed to `tostring`. That one mechanism provides inheritance and operator overloading without dedicated syntax.
+
+If you want typed records with less boilerplate, see [Structs](/docs/structs/). For destructuring (`local { x, y } = point`) and spread, see [Modern syntax](/docs/modern-syntax/).
+
+## Constructors
+
+A table constructor is a list of fields in braces. Fields can be positional, named, or use an arbitrary key expression in brackets. Commas and semicolons both separate fields, and a trailing separator is allowed.
+
+```luascript
+local empty = {}
+local list = { "a", "b", "c" }                 -- keys 1, 2, 3
+local point = { x = 1, y = 2 }                 -- sugar for ["x"] = 1, ["y"] = 2
+local mixed = { "first", kind = "demo"; [10] = "ten", ["with space"] = true, }
+
+print(list[1], point.x, point["y"])            --> a	1	2
+print(mixed[1], mixed.kind, mixed[10], mixed["with space"])   --> first	demo	ten	true
+```
+
+## Records
+
+`t.name` is sugar for `t["name"]`. Tables are open: add a field by assigning it, remove it by assigning `nil`. Reading a missing key gives `nil`, not an error.
+
+```luascript
+local point = { x = 1, y = 2 }
+point.z = 3
+print(point.z)              --> 3
+point.z = nil               -- removing a field is assigning nil
+print(point.z)              --> nil
+print(point.missing)        --> nil
+```
+
+Any value except `nil` and NaN can be a key, including tables and functions. Float keys with an exact integer value are normalised, so `t[1]` and `t[1.0]` are the same slot.
+
+## Arrays and length
+
+Arrays are tables with integer keys starting at **1**. The length operator `#` gives the number of elements of a **sequence**, a table whose positive integer keys are exactly `1..n`.
+
+```luascript
+local primes = { 2, 3, 5, 7, 11 }
+print(primes[1], primes[#primes])   --> 2	11
+print(#primes)                      --> 5
+
+primes[#primes + 1] = 13            -- the idiomatic append
+print(#primes)                      --> 6
+```
+
+<Callout type="warn">
+`#` is only meaningful on a sequence. With a hole (`{ 1, 2, nil, 4 }`) the result is any "border" and may differ from what standard Lua returns. Never measure an array you have punched holes in; keep a count yourself, or use `table.pack`'s `n` field.
+</Callout>
+
+## Iteration
+
+`ipairs(t)` walks `t[1], t[2], ...` in order and stops at the first `nil`. `pairs(t)` walks every key, array part included, in **unspecified order**. Sort the keys yourself when order matters.
+
+```luascript
+local mixed = { "a", "b", name = "letters", count = 2 }
+
+for i, v in ipairs(mixed) do io.write(i, "=", v, " ") end
+print()                                     --> 1=a 2=b
+
+local keys = {}
+for k in pairs(mixed) do keys[#keys + 1] = tostring(k) end
+table.sort(keys)
+print(table.concat(keys, " "))              --> 1 2 count name
+```
+
+`next(t, k)` is the primitive under `pairs`: it returns the key after `k`, and `next(t)` returning `nil` is the idiomatic emptiness test.
+
+## The table library
+
+| Function                                | Effect                                                         |
+| --------------------------------------- | -------------------------------------------------------------- |
+| `table.insert(t, v)`                    | Append `v`                                                     |
+| `table.insert(t, i, v)`                 | Insert `v` at position `i`, shifting the rest up               |
+| `table.remove(t [, i])`                 | Remove and return element `i` (default: the last)              |
+| `table.concat(t [, sep [, i [, j]]])`   | Join string/number elements with `sep`                         |
+| `table.sort(t [, less])`                | Sort in place, optionally with a comparison function           |
+| `table.unpack(t [, i [, j]])`           | Return the elements as multiple values                         |
+| `table.pack(...)`                       | Collect arguments into a table with a field `n`                |
+| `table.move(a1, f, e, t [, a2])`        | Copy `a1[f..e]` into `a2` (default `a1`) starting at `t`       |
+
+```luascript
+local list = { 3, 1, 2 }
+table.insert(list, 4)
+table.insert(list, 1, 0)
+print(table.concat(list, " "))              --> 0 3 1 2 4
+
+print(table.remove(list, 1))                --> 0
+print(table.remove(list))                   --> 4
+
+table.sort(list)
+print(table.concat(list, ", "))             --> 1, 2, 3
+table.sort(list, function(a, b) return a > b end)
+print(table.concat(list, ", "))             --> 3, 2, 1
+
+print(table.unpack({ 1, 2, 3, 4 }, 2, 3))   --> 2	3
+print(table.concat(table.move({ 1, 2, 3 }, 1, 3, 2), " "))   --> 1 1 2 3
+```
+
+For ready-made stacks, queues, sets and heaps, see the `std` module in [Native modules](/docs/native-modules/).
+
+## Metatables
+
+`setmetatable(t, mt)` attaches `mt` to `t` and returns `t`. `getmetatable(t)` reads it back. The keys of a metatable that start with two underscores are **metamethods**.
+
+### `__index`: reads of missing keys
+
+When a read misses, `__index` is consulted. If it is a **table**, the lookup continues there. If it is a **function**, it is called with `(table, key)`.
+
+```luascript
+local defaults = { colour = "black", size = 10 }
+local style = setmetatable({ size = 14 }, { __index = defaults })
+print(style.size)           --> 14     found directly
+print(style.colour)         --> black  via __index
+print(style.weight)         --> nil    defaults has no weight either
+
+local computed = setmetatable({}, {
+    __index = function(t, key) return "generated:" .. key end,
+})
+print(computed.anything)    --> generated:anything
+```
+
+### `__newindex`: writes to missing keys
+
+`__newindex` fires only for keys the table does **not** already have. Writing over an existing key goes straight through. Inside the handler, use `rawset` to store, or the assignment would trigger the metamethod again.
+
+```luascript title="readonly.lsc"
+local log = {}
+local audited = setmetatable({ existing = 1 }, {
+    __newindex = function(t, key, value)
+        log[#log + 1] = key
+        rawset(t, key, value)
+    end,
+})
+audited.fresh = "a"         -- intercepted
+audited.existing = 2        -- not intercepted: the key already exists
+print(table.concat(log, " "), audited.fresh, audited.existing)   --> fresh	a	2
+
+local frozen = setmetatable({}, {
+    __newindex = function() error("this table is read-only", 2) end,
+})
+print(pcall(function() frozen.x = 1 end))   --> false	readonly.lsc:15: this table is read-only
+```
+
+### Raw access
+
+`rawget`, `rawset`, `rawequal` and `rawlen` bypass metamethods entirely. `rawget` answers "is this key really here?" rather than "can I read it?":
+
+```luascript
+local style = setmetatable({ size = 14 }, { __index = { colour = "black" } })
+print(style.colour, rawget(style, "colour"))   --> black	nil
+print(rawlen({ 1, 2 }), rawequal(style, style)) --> 2	true
+```
+
+### Operators and other hooks
+
+Operator metamethods let your own types participate in arithmetic, comparison, concatenation and `tostring`:
+
+```luascript title="money.lsc"
+local Money = {}
+Money.__index = Money
+
+function Money.new(cents)
+    return setmetatable({ cents = cents }, Money)
+end
+
+function Money.__add(a, b) return Money.new(a.cents + b.cents) end
+function Money.__eq(a, b) return a.cents == b.cents end
+function Money.__lt(a, b) return a.cents < b.cents end
+function Money.__le(a, b) return a.cents <= b.cents end
+function Money.__len(m) return m.cents end
+function Money.__concat(a, b) return tostring(a) .. tostring(b) end
+function Money.__tostring(m)
+    return string.format("$%d.%02d", m.cents // 100, m.cents % 100)
+end
+
+local a, b = Money.new(150), Money.new(275)
+print(a + b)                       --> $4.25
+print(a < b, a >= b)               --> true	false
+print(a == Money.new(150))         --> true   __eq, not identity
+print(#a)                          --> 150
+print(a .. " + " .. b)             --> $1.50 + $2.75
+```
+
+`print`, `tostring`, `io.write`, `error` and string interpolation all honour `__tostring`. `a > b` and `a >= b` are evaluated as `b < a` and `b <= a`.
+
+`__call` makes a table callable:
+
+```luascript
+local adder = setmetatable({ base = 10 }, {
+    __call = function(self, n) return self.base + n end,
+})
+print(adder(5))                    --> 15
+```
+
+### The metamethod catalogue
+
+| Group      | Metamethods                                                         |
+| ---------- | ------------------------------------------------------------------- |
+| Arithmetic | `__add __sub __mul __div __mod __pow __unm __idiv`                  |
+| Bitwise    | `__band __bor __bxor __bnot __shl __shr`                            |
+| Comparison | `__eq __lt __le`                                                    |
+| Access     | `__index __newindex`                                                |
+| Other      | `__call __tostring __len __concat __close __gc __mode __name __metatable` |
+
+`__close` runs when a `local x <close>` variable goes out of scope; it is covered in [Errors & cleanup](/docs/errors/). `__metatable` protects a metatable: `getmetatable` returns the field's value instead, and `setmetatable` refuses to replace it. That is how `enum` tables protect themselves.
+
+```luascript title="guarded.lsc"
+local guarded = setmetatable({}, { __metatable = "locked" })
+print(getmetatable(guarded))                              --> locked
+print(pcall(function() setmetatable(guarded, {}) end))    --> false	guarded.lsc:3: cannot change a protected metatable
+```
+
+## Objects
+
+The standard object recipe uses a class table that is also its instances' metatable. `Class.__index = Class` makes every instance fall back to the class for methods, and the [`:` syntax](/docs/functions/) supplies `self`.
+
+```luascript title="vec.lsc"
+local Vec = {}
+Vec.__index = Vec
+
+function Vec.new(x, y)
+    return setmetatable({ x = x, y = y }, Vec)
+end
+
+function Vec:length()
+    return math.sqrt(self.x * self.x + self.y * self.y)
+end
+
+function Vec:describe()
+    return "a vector of length " .. self:length()
+end
+
+function Vec.__add(a, b) return Vec.new(a.x + b.x, a.y + b.y) end
+function Vec.__tostring(v) return "(" .. v.x .. ", " .. v.y .. ")" end
+
+local v = Vec.new(3, 0) + Vec.new(0, 4)
+print(v, v:length())               --> (3, 4)	5.0
+```
+
+### Inheritance is a chain of `__index`
+
+A subclass is a class table whose own metatable points `__index` at the parent. A method lookup misses the instance, misses the subclass, then follows the subclass's metatable to the parent.
+
+```luascript title="vec3.lsc"
+local Vec = {}
+Vec.__index = Vec
+function Vec.new(x, y) return setmetatable({ x = x, y = y }, Vec) end
+function Vec:length() return math.sqrt(self.x ^ 2 + self.y ^ 2) end
+function Vec:describe() return "a vector of length " .. self:length() end
+
+local Vec3 = setmetatable({}, { __index = Vec })   -- Vec3 inherits from Vec
+Vec3.__index = Vec3
+
+function Vec3.new(x, y, z)
+    local self = Vec.new(x, y)
+    self.z = z
+    return setmetatable(self, Vec3)
+end
+
+function Vec3:length()                             -- override
+    return math.sqrt(self.x ^ 2 + self.y ^ 2 + self.z ^ 2)
+end
+
+local v3 = Vec3.new(1, 2, 2)
+print(v3:length())                 --> 3.0                      Vec3's own method
+print(v3:describe())               --> a vector of length 3.0   inherited from Vec
+```
+
+Metamethods such as `__add` and `__tostring` are looked up directly on the metatable, not through `__index`, so a subclass must copy or redefine the ones it needs.
+
+<Callout type="tip">
+This boilerplate is exactly what `struct` and `impl` generate for you, with type checking on top. See [Structs](/docs/structs/).
+</Callout>
+
+## See also
+
+- [examples/03_tables_and_metatables.lsc](https://github.com/HilthonTT/LuaScript/blob/main/examples/03_tables_and_metatables.lsc), the runnable source for this page.
+- [Modern syntax](/docs/modern-syntax/) for destructuring, spread and optional chaining.
+- [Standard library](/docs/stdlib/) for the full `table` reference.

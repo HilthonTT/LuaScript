@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 300" width="980" height="300" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif">
+  <defs>
+    <linearGradient id="stage" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1c1733"/>
+      <stop offset="1" stop-color="#130f24"/>
+    </linearGradient>
+    <linearGradient id="vm" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7c3aed"/>
+      <stop offset="1" stop-color="#4c1d95"/>
+    </linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 10 5 0 10z" fill="#8b7fb3"/>
+    </marker>
+  </defs>
+  <rect width="980" height="300" fill="#0f0d17"/>
+
+  <!-- Phase brackets -->
+  <text x="24" y="38" fill="#b79cff" font-size="12" font-weight="600" letter-spacing="2.5">COMPILE TIME</text>
+  <path d="M24 50H690" stroke="#3a3160" stroke-width="1.5"/>
+  <text x="716" y="38" fill="#86efac" font-size="12" font-weight="600" letter-spacing="2.5">RUN TIME</text>
+  <path d="M716 50H956" stroke="#2c4a3a" stroke-width="1.5"/>
+
+  <!-- Stages: x positions step by 133 -->
+  <g font-size="14" font-weight="600" fill="#f2f0fa" text-anchor="middle">
+    <rect x="24" y="76" width="112" height="64" rx="12" fill="url(#stage)" stroke="#3a3160"/>
+    <text x="80" y="104">Lexer</text>
+    <text x="80" y="124" font-size="11" font-weight="400" fill="#8b85a8">tokens · --!mode</text>
+
+    <rect x="157" y="76" width="112" height="64" rx="12" fill="url(#stage)" stroke="#3a3160"/>
+    <text x="213" y="104">Parser</text>
+    <text x="213" y="124" font-size="11" font-weight="400" fill="#8b85a8">AST · desugaring</text>
+
+    <rect x="290" y="76" width="112" height="64" rx="12" fill="url(#stage)" stroke="#3a3160"/>
+    <text x="346" y="104">Constcheck</text>
+    <text x="346" y="124" font-size="11" font-weight="400" fill="#8b85a8">&lt;const&gt; · &lt;close&gt;</text>
+
+    <rect x="423" y="76" width="112" height="64" rx="12" fill="url(#stage)" stroke="#b79cff" stroke-width="1.5"/>
+    <text x="479" y="104">Typecheck</text>
+    <text x="479" y="124" font-size="11" font-weight="400" fill="#c4b5fd">gradual · erased</text>
+
+    <rect x="556" y="76" width="112" height="64" rx="12" fill="url(#stage)" stroke="#3a3160"/>
+    <text x="612" y="104">Optimize</text>
+    <text x="612" y="124" font-size="11" font-weight="400" fill="#8b85a8">constant folding</text>
+
+    <rect x="716" y="76" width="104" height="64" rx="12" fill="url(#stage)" stroke="#3a3160"/>
+    <text x="768" y="104">Bytecode</text>
+    <text x="768" y="124" font-size="11" font-weight="400" fill="#8b85a8">instructions</text>
+
+    <rect x="842" y="76" width="114" height="64" rx="12" fill="url(#vm)"/>
+    <text x="899" y="104">Stack VM</text>
+    <text x="899" y="124" font-size="11" font-weight="400" fill="#e4dcff">Go runtime</text>
+  </g>
+
+  <!-- Arrows -->
+  <g stroke="#8b7fb3" stroke-width="1.6" marker-end="url(#arrow)">
+    <path d="M136 108H155"/>
+    <path d="M269 108H288"/>
+    <path d="M402 108H421"/>
+    <path d="M535 108H554"/>
+    <path d="M668 108H714"/>
+    <path d="M820 108H840"/>
+  </g>
+
+  <!-- Annotations -->
+  <g font-size="12" fill="#a19cbb">
+    <path d="M213 140V176" stroke="#3a3160" stroke-dasharray="3 3"/>
+    <text x="24" y="194">+= · `{interp}` desugared here</text>
+    <text x="24" y="212" fill="#6f6a8a">everything else is a real AST node</text>
+
+    <path d="M479 140V176" stroke="#b79cff" stroke-dasharray="3 3"/>
+    <text x="400" y="194" fill="#c4b5fd">types checked, then dropped:</text>
+    <text x="400" y="212" fill="#6f6a8a">the VM never sees an annotation</text>
+
+    <path d="M768 140V176" stroke="#3a3160" stroke-dasharray="3 3"/>
+    <text x="956" y="252" text-anchor="end" fill="#a19cbb">match · enum · try · defer · ?. compiled by the generator</text>
+    <path d="M899 140V176" stroke="#5b3fa8" stroke-dasharray="3 3"/>
+    <text x="956" y="194" text-anchor="end">closures · metatables · coroutines</text>
+    <text x="956" y="212" text-anchor="end" fill="#6f6a8a">+ native modules (json, http, db, …)</text>
+  </g>
+
+  <text x="24" y="284" font-size="12" fill="#6f6a8a">The AST is the only contract between stages: each one is independently testable.</text>
+</svg>

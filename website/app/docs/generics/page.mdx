@@ -1,0 +1,262 @@
+export const metadata = { title: "Generics & interfaces" };
+
+# Generics & interfaces
+
+Generics let one function, alias or struct work over many types while keeping them checked. Like every annotation, type parameters are erased before bytecode: generics are purely static and cost nothing at run time.
+
+Type parameters are written in angle brackets after the name: `<T>`, `<T, U>`, `<T: Bound>`.
+
+## Generic functions
+
+```luascript
+local function identity<T>(x: T): T
+    return x
+end
+
+print(identity(42), identity("hi"), identity(true))   -- 42	hi	true
+```
+
+You never write the type arguments at a call. The checker **infers** them: it unifies each argument against its declared parameter type to resolve the type variables, then substitutes them into the return type.
+
+```luascript
+local function identity<T>(x: T): T
+    return x
+end
+
+local n: number = identity(42)   -- T = number
+local s: string = identity(42)
+```
+
+```text
+luascript: Type "number" could not be converted into "string" at line 6
+```
+
+Inference sees through arrays and function types, which is where generics pay off:
+
+```luascript
+local function first<T>(xs: { T }): T
+    return xs[1]
+end
+
+local function map<T, U>(xs: { T }, f: (T) -> U): { U }
+    local out = {}
+    for i = 1, #xs do
+        out[i] = f(xs[i])
+    end
+    return out
+end
+
+local nums: { number } = { 10, 20, 30 }
+print(first(nums))   -- 10
+
+-- T = number from `nums`, U = string from the mapper's return type.
+local labels = map(nums, function(x: number): string
+    return "#" .. x
+end)
+print(labels[1])     -- #10
+
+local total: number = labels[1]
+```
+
+```text
+luascript: Type "string" could not be converted into "number" at line 22
+```
+
+Generic functions can return several values:
+
+```luascript
+local function swap<A, B>(a: A, b: B): (B, A)
+    return b, a
+end
+
+local s: string, n: number = swap(1, "one")
+print(s, n)   -- one	1
+```
+
+## Generic type aliases
+
+```luascript
+type Box<T> = { value: T }
+type Pair<A, B> = { first: A, second: B }
+
+local n: Box<number> = { value = 42 }
+local p: Pair<string, number> = { first = "age", second = 7 }
+
+-- Instantiations nest; the parser splits the closing `>>` for you.
+local nested: Box<Box<number>> = { value = { value = 99 } }
+
+print(n.value, p.first, nested.value.value)   -- 42	age	99
+```
+
+An alias is instantiated at each use, and the number of arguments must match:
+
+```luascript
+type Box<T> = { value: T }
+local a: Box<number, string> = { value = 1 }
+local b: Box = { value = 1 }
+```
+
+```text
+luascript: generic type "Box" expects 1 type argument(s), got 2 at line 2
+unknown type "Box" at line 3
+```
+
+## Generic structs
+
+[Structs](/docs/structs/) take type parameters too. They are inferred from the constructor arguments, positional or named:
+
+```luascript
+struct Pair<A, B> {
+    first: A,
+    second: B,
+}
+
+local p = Pair(1, "one")
+local q = Pair{ first = true, second = 3.14 }
+print(p.first, p.second, typeof(p))   -- 1	one	Pair
+print(q.first, q.second)              -- true	3.14
+
+local r: Pair<string, number> = Pair(7, "age")
+```
+
+```text
+luascript: Type "Pair" could not be converted into "Pair<string, number>" at line 11
+```
+
+A generic struct combined with generic functions gives you a typed container:
+
+```luascript
+struct Stack<T> {
+    items: { T },
+}
+
+local function push<T>(s: Stack<T>, x: T)
+    s.items[#s.items + 1] = x
+end
+
+local function pop<T>(s: Stack<T>): T
+    local x = s.items[#s.items]
+    s.items[#s.items] = nil
+    return x
+end
+
+local st = Stack{ items = {} }
+push(st, 10)
+push(st, 20)
+print(pop(st), pop(st))   -- 20	10
+```
+
+## Interfaces
+
+`interface Name { ... }` declares a named structural table type. It is the same thing as `type Name = { ... }`; it exists as its own form because that is how these types read when they are used as bounds.
+
+```luascript
+interface Named {
+    name: string,
+}
+
+local function greet(who: Named): string
+    return "hello, " .. who.name
+end
+
+print(greet({ name = "Ada" }))   -- hello, Ada
+```
+
+Interfaces are **structural**: any value with the right fields satisfies one, including a struct that happens to declare them. Interfaces can be generic too (`interface Container<T> { items: { T } }`).
+
+## Bounded type parameters
+
+An unconstrained `T` is gradual: nothing is known about it inside the body. A **bound** (`<T: Named>`) says what the body may rely on, and the checker verifies every type argument against it, whether inferred at a call or written in an annotation.
+
+```luascript
+interface Named {
+    name: string,
+}
+
+struct Dog {
+    name: string,
+    breed: string,
+}
+
+struct Rock {
+    weight: number,
+}
+
+local function label<T: Named>(item: T): string
+    -- item.name resolves through the bound: it is a string, not any.
+    return "<" .. item.name .. ">"
+end
+
+print(label(Dog("Rex", "collie")))              -- <Rex>
+print(label({ name = "gadget", age = 2 }))      -- <gadget>
+print(label(Rock(5)))
+```
+
+```text
+luascript: type argument "Rock" does not satisfy the constraint "Named" on "T" at line 21
+```
+
+Bounds work on aliases and structs as well:
+
+```luascript
+interface Named { name: string }
+
+type Box<T: Named> = { value: T }
+struct Tagged<T: Named> {
+    payload: T,
+}
+
+local crate: Box<Named> = { value = { name = "cargo" } }
+local t = Tagged{ payload = { name = "parcel" } }
+print(crate.value.name, t.payload.name)   -- cargo	parcel
+
+local bad: Box<number> = { value = 1 }
+```
+
+```text
+luascript: type argument "number" does not satisfy the constraint "Named" on "T" at line 12
+```
+
+## Intersections
+
+`A & B` is a value that satisfies both `A` and `B`. For table shapes, the fields are merged:
+
+```luascript
+interface Named { name: string }
+interface Aged { age: number }
+
+type Person = Named & Aged
+
+local function describe(who: Person): string
+    return who.name .. " is " .. who.age
+end
+
+local ada: Person = { name = "Ada", age = 36 }
+print(describe(ada))   -- Ada is 36
+
+-- A Person is also a Named:
+local function greet(n: Named): string return "hi " .. n.name end
+print(greet(ada))      -- hi Ada
+```
+
+Only table types (and `any`) can be intersected:
+
+```luascript
+interface Named { name: string }
+type Bad = number & Named
+```
+
+```text
+luascript: only table types can be intersected with '&', got "number & Named" at line 2
+```
+
+## Limitations
+
+- **No explicit type arguments at a call site.** `identity<number>(5)` does not parse as an instantiation; it is read as comparisons. Type arguments are always inferred.
+- **Inference is best-effort.** When arguments disagree (`pick(1, "two")` for `pick<T>(a: T, b: T)`), the conflict is not reported: the first binding wins, so `T` is `number` and the `"two"` goes unchecked.
+- **Inside a generic body, a type variable is opaque but gradual.** The checker does not reject `return 5` from a function declared to return `T`, so parametric code never produces spurious errors, but it also does not prove parametricity.
+- **Enums are not generic.** `enum Option<T>` is a parse error.
+- **Recursive aliases are rejected**, generic or not. Instantiating `type Tree<T> = { value: T, kids: { Tree<T> } }` fails with `generic type "Tree" expands recursively — self-referential generic types are not supported`.
+- **Table literals are not checked against a generic function's parameters.** A literal annotated with an instantiated alias is checked: `local b: Box<number> = { value = "oops" }` fails with `Type "string" could not be converted into "number" in field "value"`. A literal passed to a generic function such as `first<T>(xs: { T })` is still `any`, because `T` is inferred from that same argument. See [Checking table literals](/docs/types/#checking-table-literals).
+
+The runnable tours are [examples/45_generics.lsc](https://github.com/HilthonTT/LuaScript/blob/main/examples/45_generics.lsc), [examples/46_generics.lsc](https://github.com/HilthonTT/LuaScript/blob/main/examples/46_generics.lsc) and [examples/61_generic_constraints.lsc](https://github.com/HilthonTT/LuaScript/blob/main/examples/61_generic_constraints.lsc).

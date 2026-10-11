@@ -1,0 +1,286 @@
+export const metadata = { title: "Coroutines" };
+
+# Coroutines
+
+A coroutine is a function that can suspend itself mid-execution and later resume exactly where it left off, with its locals and call stack intact. That makes coroutines the natural way to write producers, iterators and state machines that would otherwise need a pile of explicit state.
+
+Coroutines are **cooperative**: exactly one runs at a time, and control changes hands only at an explicit `resume` or `yield`. You never need a lock. The API is Lua 5.4's `coroutine` library.
+
+| Function                        | Purpose                                                          |
+| ------------------------------- | ---------------------------------------------------------------- |
+| `coroutine.create(f)`           | Make a coroutine (a `thread` value) that will run `f`            |
+| `coroutine.resume(co, ...)`     | Start or continue `co`; returns `true, ...` or `false, err`      |
+| `coroutine.yield(...)`          | Suspend the running coroutine, handing values to `resume`        |
+| `coroutine.status(co)`          | `"suspended"`, `"running"`, `"normal"` or `"dead"`               |
+| `coroutine.wrap(f)`             | Make a coroutine and return a function that resumes it           |
+| `coroutine.close(co)`           | Abandon a suspended coroutine; reports the error a dead one died with |
+| `coroutine.running()`           | The current coroutine, plus whether it is the main one           |
+| `coroutine.isyieldable()`       | Whether a `yield` here would be legal                            |
+
+## Create, resume, yield
+
+`coroutine.create` does not run anything. The first `resume` starts the body; each `yield` suspends it and returns control to whoever resumed it.
+
+```luascript
+local co = coroutine.create(function()
+    print("step 1")
+    coroutine.yield()
+    print("step 2")
+end)
+
+print(coroutine.status(co))   --> suspended
+coroutine.resume(co)          --> step 1
+print(coroutine.status(co))   --> suspended
+coroutine.resume(co)          --> step 2
+print(coroutine.status(co))   --> dead
+print(coroutine.resume(co))   --> false	cannot resume dead coroutine
+```
+
+## The four states
+
+| State       | Meaning                                                                  |
+| ----------- | ------------------------------------------------------------------------ |
+| `suspended` | Created but not started, or paused at a `yield`                          |
+| `running`   | Currently executing                                                      |
+| `normal`    | Resumed another coroutine and is waiting for it to yield or finish       |
+| `dead`      | Returned or raised an error; it cannot be resumed again                  |
+
+A coroutine is `normal` while a coroutine it resumed is running, and becomes `running` again once that one yields or finishes:
+
+```luascript
+local outer
+local inner = coroutine.create(function()
+    print(coroutine.status(outer))   --> normal
+end)
+outer = coroutine.create(function()
+    coroutine.resume(inner)
+    print(coroutine.status(outer))   --> running
+end)
+coroutine.resume(outer)
+print(coroutine.status(outer))       --> dead
+```
+
+Resuming a `running` or `normal` coroutine fails with `cannot resume non-suspended coroutine`.
+
+## Values flow both ways
+
+`resume` and `yield` exchange values:
+
+- the arguments of `resume(co, ...)` become the results of the `yield` that the coroutine is paused at,
+- the arguments of `yield(...)` become the extra results of `resume`, after `true`,
+- the first `resume` is special: its arguments become the parameters of the coroutine's function,
+- when the function returns, its return values become the final results of `resume`.
+
+```luascript
+local adder = coroutine.create(function(a)
+    print("got initial a =", a)
+    local b = coroutine.yield(a + 1)    -- hand a + 1 out, wait for a value
+    print("got resumed b =", b)
+    return b * 2                        -- a return, not a yield: now dead
+end)
+
+print(coroutine.resume(adder, 1))
+print(coroutine.resume(adder, 10))
+print(coroutine.status(adder))
+```
+
+```text
+got initial a =	1
+true	2
+got resumed b =	10
+true	20
+dead
+```
+
+## A producer
+
+Driving a coroutine with `resume` in a loop:
+
+```luascript
+local function producer()
+    for i = 1, 3 do
+        coroutine.yield("item " .. i)
+    end
+    return "done"
+end
+
+local p = coroutine.create(producer)
+while true do
+    local ok, value = coroutine.resume(p)
+    if not ok then error(value) end
+    print(coroutine.status(p), value)
+    if coroutine.status(p) == "dead" then break end
+end
+```
+
+```text
+suspended	item 1
+suspended	item 2
+suspended	item 3
+dead	done
+```
+
+## coroutine.wrap as an iterator
+
+`coroutine.wrap(f)` returns a plain function that resumes the coroutine on each call. It drops the `ok` flag (errors propagate to the caller instead), which makes it a drop-in iterator for a generic `for`: the loop ends when the function returns no values.
+
+```luascript
+local function range(n, step)
+    return coroutine.wrap(function()
+        for i = 1, n, step or 1 do
+            coroutine.yield(i)
+        end
+    end)
+end
+
+for v in range(6, 2) do io.write(v, " ") end
+print()                                   --> 1 3 5
+```
+
+Any traversal you can write as a recursive loop, you can hand out as a flat iterator:
+
+```luascript
+local function leaves(t)
+    return coroutine.wrap(function()
+        local function visit(node, path)
+            for k, v in pairs(node) do
+                local here = path == "" and tostring(k) or path .. "." .. k
+                if type(v) == "table" then
+                    visit(v, here)
+                else
+                    coroutine.yield(here, v)
+                end
+            end
+        end
+        visit(t, "")
+    end)
+end
+
+local config = { server = { host = "localhost", port = 8080 }, debug = true }
+local out = {}
+for path, value in leaves(config) do
+    out[#out + 1] = path .. "=" .. tostring(value)
+end
+table.sort(out)
+print(table.concat(out, " "))   --> debug=true server.host=localhost server.port=8080
+```
+
+## A producer/consumer pipeline
+
+Iterators built with `wrap` compose: each stage pulls from the previous one on demand. No stage holds the whole sequence in memory, and none needs a callback.
+
+```luascript
+local function numbers(n)
+    return coroutine.wrap(function()
+        for i = 1, n do coroutine.yield(i) end
+    end)
+end
+
+local function squares(source)
+    return coroutine.wrap(function()
+        for v in source do coroutine.yield(v * v) end
+    end)
+end
+
+local function evens(source)
+    return coroutine.wrap(function()
+        for v in source do
+            if v % 2 == 0 then coroutine.yield(v) end
+        end
+    end)
+end
+
+local out = {}
+for v in evens(squares(numbers(10))) do out[#out + 1] = v end
+print(table.concat(out, " "))   --> 4 16 36 64 100
+```
+
+## Errors inside coroutines
+
+`resume` is a protected call. An error inside the coroutine comes back as `false, message` and never unwinds your stack; the coroutine is then dead.
+
+```luascript title="errors.lsc"
+local boom = coroutine.create(function() error("something broke") end)
+print(coroutine.resume(boom))     --> false	errors.lsc:1: something broke
+print(coroutine.status(boom))     --> dead
+```
+
+With `wrap`, the same error is raised in the caller, so catch it with `pcall` (or `try`/`catch`, see [Errors](/docs/errors/)) if you need to:
+
+```luascript title="wrap_error.lsc"
+local wrapped = coroutine.wrap(function() error("same, but raised") end)
+print(pcall(wrapped))             --> false	wrap_error.lsc:1: same, but raised
+```
+
+A coroutine can yield from inside a `pcall`, and a `try` region travels with the coroutine's frames across yields:
+
+```luascript
+local co = coroutine.create(function()
+    return pcall(function()
+        local got = coroutine.yield("paused inside pcall")
+        return got * 2
+    end)
+end)
+print(coroutine.resume(co))       --> true	paused inside pcall
+print(coroutine.resume(co, 21))   --> true	true	42
+```
+
+Yielding outside any coroutine is an error: `attempt to yield from outside a coroutine`.
+
+## close
+
+`coroutine.close(co)` releases a suspended coroutine without running the rest of its body. Use it when you abandon a producer part-way through.
+
+```luascript
+local abandoned = coroutine.create(function()
+    coroutine.yield(1)
+    print("this line never runs")
+end)
+coroutine.resume(abandoned)
+print(coroutine.close(abandoned))  --> true
+print(coroutine.status(abandoned)) --> dead
+```
+
+As in Lua 5.4, closing a coroutine that already died with an error returns `false` and that error. The error is reported once; after that the coroutine is a plain dead one:
+
+```luascript
+local failed = coroutine.create(function() error("boom", 0) end)
+print(coroutine.resume(failed))   --> false	boom
+print(coroutine.close(failed))    --> false	boom
+print(coroutine.close(failed))    --> true
+```
+
+Closing a `running` or `normal` coroutine is an error (`cannot close a running coroutine`, `cannot close a normal coroutine`).
+
+## Introspection
+
+On the main thread, `coroutine.running()` returns a `thread` value standing for the main coroutine, plus `true`. It reports `running` while main code executes and `normal` while main is waiting on a coroutine it resumed. It cannot be resumed or closed.
+
+```luascript
+local main, is_main = coroutine.running()
+print(type(main), is_main)                       --> thread	true
+print(coroutine.status(main))                    --> running
+print(coroutine.isyieldable())                   --> false
+
+local ok, err = pcall(coroutine.close, main)
+print(ok, err:match("cannot close.*"))           --> false	cannot close a running coroutine
+
+coroutine.wrap(function()
+    local _, inner_main = coroutine.running()
+    print(inner_main, coroutine.isyieldable())   --> false	true
+    print(coroutine.status(main))                --> normal
+end)()
+```
+
+## Implementation note
+
+LuaScript runs each coroutine on a real **goroutine**, synchronised with the VM through channels. This is an implementation detail: coroutines still behave exactly like Lua's, with one running at a time and hand-offs only at `resume` and `yield`. It is cooperative concurrency, not parallelism.
+
+That follows from the VM's central rule, described in [DESIGN.md: Concurrency, the one rule](https://github.com/HilthonTT/LuaScript/blob/main/DESIGN.md#concurrency-the-one-rule): Lua code runs only on the VM goroutine, one call at a time. The VM has no locks, so two coroutines never execute Lua simultaneously.
+
+For real background work (timers, job queues, channels between producers on other goroutines), use the `queue` module, which schedules work concurrently but always invokes Lua on the VM's own goroutine. See [Concurrency](/docs/concurrency/).
+
+## See also
+
+- [examples/04_coroutines.lsc](https://github.com/HilthonTT/LuaScript/blob/main/examples/04_coroutines.lsc), the runnable source for this page.
+- [Functions](/docs/functions/) for closures, which coroutine-based iterators rely on.

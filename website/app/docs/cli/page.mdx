@@ -1,0 +1,388 @@
+export const metadata = { title: "CLI & tooling" };
+
+# CLI & tooling
+
+Everything LuaScript ships is in one binary, `luascript`. Run it with a file to execute a script, with nothing to open the REPL, or with a subcommand for the rest of the toolchain: docs, formatter, bundler, analyzer, test runner, profiler, package manager and language server.
+
+```text
+usage: luascript [flags] [script.lsc]
+
+With no script, starts the REPL.
+```
+
+Subcommands are matched **before** flag parsing, so the subcommand name must be the first argument: `luascript fmt -w app.lsc`, not `luascript -w fmt app.lsc`. Each subcommand has its own flags, and `-h` on any of them prints them.
+
+## Running scripts
+
+```sh
+luascript app.lsc            # compile and run
+luascript                    # no script: start the REPL
+```
+
+If compilation fails (a syntax error, a type error or a `<const>` violation), nothing runs. Compile errors and uncaught runtime errors are printed with a `luascript:` prefix, and the process exits with status `1`.
+
+### Flags
+
+| Flag | Effect |
+| --- | --- |
+| `-i` | Start the REPL. Takes no script argument. |
+| `-v` | Print the version and exit. |
+| `-dis` | Disassemble the script to a bytecode listing instead of running it. |
+| `-time` | Run the script, then print `Execution time: ...`. |
+| `-watch` | Run the script, then re-run it every time the file changes. <Kbd>Ctrl+C</Kbd> stops. |
+| `-gc-percent N` | Set Go's `GOGC` for the run. `0` keeps the default and a negative value disables the GC. |
+| `-mem-limit N` | Set a soft heap memory limit in bytes. `0` means unlimited. |
+| `-bonsai` | Grow an ASCII bonsai tree. See [Bonsai mode](#bonsai-mode). |
+
+`-time` and `-watch` are mutually exclusive, and both need a script file.
+
+```sh
+luascript -v
+```
+
+```text
+Version: 2.0.0, GitCommit: 936ac38, BuildTime: 2026-10-11T20:30:25Z
+```
+
+Release binaries and `make build` stamp the commit and build time at link time. A plain `go build` inside a git checkout falls back to the commit and commit time Go embeds (with a `-dirty` suffix for uncommitted changes); when neither is available, for example under `go run`, both read `unknown`.
+
+`-watch` polls the file every 200 ms and debounces saves. Each run gets a fresh VM. A compile or runtime error is printed and the watcher keeps going, so fix the file and save again; <Kbd>Ctrl+C</Kbd> stops it.
+
+### Disassembling with `-dis`
+
+`-dis` compiles the file through the whole pipeline (including type checking and constant folding) and prints the resulting instructions with their source lines. It's the quickest way to see what the compiler did with your code.
+
+```luascript title="add.lsc"
+local function add(a: number, b: number): number
+    return a + b
+end
+print(add(2, 3))
+```
+
+```sh
+luascript -dis add.lsc
+```
+
+```text
+ProgramStart ProgramStart (0+ params, 0 locals, 0 upvalues, 10 instructions)
+     0  [src    1]  closure          0
+     1  [src    1]  setlocal         0
+     2  [src    4]  getglobal        "print"
+     3  [src    4]  markargs
+     4  [src    4]  getlocal         0
+     5  [src    4]  loadint          2
+     6  [src    4]  loadint          3
+     7  [src    4]  call             2 -1
+     8  [src    4]  call             -1 0
+     9  [src    4]  leave
+
+  Function add (2 params, 2 locals, 0 upvalues, 5 instructions)
+       0  [src    2]  getlocal         0
+       1  [src    2]  getlocal         1
+       2  [src    2]  add
+       3  [src    2]  return           1
+       4  [src    1]  leave
+
+Function add (2 params, 2 locals, 0 upvalues, 5 instructions)
+     0  [src    2]  getlocal         0
+     1  [src    2]  getlocal         1
+     2  [src    2]  add
+     3  [src    2]  return           1
+     4  [src    1]  leave
+```
+
+Nested functions are listed inside their parent chunk and then again on their own. The type annotations are gone: types are erased before bytecode generation, so the typed and untyped versions of `add` compile to the same instructions.
+
+### The compile cache
+
+Running a file goes through an on-disk bytecode cache, so an unchanged script skips recompilation on the next run. Entries live under your user cache directory (`luascript/bytecode/`), keyed by source text, interpreter build and bytecode format. Only successful compiles are cached. The REPL, `-dis`, `load()` strings and bundled executables don't use the cache.
+
+| Environment variable | Effect |
+| --- | --- |
+| `LUASCRIPT_NOCACHE=1` | Disable the compile cache. |
+| `LUASCRIPT_CACHE_DIR=path` | Store cache entries in `path` instead. |
+| `LUASCRIPT_LIB=path` | Add a library search root for `require`. See [Modules](/docs/modules/). |
+
+## The REPL
+
+`luascript` with no script (or `luascript -i`) starts an interactive session with history, keyword completion and continuation prompts.
+
+| Command | Effect |
+| --- | --- |
+| `help` | Show commands, key bindings and tips. |
+| `doc <topic>` | Standard-library reference. Same data as `luascript doc`. A bare `doc` lists the topics. |
+| `reset` | Rebuild the VM, clearing globals and user state. |
+| `clear` | Clear the screen. |
+| `exit`, `quit` | Leave. |
+
+| Key | Effect |
+| --- | --- |
+| <Kbd>Ctrl+C</Kbd> | Cancel the current input. |
+| <Kbd>Ctrl+D</Kbd> | Exit. |
+| <Kbd>Ctrl+R</Kbd> | Search history. |
+| <Kbd>Tab</Kbd> | Complete keywords and REPL commands. |
+
+Bare expressions print their value. Incomplete input, such as an unclosed `function`, opens a continuation prompt. Type errors are reported with a distinct `type-error:` prefix. History persists in `~/.lsc_repl_history`.
+
+A top-level `local` survives across inputs: the REPL promotes it to a global at compile time so later inputs can read it. Inside any nested scope (a `do` block, `if`, loop or function body), `local` keeps standard Lua semantics. Start an input with `--!nocheck` to skip type checking for that chunk.
+
+## Subcommands
+
+| Subcommand | Purpose |
+| --- | --- |
+| [`doc`](#doc) (alias `man`) | Standard-library reference pages. |
+| [`fmt`](#fmt) | Format source files. |
+| [`build`](#build) | Bundle a script and the interpreter into one executable. |
+| [`analyze`](#analyze) | Static analysis: complexity, lint and security findings. |
+| [`test`](#test) | Run `*_test.lsc` files. |
+| [`profile`](#profile) | Collect CPU and heap profiles. |
+| [`pkg`](#pkg) | Manage dependencies. |
+| [`lsp`](#language-server) | Run the language server on stdio. |
+
+### doc
+
+Man-page style documentation for every global, library function, module member and object method, rendered from the curated registry in `internal/docs/`.
+
+```sh
+luascript doc                 # index of every topic
+luascript doc string          # one topic page
+luascript doc math.floor      # one entry
+luascript doc -k interpolation  # search names, signatures and summaries
+```
+
+```text
+MATH(3)                             library                              MATH(3)
+
+NAME
+       math.floor — The largest integer not greater than x.
+
+SYNOPSIS
+       math.floor(x): number
+
+DESCRIPTION
+       The largest integer not greater than x.
+
+SEE ALSO
+       math, stats, bit32, ndarray, linalg
+```
+
+| Flag | Effect |
+| --- | --- |
+| `-k text` | Search topic names, signatures and summaries (apropos). |
+| `-all` | Print every page. |
+| `-list` | Print topic names only, one per line. |
+| `-audit` | Compare the docs against a live VM and report undocumented or stale names. |
+| `-width N` | Line width (default 80, or `$COLUMNS`). |
+| `-no-color` | Disable ANSI styling. |
+
+Flags go before the topic: `luascript doc -no-color math.floor`.
+
+### fmt
+
+A formatter that preserves comments and blank lines.
+
+```sh
+luascript fmt app.lsc          # print the formatted source to stdout
+luascript fmt -w app.lsc       # rewrite the file in place
+luascript fmt - < app.lsc      # read from stdin
+```
+
+| Flag | Default | Effect |
+| --- | --- | --- |
+| `-w` | off | Write the result back to the file. No effect on stdin. |
+| `-width N` | `80` | Target line width. |
+| `-indent N` | `2` | Spaces per indent level. |
+
+You can pass several files at once. The language server uses the same formatter for **Format Document**.
+
+### build
+
+`build` bundles a script and the interpreter into one standalone executable:
+
+```sh
+luascript build -o hello.exe hello.lsc
+./hello.exe
+```
+
+```text
+Hello, LuaScript!
+```
+
+The script is fully compiled at bundle time, so syntax and type errors are caught before the executable is written. The output is a copy of the running `luascript` binary with the script source, the interpreter version and a magic trailer (`LUASCRIPT01`) appended. On startup, the binary checks its own tail before parsing any flags. When it finds a trailer, it runs the embedded script with the same VM and native modules.
+
+Current limits:
+
+- The output targets the host platform. There is no cross-compilation flag.
+- Bundled scripts don't see command-line arguments.
+- The executable is as large as the interpreter itself (tens of megabytes).
+- Antivirus heuristics occasionally flag self-appending executables, the same trade-off PyInstaller and Bun's `--compile` carry. Code-signing resolves it.
+
+### analyze
+
+`analyze` parses a file and runs a set of read-only passes over the AST: `complexity`, `lint` and `security`. It doesn't execute anything.
+
+```luascript title="lint.lsc"
+local crypto = require("crypto")
+local password = "hunter2"
+
+local function fetch()
+    local unused = 1
+    return "http://example.com"
+end
+
+print(crypto.md5(password), fetch())
+```
+
+```sh
+luascript analyze lint.lsc
+```
+
+```text
+analysis report
+
+metrics:
+  lines             10
+  functions         1
+  total complexity  2
+  max complexity    1
+
+findings:
+  WARNING  line 2     [security/hardcoded-credential] 'password' assigned a hardcoded string — use config or env vars
+  WARNING  line 5     [lint/unused-local] local 'unused' is never used
+  WARNING  line 6     [security/plaintext-http] plaintext http:// URL — prefer https://
+  WARNING  line 9     [security/weak-crypto] crypto.md5 is a weak hash — prefer sha256 or stronger
+
+summary: 4 finding(s) — 0 error, 4 warning, 0 info
+```
+
+The rules are `unused-local`, `unreachable-code` and `shadowing` (lint), `weak-crypto`, `plaintext-http` and `hardcoded-credential` (security), and a per-function cyclomatic-complexity check. `-max-complexity N` sets the complexity threshold (default `10`). `analyze` exits with status `1` when there are findings, so you can use it as a CI gate.
+
+### test
+
+`test` discovers and runs every `*_test.lsc` file under the given paths (default `.`). A path that names a file directly runs whether or not it matches the suffix. Each file runs in its own VM. Test files use the built-in `test` module:
+
+```luascript title="greet_test.lsc"
+local t = require("test")
+
+local function greet(name: string): string
+    return `hello, {name}`
+end
+
+t.describe("greet", function()
+    t.test("formats a name", function()
+        t.assert_eq(greet("Ada"), "hello, Ada")
+    end)
+end)
+```
+
+```sh
+luascript test -v .
+```
+
+```text
+greet_test.lsc
+  ok    greet/formats a name  <1µs
+  1 passed in 2.60ms
+
+
+1 file, 1 passed in 2.60ms
+PASS
+```
+
+| Flag | Effect |
+| --- | --- |
+| `-run pattern` | Run only tests whose name matches a Lua pattern or substring. |
+| `-v` | Report every test, not just failures. |
+| `-failfast` | Stop at the first failure. |
+| `-list` | List the tests that would run, without running them. |
+| `-no-color` | Disable ANSI colour. |
+
+When walking directories, `test` skips `lua_modules/`, `node_modules/` and any directory whose name starts with `.` or `_`. It exits with status `1` if any test fails. The assertion API is covered in [Testing](/docs/testing/).
+
+### profile
+
+`profile` runs a script under Go's `pprof` and writes the profiles to disk. Use it to find hot spots, or to collect a profile for a profile-guided build of the interpreter.
+
+```sh
+luascript profile -cpu cpu.prof -count 50 workload.lsc
+go build -pgo=cpu.prof -o luascript ./cmd/luascript
+```
+
+After the run, `profile` prints a summary and the matching PGO build command on stderr:
+
+```text
+luascript profile: 50 run(s) in 149.8664ms
+  cpu profile: cpu.prof
+  pgo build:   go build -pgo=cpu.prof -o luascript ./cmd/luascript
+```
+
+| Flag | Default | Effect |
+| --- | --- | --- |
+| `-cpu path` | `cpu.prof` | Write a CPU profile. An empty string disables it. |
+| `-mem path` | none | Write a heap profile. |
+| `-count N` | `1` | Run the script `N` times under profiling. |
+| `-mem-stats` | off | Print a memory-stats summary after the run. |
+
+[`scripts/build-pgo.sh`](https://github.com/HilthonTT/LuaScript/blob/main/scripts/build-pgo.sh) automates the build, profile and rebuild cycle.
+
+### pkg
+
+`pkg` is a small git-based package manager. It records dependencies in `luascript.json`, pins exact commits in `luascript-lock.json`, and installs packages into `lua_modules/`, which is already on the default `require` search path.
+
+```sh
+luascript pkg add github.com/user/repo@v1.2.0        # fetch, record and lock
+luascript pkg add github.com/user/repo mylib         # install under another name
+luascript pkg install                                # fetch everything in luascript.json
+luascript pkg remove mylib                           # uninstall and forget
+```
+
+| Command | Alias | Effect |
+| --- | --- | --- |
+| `add <host/path[@ref]> [name]` | | Fetch a dependency and record it. `ref` is a tag, branch or commit. |
+| `install` | `i` | Fetch everything listed in the manifest, honouring the lockfile. |
+| `remove <name>` | `rm` | Uninstall and forget a dependency. |
+
+A spec is a `host/path`, not a URL. Fetching shells out to `git`, which must be on your `PATH`. After `pkg add github.com/user/repo`, scripts load the package with `require("repo")`. See [Modules](/docs/modules/) for how `require` resolves names.
+
+## Language server
+
+`luascript lsp` runs a Language Server Protocol server over stdio. It provides:
+
+- **diagnostics**: syntax errors, type errors (honouring the file's mode directive) and [`analyze`](#analyze) findings, refreshed on open, on every change and on save
+- **hover** documentation
+- **completion**
+- **document symbols** (outline)
+- **formatting**, with the same engine as `luascript fmt`
+
+Hover and completion for the standard library come from the same `internal/docs/` registry that powers `luascript doc`, so the editor and the man pages never disagree. Pass `-log path` to write debug logs to a file.
+
+Any LSP-capable editor can launch `luascript lsp`. The repository includes a VS Code extension in [`client/`](https://github.com/HilthonTT/LuaScript/tree/main/client) that does it for you and adds syntax highlighting. See [Installation](/docs/installation/#editor-support-vs-code) for how to build and install it, and the `luascript.server.path` setting to point it at your own binary.
+
+## Bonsai mode
+
+`-bonsai` is an ASCII bonsai grower. It's a fun side mode and has nothing to do with the language runtime.
+
+```sh
+luascript -bonsai                      # full-screen; q or Ctrl+C to leave
+luascript -bonsai -bonsai-print        # print one tree to stdout
+luascript -bonsai -bonsai-live         # animate the growth
+luascript -bonsai -seed 42             # reproducible tree
+luascript -bonsai -bonsai-msg "hello"  # attach a message
+```
+
+```text
+                                                  &&&&       &&&&&_ & &/&&&&& &  &
+                                                   &&&&           \__&/&&&/&&_/_/__/
+                                                 &   \&            /\/  \   &
+                                                     /            /    |_/
+                                                     \_\_        \    |_/
+                                                        \___      /\___/
+                                                           \_\\\///_/
+                                                              \_
+                                                              \
+                                                            \|/
+                                             :___________./~~~\.___________:
+                                              \                           /
+                                               \_________________________/
+                                               (_)                     (_)
+```

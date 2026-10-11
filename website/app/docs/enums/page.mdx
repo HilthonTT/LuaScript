@@ -1,0 +1,263 @@
+export const metadata = { title: "Enums & tagged unions" };
+
+# Enums & tagged unions
+
+`enum` comes in two forms. A **bare enum** is a frozen table of integer constants. Give any variant a payload and the whole enum becomes a **tagged union** (a sum type) with constructors, singletons, and exhaustive [`match`](/docs/match/).
+
+<Media src="match.gif" alt="A terminal running a LuaScript file that declares a tagged enum Shape and computes areas with a match statement" caption="A tagged enum Shape, destructured by match." />
+
+## Bare enums
+
+```luascript
+enum Color
+    RED,
+    GREEN,
+    BLUE,
+end
+
+print(Color.RED, Color.GREEN, Color.BLUE)   -- 1	2	3
+```
+
+Variants are bare identifiers separated by commas (a trailing comma is fine, and the whole thing can sit on one line: `enum Color RED, GREEN, BLUE end`). Values are integers, assigned from **1** in source order. There is no syntax for explicit values.
+
+### Frozen at run time
+
+The enum table is read-only. Writing an existing variant, adding a new key, or swapping the metatable all fail:
+
+```luascript title="enum.lsc"
+enum Color RED, GREEN, BLUE end
+
+print(pcall(function() Color.RED = 99 end))
+print(pcall(function() Color.PURPLE = 4 end))
+print(pcall(function() setmetatable(Color, {}) end))
+print(getmetatable(Color))
+```
+
+```text
+false	enum.lsc:3: attempt to modify enum 'Color'
+false	enum.lsc:4: attempt to modify enum 'Color'
+false	enum.lsc:5: cannot change a protected metatable
+enum
+```
+
+The visible table is a proxy (that is how every write, not just writes to missing keys, hits `__newindex`), so `pairs(Color)` yields nothing. Iterate over a list of names instead, or pair the enum with a dispatch table:
+
+```luascript
+enum Status OK, NOT_FOUND, SERVER_ERROR end
+
+local handlers = {
+    [Status.OK]           = function() return "everything is fine" end,
+    [Status.NOT_FOUND]    = function() return "couldn't find it" end,
+    [Status.SERVER_ERROR] = function() return "the server is on fire" end,
+}
+print(handlers[Status.NOT_FOUND]())   -- couldn't find it
+```
+
+### Typed as a literal union
+
+The enum name is also a type, and it denotes exactly the values the runtime can produce: `Color` is the [literal union](/docs/types/#literal-types) `1 | 2 | 3`, and each member is a singleton (`Color.RED` has type `1`).
+
+```luascript
+enum Color RED, GREEN, BLUE end
+
+local function name_of(c: Color): string
+    if c == Color.RED then return "red"
+    elseif c == Color.GREEN then return "green"
+    end
+    return "blue"
+end
+
+print(name_of(Color.GREEN))   -- fine
+print(name_of(2))             -- fine: 2 really is a Color
+print(name_of(99))
+print(Color.MISSING)
+```
+
+```text
+luascript: Type "99" could not be converted into "Color" at line 12
+type "{ RED: 1, GREEN: 2, BLUE: 3 }" has no field "MISSING" at line 13
+```
+
+Because the domain is finite, comparing against a member narrows the union inside a branch, and a [`match`](/docs/match/) over a `Color` is checked for exhaustiveness.
+
+## Tagged enums
+
+As soon as one variant declares a payload, the enum becomes a tagged union:
+
+```luascript
+enum Shape
+    Circle(number),
+    Rect(number, number),
+    Unit,
+end
+```
+
+- A **payload variant** such as `Circle(number)` becomes a constructor function.
+- A **nullary variant** such as `Unit` becomes a singleton value.
+
+```luascript
+enum Shape
+    Circle(number),
+    Rect(number, number),
+    Unit,
+end
+
+local c = Shape.Circle(5)
+local r = Shape.Rect(3, 4)
+local u = Shape.Unit
+
+print(tostring(c), tostring(r), tostring(u))
+print(typeof(c), c.__tag, c[1])
+print(r[1], r[2])
+print(u == Shape.Unit)
+```
+
+```text
+Shape.Circle(5)	Shape.Rect(3, 4)	Shape.Unit
+Shape	Circle	5
+3	4
+true
+```
+
+Every value carries:
+
+| Field | Value |
+| --- | --- |
+| `typeof(v)` | The enum name (`"Shape"`), via the metatable's `__type`. |
+| `v.__tag` | The variant name (`"Circle"`). |
+| `v[1]`, `v[2]`, ... | The payload, positionally. |
+
+Nullary variants are singletons, so `==` is a valid test for them. Payload values are fresh tables: `Shape.Circle(5) == Shape.Circle(5)` is `false`. The namespace is frozen just like a bare enum.
+
+### Checked construction
+
+Payload types and arity are checked, and every constructor returns the enum type:
+
+```luascript
+enum Shape
+    Circle(number),
+    Rect(number, number),
+    Unit,
+end
+
+local a = Shape.Circle("five")
+local b = Shape.Rect(1)
+local n: number = Shape.Circle(1)
+local x = Shape.Triangle(3)
+```
+
+```text
+luascript: Type "string" could not be converted into "number" at line 7
+call passes 1 args, function expects at least 2 at line 8
+Type "Shape" could not be converted into "number" at line 9
+type "{ Circle: (number) -> Shape, Rect: (number, number) -> Shape, Unit: Shape }" has no field "Triangle" at line 10
+```
+
+### Consuming a tagged value
+
+You can dispatch on `__tag` by hand:
+
+```luascript
+enum Shape
+    Circle(number),
+    Rect(number, number),
+    Unit,
+end
+
+local function area(s: Shape): number
+    if s.__tag == "Circle" then
+        return 3.14159 * s[1] * s[1]
+    elseif s.__tag == "Rect" then
+        return s[1] * s[2]
+    end
+    return 0
+end
+
+print(area(Shape.Rect(3, 4)))   -- 12
+```
+
+but [`match`](/docs/match/) is the intended tool: it binds the payload by name and proves you handled every variant.
+
+```luascript
+enum Shape
+    Circle(number),
+    Rect(number, number),
+    Unit,
+end
+
+local function area(s: Shape): number
+    match s do
+        Shape.Circle(r)  -> return 3.14159 * r * r
+        Shape.Rect(w, h) -> return w * h
+        Shape.Unit       -> return 0
+    end
+    return -1
+end
+
+print(area(Shape.Circle(5)))   -- 78.53975
+```
+
+## Result and Option
+
+Tagged enums model fallible results without exceptions:
+
+```luascript
+enum Result
+    Ok(number),
+    Err(string),
+end
+
+local function safe_div(a: number, b: number): Result
+    if b == 0 then
+        return Result.Err("division by zero")
+    end
+    return Result.Ok(a / b)
+end
+
+local function show(r: Result): string
+    match r do
+        Result.Ok(v)    -> return "ok: " .. v
+        Result.Err(msg) -> return "error: " .. msg
+    end
+    return "?"
+end
+
+print(show(safe_div(10, 2)))   -- ok: 5.0
+print(show(safe_div(1, 0)))    -- error: division by zero
+```
+
+An `Option` works the same way, with a nullary `None`:
+
+```luascript
+enum Option
+    Some(any),
+    None,
+end
+
+local function find(xs: { string }, wanted: string): Option
+    for i, x in ipairs(xs) do
+        if x == wanted then
+            return Option.Some(i)
+        end
+    end
+    return Option.None
+end
+
+local function show(o: Option): string
+    match o do
+        Option.Some(i) -> return "found at " .. i
+        Option.None    -> return "not found"
+    end
+    return "?"
+end
+
+local names = { "ada", "grace", "alan" }
+print(show(find(names, "grace")))   -- found at 2
+print(show(find(names, "linus")))   -- not found
+```
+
+<Callout type="info">
+Enums cannot take type parameters (`enum Option<T>` is a parse error), so a reusable `Option` uses `any` for its payload, or you declare one enum per payload type.
+</Callout>
+
+The runnable tours are [examples/29_enums.lsc](https://github.com/HilthonTT/LuaScript/blob/main/examples/29_enums.lsc) and [examples/43_tagged_enums.lsc](https://github.com/HilthonTT/LuaScript/blob/main/examples/43_tagged_enums.lsc).

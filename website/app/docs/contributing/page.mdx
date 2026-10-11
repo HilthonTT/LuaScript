@@ -1,0 +1,188 @@
+export const metadata = { title: "Contributing" };
+
+# Contributing
+
+LuaScript is meant to stay readable end to end, so changes are judged as much on clarity as on correctness. This page covers the practical side: setting up, running the checks, the test conventions, and the recipes for the most common kinds of change. The authoritative guide is [CONTRIBUTING.md](https://github.com/HilthonTT/LuaScript/blob/main/CONTRIBUTING.md) in the repository. Participation is governed by the [Code of Conduct](https://github.com/HilthonTT/LuaScript/blob/main/CODE_OF_CONDUCT.md), and security problems go through [SECURITY.md](https://github.com/HilthonTT/LuaScript/blob/main/SECURITY.md), not a public issue.
+
+## Development setup
+
+You need Go (the version in `go.mod`, currently 1.27) and nothing else for the default build.
+
+```sh
+git clone https://github.com/HilthonTT/LuaScript.git
+cd LuaScript
+go build ./...
+go test ./...
+```
+
+Day-to-day commands:
+
+```sh
+go run ./cmd/luascript                              # REPL
+go run ./cmd/luascript examples/05_types.lsc        # run a script
+go run ./cmd/luascript -dis examples/01_basics.lsc  # bytecode dump
+```
+
+The Go module path is `github.com/hilthontt/luascript`, which differs from the repository name. Use it in import paths.
+
+[DESIGN.md](https://github.com/HilthonTT/LuaScript/blob/main/DESIGN.md) is the long-form architecture guide. It covers the stage contracts, the VM invariants and the gotchas that are load-bearing rather than incidental. Read the section for the stage you're touching before you change it, and read [Architecture](/docs/architecture/) for the overview.
+
+## Make targets
+
+The `Makefile` is a thin wrapper over `go`, and `make help` lists every target.
+
+| Target | What it does |
+| --- | --- |
+| `make build` | Build `./luascript` (the default target). |
+| `make run FILE=...` | Run a script (default `examples/01_basics.lsc`). |
+| `make repl` | Start the REPL. |
+| `make install` | `go install ./cmd/luascript`. |
+| `make test` | Run the full suite. `PKGS=` narrows it. |
+| `make test-v` | Run the full suite verbosely. |
+| `make test-one PKGS=./internal/vm/ RUN=TestFoo` | Run one package or test. |
+| `make test-race` | Run the suite with the race detector. |
+| `make cover` / `make cover-html` | Write a coverage profile, then print a summary or open it in a browser. |
+| `make bench` | Run the benchmarks in `./internal/vm/` with `-benchmem`. |
+| `make fuzz` | Run a fuzz target (see [Fuzzing](#fuzzing)). |
+| `make fmt` / `make fmt-check` | Format Go sources, or fail if any are not gofmt-clean. |
+| `make vet` | Run `go vet ./...`. |
+| `make tidy` | Run `go mod tidy`. |
+| `make check` | `fmt-check`, `vet` and `test`: the pre-commit gate. |
+| `make clean` | Remove build artifacts. |
+
+<Callout type="warn">
+On a Windows checkout with CRLF line endings, `gofmt -l` (and so `make fmt-check` and `make check`) flags **every** Go file. That's a property of the checkout, not of your change. Don't mass-reformat the tree to silence it. Check only the files you touched, and run `go vet ./...` and `go test ./...` directly.
+</Callout>
+
+## Before you open a pull request
+
+1. `gofmt -l .` reports nothing for your files. `make fmt` fixes them.
+2. `go vet ./...` is clean.
+3. `go test ./...` passes.
+4. Tests cover the change.
+
+CI runs build, vet and test on Linux and Windows, plus a gofmt check, `go test -race`, `govulncheck` and CodeQL. `make check` locally catches almost all of it.
+
+Some paths CI can't exercise: the REPL, `httpserver`, bonsai's alt-screen mode, the `-tags luascript_ui` build, and `plugin`. Smoke-test those by hand and say so in the PR. The `plugin` module can't run on Windows at all, so verify it under WSL with `CGO_ENABLED=1 go test ./internal/plugin/`.
+
+Commit messages use conventional-commit prefixes matching the existing history: `feat:`, `fix:`, `chore:`, `ci:`, `docs:`, `refactor:`, `test:`, plus `gofmt:` for pure formatting commits. Write the subject in the imperative mood and put the *why* in the body.
+
+## Testing conventions
+
+Tests live next to the code they cover, in `*_test.go` files. A few suites are worth knowing before you touch them.
+
+### Bytecode tests assert exact opcodes
+
+`internal/compiler/bytecode/bytecode_test.go` compiles representative snippets and asserts the **exact opcode sequence** they produce. This is deliberate: it catches codegen drift early. Any codegen change will move some of those sequences. Update the expectations consciously and explain why in the PR. Don't edit them just to turn the suite green. `luascript -dis` is the fastest way to see what a snippet compiles to.
+
+### The type checker suite
+
+`internal/compiler/typecheck/checker_test.go` is the focused type-checker suite. Together with the bytecode tests, it gives the strongest signal. Run both after touching codegen or the checker:
+
+```sh
+go test ./internal/compiler/bytecode/ ./internal/compiler/typecheck/
+go test ./internal/compiler/typecheck/ -run TestOptional -v
+```
+
+### Fuzzing
+
+The lexer and the parser have fuzz targets, `FuzzLexer` and `FuzzParser`:
+
+```sh
+make fuzz                                                          # FuzzParser, 30s
+make fuzz FUZZ=FuzzLexer FUZZPKG=./internal/compiler/lexer/
+make fuzz FUZZTIME=5m
+go test -fuzz=FuzzParser ./internal/compiler/parser/               # plain go
+```
+
+### Benchmarks
+
+Benchmarks live in `*_bench_test.go` files under `internal/vm/`:
+
+```sh
+make bench
+go test ./internal/vm -bench . -benchmem
+```
+
+## The three registries must stay in sync
+
+Everything a script can call exists in three places:
+
+1. **the implementation**, in `internal/vm/` (core stdlib) or `internal/native/` (`require()`-able modules)
+2. **its type**, in `internal/compiler/typecheck/`. Globals and auto-global libraries go in `stdlib_types.go`, and native modules go in `native_types.go`. A name without a type is `any` and unchecked.
+3. **its documentation**, in `internal/docs/`, which feeds `luascript doc`, the REPL's `doc` command, and the language server's hover and completion
+
+Two tests enforce this against a live VM:
+
+| Test | Checks |
+| --- | --- |
+| `cmd/luascript/doc_test.go::TestDocsMatchRuntime` | The docs registry against the runtime: no undocumented names, no stale ones. `luascript doc -audit` runs the same comparison from the command line. |
+| `cmd/luascript/native_types_test.go::TestNativeTypesMatchRuntime` | The native module type declarations against the runtime, including whether each field is a function. |
+
+These guards are the reason the hand-written signatures can be trusted. A signature that drifts from the implementation is worse than none, because it rejects correct scripts.
+
+## Adding a native module
+
+The single source of truth for which modules ship is `nativeRegistrars` in [`cmd/luascript/natives.go`](https://github.com/HilthonTT/LuaScript/blob/main/cmd/luascript/natives.go). An entry there surfaces the module in both the CLI VM and in executables produced by `luascript build`.
+
+**1. Implement it.** Create `internal/native/stdlib/<name>/<name>.go` (or put it under `internal/native/datascience/` for a numeric module). Export `Register<Name>Preload(v *vm.VM)`, which calls `vm.RegisterPreload`. The loader builds a `*vm.Table` and fills it with `&vm.GoFunc{...}` values. `internal/native/stdlib/math/math.go` and `internal/native/stdlib/uuid/uuid.go` show the canonical shape:
+
+```go title="internal/native/stdlib/greet/greet.go"
+package greet
+
+import "github.com/hilthontt/luascript/v2/internal/vm"
+
+func RegisterGreetPreload(v *vm.VM) {
+	vm.RegisterPreload(v, "greet", loader)
+}
+
+func loader(_ *vm.VM, _ []vm.Value) []vm.Value {
+	mod := vm.NewTable(0, 1)
+	mod.Set("hello", &vm.GoFunc{Name: "greet:hello", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
+		name := vm.StringArg("greet.hello", 1, args)
+		return []vm.Value{"hello, " + name}
+	}})
+	return []vm.Value{mod}
+}
+```
+
+Respect the FFI rule: only `nil`, `bool`, `int64`, `float64`, `string`, `*Table`, `*Closure` and `*GoFunc` are runtime-tracked values, so convert Go `int`, `rune` and similar types at the boundary. Use the argument helpers in `internal/vm/stdlib_args.go` (`StringArg`, `IntArg`, `FloatArg`, `TableArg`, `OptString`, and so on) rather than hand-rolled panics. Avoid Lua reserved words as method names.
+
+**2. Register it.** Add `greet.RegisterGreetPreload` to the `nativeRegistrars` slice. Keep `promoteStandardGlobals` **last**. It binds `os`, `io` and `utf8` to globals, so every preload it looks for must already be registered.
+
+**3. Type and document it.** Add the module's type to `internal/compiler/typecheck/native_types.go` so that `require("greet")` with a literal name resolves to it. Add its entries to `internal/docs/`. The two tests above fail until all three registries agree.
+
+**4. Add an example.** Write `examples/NN_<name>_module.lsc` demonstrating the module, and add it to `examples/README.md`.
+
+A few entries in `nativeRegistrars` are not `require()` targets. `enumrt`, `structrt` and `tablert` install the runtime helpers that the bytecode generator calls when it lowers `enum`, `struct`, table spread and destructuring rest bindings.
+
+## Adding an opcode
+
+An opcode touches three files:
+
+| File | Change |
+| --- | --- |
+| `internal/compiler/bytecode/instruction.go` | Add the constant and its entry in `InstructionNameTable`. |
+| `internal/compiler/bytecode/serialize.go` | Teach `rebuildParams` to reconstruct its parameters on load. |
+| `internal/vm/dispatch.go` | Implement it in the dispatch loop. |
+
+Don't skip `rebuildParams`. `luascript build` round-trips bytecode through the serializer, so an opcode missing there works everywhere except in bundled binaries. The serialized header embeds the instruction count, so adding or renumbering opcodes invalidates cached chunks automatically. Then update the bytecode tests that assert the sequences your new opcode appears in.
+
+## Changing the language surface
+
+A new language feature usually spans **parser, type checker, bytecode generator and VM**, plus a new `examples/*.lsc` file and parser and bytecode tests. Some constructs are desugared in the parser and never reach later stages: compound assignment, backtick interpolation and the `|>` pipeline. Prefer that route when it fits, because a parse-time desugar has no AST node, opcode or VM work of its own.
+
+Keep these lexical rules in mind when writing test scripts. `try` is a reserved word (it introduces `try` / `catch`), so it can't be an identifier. `type`, `struct`, `impl`, `interface` and `continue` are contextual keywords and still work as names where they can't start their construct.
+
+If your change invalidates something documented in DESIGN.md or CLAUDE.md, update it in the same PR.
+
+## Reporting bugs
+
+Use the issue templates. For a language bug, the most useful things you can include are:
+
+- a **minimal `.lsc` snippet**
+- the mode directive it ran under (`--!strict`, `--!nonstrict`, `--!nocheck` or none)
+- for anything that smells like codegen, the `luascript -dis` output
+- if stock Lua 5.4 disagrees with LuaScript, what `lua5.4` does with the same snippet
+
+Before you file a type-checker issue, check DESIGN.md's "Deliberately out" section. Some limits are known exclusions, not oversights.

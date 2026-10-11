@@ -132,6 +132,18 @@ tidy:
 .PHONY: check
 check: fmt-check vet test
 
+# ---- website ---------------------------------------------------------------
+
+## site: run the documentation site locally (website/, Next.js)
+.PHONY: site
+site:
+	cd website && npm install && npm run dev
+
+## media: re-render the site's GIFs, screenshots, plots and logo PNGs
+.PHONY: media
+media:
+	cd website && $(GO) run ./scripts/media
+
 # ---- housekeeping ----------------------------------------------------------
 
 ## clean: remove build artifacts

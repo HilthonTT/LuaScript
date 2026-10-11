@@ -1,0 +1,258 @@
+export const metadata = { title: "Architecture" };
+
+# Architecture
+
+LuaScript is a clean-room implementation written to be read end to end. There is no LLVM, no JIT and no generated parser: source text goes through a straight pipeline of hand-written stages and ends up as bytecode for a stack-based virtual machine. This page walks through that pipeline and the runtime behind it. It is a condensed version of [DESIGN.md](https://github.com/HilthonTT/LuaScript/blob/main/DESIGN.md), which is the document to read before changing the compiler or the VM.
+
+Three constraints shape almost every decision:
+
+1. **Readable end to end.** Every stage is ordinary Go you can step through.
+2. **Types are compile-time only.** They are erased before bytecode generation. The VM has no notion of a type annotation, so the runtime is exactly the one you would have without the type system.
+3. **Each stage is independently testable**, and the AST is the only contract between them. The parser never produces instructions, and the VM never sees source text or types.
+
+## The pipeline
+
+<Media src="pipeline.svg" alt="The LuaScript compilation pipeline" caption="Source flows through lexer, parser, constcheck, typecheck, constant folding and the bytecode generator before the stack VM runs it." />
+
+The whole pipeline is one function, `CompileToInstructionsWith` in [`internal/compiler/compiler.go`](https://github.com/HilthonTT/LuaScript/blob/main/internal/compiler/compiler.go). Reading it is the fastest way to understand stage ordering.
+
+| Stage | Package | What it does |
+| ----- | ------- | ------------ |
+| Lex | `compiler/lexer/` | Lua 5.4 tokens, long-bracket strings and comments, backtick strings. Reads the mode directive (`--!strict`, `--!nonstrict`, `--!nocheck`) from line 1 and stamps a column on every token for error messages. |
+| Parse | `compiler/parser/` | Recursive descent for statements, Pratt parsing for expressions. Parses Lua 5.4 *and* Luau type syntax into an AST. |
+| Const check | `compiler/constcheck/` | Rejects assignment to `<const>` and `<close>` locals. Always runs. |
+| Type check | `compiler/typecheck/` | The gradual type system. Skipped under `--!nocheck`; all type information is discarded after this stage. |
+| Fold | `compiler/optimize/` | Constant folding on the AST, limited to a subset that is safe under Lua 5.4 semantics. |
+| Generate | `compiler/bytecode/` | Lowers the AST to an instruction set: one `InstructionSet` per function prototype. |
+| Execute | `vm/` | Runs the instructions on a value stack. |
+
+`constcheck` runs before, and independently of, the type checker on purpose. `local x <const>` is a scoping guarantee rather than a type-checking nicety, so `--!nocheck` must not be able to switch it off.
+
+Parser errors use a construct-aware format, `<construct>: <expected> got <found> at line N, column C`, followed by an indented `hint:` line:
+
+```text
+luascript: pipeline: the right side of '|>' must be a function or a call, got 3 at line 1, column 9.
+       hint: write `value |> f`, `value |> f(extra)`, or `value |> obj:method(extra)`
+```
+
+### Keywords
+
+`match`, `enum`, `defer`, `try`, `catch` and `throw` are hard keywords. `type`, `struct`, `continue`, `impl` and `interface` are contextual: they are only recognized where the next token cannot extend them into an expression, so `continue = 1` and `type(x)` still parse as ordinary Lua.
+
+## What is desugared, and where
+
+A recurring question is whether a construct is "real" or sugar. Some features are rewritten by the parser and never reach later stages; others have their own AST node and are lowered by the bytecode generator, sometimes with dedicated opcodes.
+
+| Construct | Representation | Where it is lowered |
+| --------- | -------------- | ------------------- |
+| Compound assignment (`+=`, `\|=`, ...) | none | Parser desugar to a plain assignment |
+| Backtick string interpolation | none | Parser desugar to `..` |
+| Pipeline `x \|> f(y)` | none | Parser desugar to `f(x, y)` |
+| `match` | real AST node | Bytecode generator |
+| `enum` | real AST node | Bytecode generator, calling the `__enum_freeze` runtime helper |
+| `struct` | real AST node | Bytecode generator, calling `__struct_define` |
+| `continue` | real AST node | Jump to the loop's continue anchor |
+| If-expressions | real AST node | Jump chain; folded when the condition is a literal |
+| Default parameters | part of the parameter | Function prologue: `if x == nil then x = default end` |
+| Destructuring and table spread | real AST nodes | Bytecode generator, calling `__rest_array`, `__rest_record`, `__tbl_spread` |
+| `?.`, `?[ ]`, `?:`, `??` | flags on index and call nodes | `JumpIfNil` guards |
+| `defer` | real AST node | `Defer` opcode; a closure list on the call frame |
+| `try` / `catch` / `throw` | real AST nodes | `Try`, `EndTry`, `Throw` opcodes |
+| `local x <close>` | attribute on a local | `MarkTBC`, `CloseTBC` opcodes |
+| Type assertions (`x :: T`) | real AST node | Erased: a runtime no-op |
+
+The runtime helpers (`__enum_freeze`, `__struct_define`, `__tbl_spread` and friends) are Go functions installed as globals by small native packages (`enumrt`, `structrt`, `tablert`). They exist so that both the CLI and bundled executables get them through the same registrar list.
+
+## The type system
+
+The checker in `compiler/typecheck/` is gradual in the Luau sense: annotations are optional, an unannotated slot is `any`, and `any` flows into and out of every typed slot. An unannotated table literal is `any` so dynamic Lua patterns keep working, but a literal that meets a known type (an annotation, a typed parameter, a declared return) is checked field by field against it (`table_literal.go`).
+
+- **Signatures are hand-written.** Globals and auto-global libraries are declared in `stdlib_types.go`, which is why `math.sqrt(true)` is a compile error. The `os`, `io` and `utf8` globals reuse their `native_types.go` declarations, because at run time they are the same tables `require` returns. Native modules are declared in `native_types.go`, so `require("json")` with a literal name resolves to that module's type.
+- **Generics** (`generics.go`) are instantiated on application, with best-effort inference at call sites. Inside a generic body a type variable is opaque but gradual, so parametric code never produces spurious errors.
+- **Refinement** (`refine.go`) narrows types through type guards, nil checks, truthiness, `assert`, early exits, and short-circuit operators. Only simple identifiers are refined, not field paths.
+- **Strictness** comes from the line-1 directive. `--!strict` turns implicit-`any` parameters into errors; `--!nocheck` skips the stage entirely.
+
+Because the declarations are hand-written, a test (`TestNativeTypesMatchRuntime`) compares the native-module declarations against a live VM: a signature that drifts from the implementation would reject correct scripts. Once checking succeeds, the AST is passed on unchanged and the types are simply never consulted again. See [Types](/docs/types/) and [Strict mode](/docs/strict-mode/) for the user-facing side.
+
+## Bytecode and the instruction set
+
+The generator emits a flat list of instructions per function prototype. Each instruction has an opcode, a source line, and typed operand fields. There are 67 opcodes, declared in [`bytecode/instruction.go`](https://github.com/HilthonTT/LuaScript/blob/main/internal/compiler/bytecode/instruction.go):
+
+| Group | Opcodes |
+| ----- | ------- |
+| Loads | `loadnil` `loadtrue` `loadfalse` `loadint` `loadfloat` `loadstring` `loadvararg` `closure` |
+| Variables | `getlocal` `setlocal` `getupvalue` `setupvalue` `getglobal` `setglobal` |
+| Tables | `newtable` `gettable` `settable` `getfield` `setfield` `self` `setlist` |
+| Arithmetic and bitwise | `add` `sub` `mul` `div` `floordiv` `mod` `pow` `neg` `band` `bor` `bxor` `shl` `shr` `bnot` |
+| Strings and comparison | `concat` `len` `eq` `noteq` `lt` `le` `gt` `ge` `not` |
+| Control flow | `jump` `jumpiffalse` `jumpiftrue` `jumpiffalsekeep` `jumpiftruekeep` `jumpifnil` |
+| Calls and loops | `call` `return` `markargs` `forprep` `forloop` `tforcall` `tforloop` `leave` |
+| Stack | `pop` `dup` |
+| Scope and errors | `defer` `closeupvalues` `try` `endtry` `throw` `marktbc` `closetbc` |
+
+`luascript -dis` prints the bytecode for a file instead of running it:
+
+```luascript title="add.lsc"
+local function add(a: number, b: number): number
+    return a + b
+end
+
+print(add(2, 3))
+```
+
+```sh
+luascript -dis add.lsc
+```
+
+```text
+ProgramStart ProgramStart (0+ params, 0 locals, 0 upvalues, 10 instructions)
+     0  [src    1]  closure          0
+     1  [src    1]  setlocal         0
+     2  [src    5]  getglobal        "print"
+     3  [src    5]  markargs         
+     4  [src    5]  getlocal         0
+     5  [src    5]  loadint          2
+     6  [src    5]  loadint          3
+     7  [src    5]  call             2 -1
+     8  [src    5]  call             -1 0
+     9  [src    5]  leave            
+
+  Function add (2 params, 2 locals, 0 upvalues, 5 instructions)
+       0  [src    2]  getlocal         0
+       1  [src    2]  getlocal         1
+       2  [src    2]  add              
+       3  [src    2]  return           1
+       4  [src    1]  leave            
+
+Function add (2 params, 2 locals, 0 upvalues, 5 instructions)
+     0  [src    2]  getlocal         0
+     1  [src    2]  getlocal         1
+     2  [src    2]  add              
+     3  [src    2]  return           1
+     4  [src    1]  leave            
+```
+
+A few things to notice:
+
+- **The types are gone.** `a: number` and `: number` produce no instructions at all.
+- **Nested functions are listed twice:** indented under their parent, and again at the top level.
+- **`markargs` handles multiple returns.** `add(2, 3)` is the last argument to `print`, so it may return any number of values. The generator emits `markargs` to record the stack height, calls `add` with `-1` results ("all of them"), and calls `print` with `-1` arguments so the VM recovers the count from the mark. Fixed-arity calls skip this and pay nothing.
+- **The main chunk shows `0 locals`.** The generator leaves the local count blank; the VM fills it in with a one-time scan of each prototype the first time it runs (`local_table.go`).
+
+Constant folding happens before this point, so a literal expression compiles to a single load:
+
+```luascript
+local SECONDS <const> = 60 * 60 * 24
+print(SECONDS)
+```
+
+```text
+ProgramStart ProgramStart (0+ params, 0 locals, 0 upvalues, 6 instructions)
+     0  [src    1]  loadint          86400
+     1  [src    1]  setlocal         0
+     2  [src    2]  getglobal        "print"
+     3  [src    2]  getlocal         0
+     4  [src    2]  call             1 0
+     5  [src    2]  leave            
+```
+
+## The VM
+
+The VM in `internal/vm/` is a stack machine. A `VM` holds one value stack, a slice of call frames, the globals table, and the list of open upvalues.
+
+### Values
+
+A `Value` is a Go `any`. Only a fixed set of Go types are runtime values: `nil`, `bool`, `int64`, `float64`, `string`, `*Table`, `*Closure`, `*GoFunc`, plus coroutines. Integers and floats are distinct Go types, which is how Lua 5.4's integer subtype is preserved. Native code converts at the boundary using helpers such as `IntArg`, `StringArg` and `TableArg`.
+
+A `Table` keeps an array part and a hash part, plus a metatable pointer. Metamethods (`__index`, `__newindex`, arithmetic, comparison, `__call`, `__tostring`, `__close`, ...) are looked up on the slow path only: `add`, `sub`, `mul`, `lt` and `le` have inline fast paths for int-int and float-float operands.
+
+### Call frames, closures and upvalues
+
+Each call pushes a `CallFrame` recording the closure, instruction pointer, stack base, expected result count and varargs. The frame also owns three lists that drive cleanup: deferred closures, live `<close>` values, and open `try` handlers. Frames are recycled from a small pool.
+
+A `Closure` is a prototype plus a slice of upvalues. While the captured local is still on the stack, an upvalue points into the stack slot; when the scope ends, `closeupvalues` copies the value into the upvalue itself, so the closure keeps working after its creator returns. Every loop exit, including `break` and `continue`, re-emits `closeupvalues` so each iteration gets fresh captures.
+
+### Coroutines
+
+Each coroutine runs its body on its own goroutine, and hands control back and forth with the resuming code over unbuffered channels. On `resume`, the VM saves the active stack, frames and open upvalues into the current thread and loads the coroutine's; on `yield` it swaps back. Only one side ever runs at a time, so this is cooperative multitasking, not parallelism. The VM has no locks, and Lua code only ever runs one call at a time. See [Coroutines](/docs/coroutines/) and [Concurrency](/docs/concurrency/).
+
+### Errors and unwinding
+
+A raised error is a Go panic. The call frames are VM state that nothing touches on the way out, so when the error is finally recovered, the Lua call stack that produced it is still intact. Exactly four places recover an error, and each records the raise position before discarding anything:
+
+| Boundary | Catches for |
+| -------- | ----------- |
+| `safeCall` | `pcall`, `xpcall`, and Go code calling back into the VM |
+| `dispatchToHandler` | a `try` region |
+| `Coroutine.goroutineBody` | a coroutine dying, reported through `resume` |
+| `recoverToError` | an error reaching the host uncaught |
+
+When a boundary handles an error, it runs the `<close>` values and defers of every abandoned frame, closes their upvalues, and truncates the stack back to where the protected call started.
+
+### try / catch
+
+`try` is a protected region in the enclosing frame, not a `pcall` around a hidden closure. The `try` opcode pushes a handler onto the current frame, `endtry` pops it on every normal exit (including `break` and `continue` out of the body), and `throw` raises the value on top of the stack. Because handlers live on the frame, a `return` from inside a `try` needs no bookkeeping, and a coroutine's handlers travel with its frames.
+
+The recovering loop is only entered for prototypes that contain a `try`, so every other call pays a single predictable branch. `goto` across a `try` boundary is rejected at compile time rather than miscompiled.
+
+### Tracebacks
+
+Chunk names are stamped when a chunk is loaded, not when it is compiled, so the same cached bytecode can be loaded from two paths and still report the right file. Function names come from the binding (`local function f`, `function a.b:c`, `M.run = function() end`); a truly anonymous function reports as `anon@<line>`. Long tracebacks keep the innermost 10 and outermost 11 frames. See [Errors](/docs/errors/#error-positions-and-tracebacks).
+
+## Native modules
+
+Native modules are Go packages under `internal/native/` that expose a `Register...Preload(v *vm.VM)` function. It calls `vm.RegisterPreload`, which puts a loader into `package.preload`; `require` finds it there before searching the filesystem.
+
+The single list of shipped modules is `nativeRegistrars` in [`cmd/luascript/natives.go`](https://github.com/HilthonTT/LuaScript/blob/main/cmd/luascript/natives.go). Both the CLI and bundled executables walk it, so adding a module is one line there. The last entry, `promoteStandardGlobals`, binds `os`, `io` and `utf8` as globals, because the VM package cannot import the native packages that implement them.
+
+Every native module is described in three places that must agree: the Go implementation, its type declaration in `typecheck/native_types.go`, and its documentation entry in `internal/docs/`. Tests compare the type declarations and the documentation against a live VM. See [Native modules](/docs/native-modules/) and [Contributing](/docs/contributing/).
+
+## Bytecode serialization and the compile cache
+
+`bytecode/serialize.go` writes a compiled chunk, including its nested prototypes, to a binary format with the magic header `LSCB`. The header records the format version and the opcode count, so renumbering opcodes invalidates old chunks automatically.
+
+The compile cache (`compiler/bccache/`) uses this format to skip compilation for files that have not changed. Running a file, `require` and `loadfile` consult it; the REPL, `load()` strings, `-dis` and bundled executables do not. Entries are keyed by a SHA-256 of the source, the interpreter version, the format version, the opcode count and the interpreter binary, and are only written after a fully successful compile. Any decoding failure falls back to a fresh compile. `LUASCRIPT_NOCACHE=1` disables the cache and `LUASCRIPT_CACHE_DIR` relocates it. See [Modules](/docs/modules/#the-compile-cache).
+
+## Bundled executables
+
+`luascript build -o app.exe script.lsc` copies the interpreter binary and appends the script source, the version, and a magic trailer (`LUASCRIPT01`). On startup, before parsing flags, the interpreter checks its own tail. If the trailer is present it runs the embedded script with all native modules registered, exactly as the CLI would. The payload is source, not bytecode, and the output targets the host platform only. See [CLI](/docs/cli/).
+
+## Documentation as data
+
+`internal/docs/` holds one curated entry per global, library function, module member and object method, grouped into topics, plus a renderer. It imports neither the VM nor the compiler, so every consumer can share it:
+
+- `luascript doc` renders man pages and searches them with `-k`.
+- The REPL's `doc <topic>` command prints the same pages.
+- The language server derives all completion and hover information from it.
+
+`luascript doc -audit` loads every module into a real VM and reports members that are undocumented or documented but missing.
+
+## Repository layout
+
+```text
+.
+├── cmd/luascript/     CLI, subcommands, bundler, natives.go
+├── internal/
+│   ├── compiler/      lexer, token, parser, ast, constcheck, typecheck,
+│   │                  optimize, bytecode, bccache, analyze, debug
+│   ├── vm/            stack VM, coroutines, core stdlib
+│   ├── native/
+│   │   ├── stdlib/    db, os, http, json, std, queue, log, io, ...
+│   │   └── datascience/  ndarray, dataframe, stats, linalg, ml, plot, ...
+│   ├── plugin/        run-time Go package loading (cgo, non-Windows)
+│   ├── docs/          stdlib reference data + man-page renderer
+│   ├── lsp/           language server
+│   ├── formatter/     `luascript fmt`
+│   ├── repl/          interactive REPL
+│   ├── testrunner/    `luascript test`
+│   ├── pkgmanager/    `luascript pkg`: manifest, lockfile, fetch
+│   ├── bonsai/        ASCII bonsai side mode
+│   ├── gctune/        GC tuning helpers
+│   └── version/       version string
+├── client/            VS Code extension (TypeScript)
+├── examples/          runnable .lsc programs that double as tutorials
+├── scripts/           build-pgo.sh, benchmark.rb
+└── website/           this documentation site
+```
+
+Tests live next to the code. The bytecode tests assert exact opcode sequences for representative snippets, so any codegen change shows up as a test diff. The lexer and parser also have fuzz targets. See [Contributing](/docs/contributing/) for how to run them.

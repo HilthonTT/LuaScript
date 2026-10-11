@@ -1,0 +1,431 @@
+export const metadata = { title: "Errors, try & defer" };
+
+# Errors, try & defer
+
+LuaScript keeps Lua 5.4's error model (`error`, `assert`, `pcall`, `xpcall`) and adds three structured tools on top of it: `try`/`catch`/`throw` for handling, `defer` for cleanup, and the Lua 5.4 `<close>` attribute for scoped resources. All of them share one unwinding mechanism, so they compose: a `defer` runs when a `try` catches, a `<close>` variable is closed when a `pcall` traps, and an error thrown with `throw` can be caught by `pcall`.
+
+## Raising errors
+
+`error(value [, level])` raises an error. When the value is a string, a `file:line:` prefix is added. `level` picks which call to blame: `1` (the default) is the function that called `error`, `2` is its caller, and `0` adds no position at all.
+
+```luascript title="raise.lsc"
+local function parsePort(s)
+    local n = tonumber(s)
+    if n == nil then
+        error("not a number: " .. s)
+    end
+    return n
+end
+
+print(pcall(parsePort, "8080"))   --> true	8080
+print(pcall(parsePort, "http"))   --> false	raise.lsc:4: not a number: http
+
+print(pcall(error, "no position", 0))   --> false	no position
+```
+
+Use level `2` in a validation helper, so the error points at the code that passed the bad argument:
+
+```luascript title="level.lsc"
+local function check(n)
+    if n < 0 then error("negative input", 2) end
+    return n
+end
+local function run()
+    return check(-1)      -- line 6 is blamed
+end
+local ok, err = pcall(run)
+print(err)                --> level.lsc:6: negative input
+```
+
+`assert(v [, message])` raises when `v` is `false` or `nil`, and otherwise returns its arguments. That makes it a natural wrapper for functions that return `nil, err` on failure.
+
+```luascript title="assert.lsc"
+print(pcall(assert, false))                      --> false	assert.lsc:1: assertion failed!
+print(pcall(assert, nil, "custom message"))      --> false	custom message
+print(assert(42, "unused"))                      --> 42	unused
+```
+
+In typed code, `assert(cond)` also narrows types for the rest of the block. See [Types](/docs/types/).
+
+## Catching errors with pcall and xpcall
+
+`pcall(f, ...)` calls `f` in protected mode. It returns `true` followed by `f`'s results, or `false` and the error value. `f` can be any callable value, including a table with a `__call` metamethod.
+
+`xpcall(f, handler, ...)` does the same, but passes the error value through `handler` first and returns what the handler returns:
+
+```luascript
+local function handler(err)
+    return "handled: " .. tostring(err)
+end
+print(xpcall(function() error("boom", 0) end, handler))      --> false	handled: boom
+print(xpcall(function(a, b) return a + b end, handler, 2, 3)) --> true	5
+```
+
+<Callout type="warn">
+LuaScript runs the `xpcall` message handler *after* the stack has unwound, where Lua runs it before. A handler that calls `debug.traceback` therefore sees its own stack, not the stack of the failed call. To keep the failing stack, capture the traceback inside the protected function instead (see [debug.traceback](#debugtraceback)).
+</Callout>
+
+## Error values
+
+An error value does not have to be a string. Any value can be raised, and tables make good structured errors:
+
+```luascript title="structured.lsc"
+local ok, err = pcall(function()
+    error({ code = 404, msg = "not found" })
+end)
+print(ok, type(err), err.code, err.msg)   --> false	table	404	not found
+```
+
+Non-string values are passed through unchanged; no position is added. If the table has a `__tostring` metamethod, it is used wherever the error is rendered as text, including when it reaches the top level uncaught:
+
+```luascript
+local E = { __tostring = function(e) return "E" .. e.code .. ": " .. e.msg end }
+error(setmetatable({ code = 500, msg = "oops" }, E))
+```
+
+```text
+luascript: E500: oops
+```
+
+## try / catch / throw
+
+`try` marks a protected region. If anything inside raises, control jumps to the `catch` handler with the raised value bound to a name. If the body completes, the handler is skipped.
+
+```luascript
+try
+    -- body
+catch err do     -- the binding is optional; the `do` is not
+    -- handler
+end
+```
+
+`throw expr` raises a value. It behaves like `error(expr)` except that it never adds a position: the value arrives exactly as thrown.
+
+```luascript title="validate.lsc"
+local function validate(age)
+    if type(age) ~= "number" then
+        throw "age must be a number, got " .. type(age)
+    end
+    if age < 0 then
+        throw { field = "age", reason = "must not be negative" }
+    end
+    return age
+end
+
+for _, input in ipairs({ 30, -1, "forty" }) do
+    try
+        print("ok: " .. validate(input))
+    catch err do
+        if type(err) == "table" then
+            print("invalid " .. err.field .. ": " .. err.reason)
+        else
+            print("invalid: " .. err)
+        end
+    end
+end
+```
+
+```text
+ok: 30
+invalid age: must not be negative
+invalid: age must be a number, got string
+```
+
+A `try` catches everything `pcall` would: `throw`, `error()`, failed `assert`s, and runtime faults such as indexing `nil`, raised at any call depth. When the handler does not need the value, leave the binding out:
+
+```luascript title="faults.lsc"
+local empty = {}
+try
+    print(empty.missing.field)
+catch err do
+    print("runtime fault: " .. tostring(err))   --> runtime fault: faults.lsc:3: attempt to index a nil value
+end
+
+try
+    throw "ignored"
+catch do
+    print("caught, value discarded")
+end
+```
+
+### A real protected region
+
+`try` is not a `pcall` wrapped around a hidden closure. The body is an ordinary block in the enclosing function, so its locals are ordinary locals, and `return`, `break` and `continue` inside it act on the enclosing function or loop:
+
+```luascript title="control.lsc"
+local function firstNumber(inputs)
+    for _, v in ipairs(inputs) do
+        try
+            if type(v) ~= "number" then throw "skip" end
+            return v              -- returns from firstNumber
+        catch do
+            -- swallow and keep looking
+        end
+    end
+    return nil
+end
+print(firstNumber({ "x", false, 7, 9 }))   --> 7
+
+local total = 0
+for i = 1, 6 do
+    try
+        if i == 5 then break end           -- leaves the loop
+        if i % 2 == 0 then continue end    -- next iteration
+        total += i
+    catch do end
+end
+print(total)                               --> 4
+```
+
+`goto` across a `try` boundary, in either direction, is a compile error:
+
+```text
+luascript: line 3: 'goto top' jumps out of a 'try' block — use 'break', 'return', or restructure the control flow
+```
+
+Under the hood, `try` compiles to dedicated `Try`/`EndTry`/`Throw` opcodes, and the handler is stored on the current call frame. See [Architecture](/docs/architecture/#try--catch).
+
+### Nesting and rethrowing
+
+The innermost open handler wins. A handler is removed before it runs, so throwing from inside a `catch` propagates outward. That is what makes the add-context-and-rethrow pattern work:
+
+```luascript
+try
+    try
+        throw "disk offline"
+    catch err do
+        throw "loading config: " .. err
+    end
+catch err do
+    print(err)          --> loading config: disk offline
+end
+```
+
+`throw` raises an ordinary Lua error, so `pcall` traps it too, and a `pcall` inside a `try` handles its own errors without reaching the `catch`:
+
+```luascript
+local ok, err = pcall(function() throw "raised inside pcall" end)
+print(ok, err)          --> false	raised inside pcall
+```
+
+There is no `finally` clause and no type-filtered `catch`. Use `defer` for unconditional cleanup, and inspect the value and re-`throw` inside the handler to filter. In typed code the catch binding is always `any`.
+
+## defer
+
+`defer call(...)` schedules a function or method call to run when the enclosing function exits: on `return`, when it falls off its end, and when an error unwinds through it. Deferred calls run in last-in, first-out order.
+
+```luascript title="defer.lsc"
+local function ordered()
+    defer print("defer 1 (runs last)")
+    defer print("defer 2 (runs first)")
+    print("body")
+end
+ordered()
+```
+
+```text
+body
+defer 2 (runs first)
+defer 1 (runs last)
+```
+
+A deferred call runs after the return value has been computed, so it cannot change what the function returns.
+
+### Capture is by reference
+
+The deferred call is wrapped in a closure, so it reads variables when it runs, not when `defer` executes. This differs from Go, which evaluates deferred arguments eagerly:
+
+```luascript
+local function capture()
+    local n = 1
+    defer print("n at exit =", n)
+    n = 2
+end
+capture()               --> n at exit =	2
+```
+
+### Cleanup during unwinding
+
+When an error propagates through several functions, each frame's defers run as that frame is abandoned, innermost first, before the error reaches the `pcall` or `catch` that handles it:
+
+```luascript
+local function inner()
+    defer print("inner cleanup")
+    error("fail", 0)
+end
+local function outer()
+    defer print("outer cleanup")
+    inner()
+end
+print(pcall(outer))
+```
+
+```text
+inner cleanup
+outer cleanup
+false	fail
+```
+
+`defer` takes exactly one call expression: `defer cleanup(args)` or `defer obj:method(args)`. To defer several statements, defer an immediately-invoked function: `defer (function() ... end)()`.
+
+## To-be-closed variables
+
+A local declared with the Lua 5.4 `<close>` attribute is closed when its block is left, whether by falling off the end, `break`, `continue`, `return`, or an error. Closing calls the value's `__close` metamethod with the value and the error object (`nil` on a normal exit). Variables close in reverse declaration order.
+
+```luascript title="close.lsc"
+local function openResource(name)
+    print("open " .. name)
+    return setmetatable({ name = name }, {
+        __close = function(self, err)
+            if err == nil then
+                print("close " .. self.name)
+            else
+                print("close " .. self.name .. " after error: " .. tostring(err))
+            end
+        end,
+    })
+end
+
+do
+    local a <close> = openResource("a")
+    local b <close> = openResource("b")
+    print("working")
+end
+
+local ok, err = pcall(function()
+    local r <close> = openResource("socket")
+    error("connection lost", 0)
+end)
+print(ok, err)
+
+for i = 1, 3 do
+    local r <close> = openResource("item" .. i)
+    if i == 2 then break end
+end
+```
+
+```text
+open a
+open b
+working
+close b
+close a
+open socket
+close socket after error: connection lost
+false	connection lost
+open item1
+close item1
+open item2
+close item2
+```
+
+The difference from `defer` is scope: `<close>` is tied to a block, `defer` to a whole function.
+
+`nil` and `false` are accepted and do nothing. Any other value without a `__close` metamethod is an error at the point of declaration:
+
+```luascript title="notclosable.lsc"
+local x <close> = {}
+```
+
+```text
+luascript: notclosable.lsc:1: variable 'x' got a non-closable value (table)
+```
+
+File handles from `io.open` have a `__close` metamethod, as in Lua 5.4, so a file can be scoped to a block. Closing the handle explicitly first is fine: `__close` then does nothing.
+
+```luascript
+do
+    local f <close> = assert(io.open("data.txt", "w"))
+    f:write("42")
+end
+do
+    local f <close> = assert(io.open("data.txt"))
+    print(f:read("n"))   --> 42
+    f:close()            -- closing early is fine; <close> then does nothing
+end
+os.remove("data.txt")
+```
+
+### const and close are never reassigned
+
+Both attributes make the binding read-only. Assigning to one, including with a compound operator or from a nested closure, is a compile error. This check runs in its own `constcheck` pass, so `--!nocheck` does not turn it off:
+
+```luascript
+local MAX <const> = 3
+MAX = 4
+```
+
+```text
+luascript: cannot assign to const variable 'MAX' at line 2.
+```
+
+Only the binding is constant: fields of a `<const>` table can still change. Any attribute other than `<const>` and `<close>` is rejected by the parser.
+
+## Error positions and tracebacks
+
+Runtime errors carry the file and line where they were raised. When an error reaches the top level uncaught, the CLI prints the message followed by the call stack that led to it, and exits with status 1:
+
+```luascript title="app.lsc"
+local Parser = {}
+
+function Parser.field(record, name)
+    return record.fields[name].value
+end
+
+function Parser.record(record)
+    return Parser.field(record, "id")
+end
+
+local record = { name = "orders" }
+print(Parser.record(record))
+```
+
+```text
+luascript: app.lsc:4: attempt to index a nil value
+stack traceback:
+	app.lsc:4: in function 'Parser.field'
+	app.lsc:8: in function 'Parser.record'
+	app.lsc:12: in main chunk
+```
+
+<Media src="traceback.png" alt="A terminal showing an uncaught runtime error followed by its stack traceback" caption="An uncaught error prints the raise position and the call stack that led to it." />
+
+A few rules govern what you see:
+
+- **Positions point at the raise site.** `pcall`, `try`/`catch` and `coroutine.resume` report where the error was raised, not where it was caught.
+- **Each chunk is named after the file it was loaded from**, so a traceback crosses module boundaries. A module loaded by `require` is reported by the path it was found at.
+- **Function names come from the binding**: `local function f`, `function a.b:c`, `local f = function() end` and `M.run = function() end` all name their function. A truly anonymous function shows as `anon@<line>`, the line it was defined on.
+- **A stack that is only the main chunk prints no traceback**, since the message prefix already says everything.
+- **Deep stacks are trimmed.** The innermost 10 and outermost 11 frames are kept and the rest collapse into a single `... (skipping N levels)` line, so a runaway recursion stays readable.
+
+### debug.traceback
+
+`require("debug")` exposes the same stack walk to scripts. `debug.traceback([msg [, level]])` returns a traceback string; `level` is how many frames to skip.
+
+```luascript title="trace.lsc"
+local debug = require("debug")
+
+local function inner()
+    print(debug.traceback("inside inner", 1))
+end
+local function outer()
+    inner()
+end
+outer()
+```
+
+```text
+inside inner
+stack traceback:
+	trace.lsc:4: in function 'inner'
+	trace.lsc:7: in function 'outer'
+	trace.lsc:9: in main chunk
+```
+
+A non-string, non-`nil` first argument is returned unchanged, as in Lua 5.4. The module also provides `debug.getinfo`; `sethook` and `gethook` are accepted but are stubs. See [examples/27_debug_module.lsc](https://github.com/HilthonTT/LuaScript/blob/main/examples/27_debug_module.lsc).
+
+## See also
+
+- [examples/55_try_catch.lsc](https://github.com/HilthonTT/LuaScript/blob/main/examples/55_try_catch.lsc), [32_defer.lsc](https://github.com/HilthonTT/LuaScript/blob/main/examples/32_defer.lsc), [59_to_be_closed.lsc](https://github.com/HilthonTT/LuaScript/blob/main/examples/59_to_be_closed.lsc), [52_attributes.lsc](https://github.com/HilthonTT/LuaScript/blob/main/examples/52_attributes.lsc)
+- [Coroutines](/docs/coroutines/) for how errors cross `coroutine.resume`
+- [Architecture](/docs/architecture/) for how unwinding is implemented

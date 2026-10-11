@@ -1,0 +1,206 @@
+export const metadata = { title: "Quick start" };
+
+# Quick start
+
+This page takes you from an empty file to a typed, running LuaScript program in a few minutes. It assumes you have a `luascript` binary on your `PATH`. If not, see [Installation](/docs/installation/). Inside a clone of the repository, `go run ./cmd/luascript` works anywhere this page says `luascript`.
+
+## Hello, world
+
+LuaScript source files use the `.lsc` extension. Create `hello.lsc`:
+
+```luascript title="hello.lsc"
+print("Hello, LuaScript!")
+```
+
+Run it by passing the file to `luascript`:
+
+```sh
+luascript hello.lsc
+```
+
+```text
+Hello, LuaScript!
+```
+
+There is no `main` function and no boilerplate. As in Lua, a file is a chunk, and its top-level statements run from top to bottom.
+
+### Useful run flags
+
+| Command | What it does |
+| --- | --- |
+| `luascript -time app.lsc` | Run the script, then print how long it took. |
+| `luascript -watch app.lsc` | Re-run the script every time you save it. Press <Kbd>Ctrl+C</Kbd> to stop. |
+| `luascript -dis app.lsc` | Print the compiled bytecode instead of running the script. |
+
+`-time` and `-watch` can't be combined. The full list is in [CLI & tooling](/docs/cli/).
+
+## The REPL
+
+Run `luascript` with no arguments to start the interactive REPL:
+
+```sh
+luascript
+```
+
+<Media src="repl.gif" alt="An interactive LuaScript REPL session evaluating expressions and defining functions" caption="The REPL prints bare expressions, keeps top-level locals and type-checks every input." />
+
+A few things make the REPL pleasant to use:
+
+- **Bare expressions print their value.** Type `1 + 2` and you get `3`. You don't need `print`.
+- **Top-level `local` persists.** `local x = 10` in one input is still visible in the next. Inside a nested scope (a `do` block, `if`, loop or function body), `local` behaves as it does in Lua.
+- **Multi-line input just works.** If the input is incomplete, such as a `function` without its `end`, the REPL opens a continuation prompt until the statement is finished.
+- **Types are checked.** `local x: number = "a"` is reported with a `type-error:` prefix and never runs.
+
+| Command | Effect |
+| --- | --- |
+| `help` | Show the help screen. |
+| `doc <topic>` | Look up the standard-library reference, for example `doc string.format`. A bare `doc` lists every topic. |
+| `reset` | Rebuild the VM, clearing all globals and user state. |
+| `clear` | Clear the screen. |
+| `exit`, `quit` | Leave the REPL. |
+
+<Kbd>Ctrl+C</Kbd> cancels the current input, <Kbd>Ctrl+D</Kbd> exits, <Kbd>Ctrl+R</Kbd> searches history and <Kbd>Tab</Kbd> completes keywords. History is saved to `~/.lsc_repl_history`.
+
+## Your first typed function
+
+Type annotations are optional. Add them where they help, and the checker verifies every call before the program starts.
+
+```luascript title="greet.lsc"
+local function greet(name: string, times: number = 1): string
+    local parts = {}
+    for i = 1, times do
+        parts[#parts + 1] = `hello, {name}!`
+    end
+    return table.concat(parts, " ")
+end
+
+print(greet("Ada"))        --> hello, Ada!
+print(greet("Grace", 2))   --> hello, Grace! hello, Grace!
+```
+
+This example uses three LuaScript features:
+
+- `name: string` and `): string` annotate the parameter and return types.
+- `times: number = 1` is a [default parameter](/docs/functions/). The default applies when the argument is `nil` or missing.
+- `` `hello, {name}!` `` is [string interpolation](/docs/strings/).
+
+Now add a bad call at the end of the file:
+
+```luascript
+print(greet(42))
+```
+
+Running the file again fails before anything prints. Even the two valid calls above it don't run:
+
+```text
+luascript: Type "number" could not be converted into "string" at line 11
+```
+
+This is the core trade of gradual typing. Untyped code stays dynamic (an unannotated parameter is `any`), and typed code is checked at compile time. Types are erased before bytecode, so annotations cost nothing at run time.
+
+### Stricter checking
+
+Put `--!strict` on the first line to make missing parameter annotations an error:
+
+```luascript title="strict.lsc"
+--!strict
+local function double(x)
+    return x * 2
+end
+print(double(21))
+```
+
+```text
+luascript: parameter "x" has no type annotation (--!strict) at line 2
+```
+
+The other directives are `--!nonstrict` (the default) and `--!nocheck` (skip the type pass entirely). See [Strict mode](/docs/strict-mode/).
+
+## A quick tour
+
+Here are a few more things you will use often, each with its own page.
+
+**Structs and native modules.** `struct` declares a nominal record type with positional or named construction. `require` loads one of the built-in [native modules](/docs/native-modules/), here `json`:
+
+```luascript title="users.lsc"
+local json = require("json")
+
+struct User {
+    name: string,
+    age: number,
+}
+
+local users = {
+    User("Ada", 36),
+    User{ name = "Grace", age = 45 },
+}
+
+local names = {}
+for _, u in ipairs(users) do
+    names[#names + 1] = u.name
+end
+
+print(json.encode({ count = #users, names = names }))
+--> {"count":2,"names":["Ada","Grace"]}
+```
+
+**Error handling.** Alongside Lua's `pcall` and `error`, LuaScript has a real `try` / `catch` / `throw`:
+
+```luascript title="parse.lsc"
+local function parse_age(s: string): number
+    local n = tonumber(s)
+    if n == nil then
+        throw `not a number: {s}`
+    end
+    return n
+end
+
+try
+    print(parse_age("42"))      --> 42
+    print(parse_age("forty"))
+catch err do
+    print("caught:", err)       --> caught:	not a number: forty
+end
+```
+
+**Modern conveniences.** Compound assignment and if-expressions save a lot of boilerplate:
+
+```luascript title="sum.lsc"
+local total = 0
+for _, n in ipairs({ 3, 1, 2 }) do
+    total += n
+end
+local label = if total > 5 then "big" else "small"
+print(`total = {total} ({label})`)   --> total = 6 (big)
+```
+
+Where to read more:
+
+| Topic | Page |
+| --- | --- |
+| Values, variables, loops | [Basics](/docs/basics/) |
+| Closures, varargs, default parameters | [Functions](/docs/functions/) |
+| Tables and metatables | [Tables & metatables](/docs/tables/) |
+| Interpolation and Lua patterns | [Strings](/docs/strings/) |
+| `?.`, `??`, `\|>`, destructuring, spread, `defer`, `continue` | [Modern syntax](/docs/modern-syntax/) |
+| `pcall`, `try` / `catch`, tracebacks | [Errors](/docs/errors/) |
+| `require` and `package.path` | [Modules](/docs/modules/) |
+| Annotations, unions, narrowing | [Types](/docs/types/) |
+| `struct`, `enum`, `match`, generics | [Structs](/docs/structs/), [Enums](/docs/enums/), [Match](/docs/match/), [Generics](/docs/generics/) |
+| Writing tests with `luascript test` | [Testing](/docs/testing/) |
+
+## The examples folder
+
+The repository's [`examples/`](https://github.com/HilthonTT/LuaScript/tree/main/examples) directory holds more than sixty numbered, runnable programs that double as a tutorial series. They range from `01_basics.lsc` and `02_functions.lsc` through types (`05_types.lsc`, `42_structs.lsc`, `44_match.lsc`, `45_generics.lsc`) to one file per native module (`13_json_module.lsc`, `57_db_module.lsc`, `47_ndarray_module.lsc`, and so on). Most run directly from the repository root:
+
+```sh
+luascript examples/05_types.lsc
+```
+
+A few need extra setup: `31_ui_module.lsc` needs a `-tags luascript_ui` build, `53_plugin.lsc` needs cgo on Linux, macOS or FreeBSD, and `16_httpserver_module.lsc` only binds a port when `HTTPSERVER_DEMO=1` is set. [`examples/README.md`](https://github.com/HilthonTT/LuaScript/blob/main/examples/README.md) has an index of what each file shows.
+
+`examples/tests/` is a small real test suite you can run with the built-in test runner:
+
+```sh
+luascript test examples/tests
+```

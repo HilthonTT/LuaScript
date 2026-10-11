@@ -1,0 +1,254 @@
+export const metadata = { title: "Testing" };
+
+# Testing
+
+LuaScript ships a unit-testing module, `require("test")`, and a runner, `luascript test`. There's nothing to install and no configuration file. A test file is an ordinary `.lsc` chunk whose name ends in `_test.lsc`.
+
+<Media src="test.gif" alt="Terminal running luascript test -v examples/tests, listing each passing test by its describe/test name, then a summary line of 2 files, 22 passed, 1 skipped" caption="luascript test -v examples/tests" />
+
+## A first test file
+
+```luascript title="tests/stack_test.lsc"
+local t = require("test")
+
+local function new_stack() return { items = {} } end
+local function push(s, v) table.insert(s.items, v) end
+local function pop(s)
+  if #s.items == 0 then error("pop from empty stack") end
+  return table.remove(s.items)
+end
+
+t.describe("stack", function()
+  local s
+
+  t.before_each(function()
+    s = new_stack()
+    push(s, 1)
+    push(s, 2)
+  end)
+
+  t.it("pops the last value pushed", function()
+    t.assert_eq(pop(s), 2)
+    t.assert_len(s.items, 1)
+  end)
+
+  t.it("keeps its items in order", function()
+    t.assert_deep_eq(s.items, { 1, 2 })
+  end)
+
+  t.it("refuses to pop when empty", function()
+    pop(s); pop(s)
+    t.assert_error(function() pop(s) end, "empty stack")
+  end)
+
+  t.it("counts what it holds", function()
+    t.assert_eq(#s.items, 3, "two pushes in before_each")
+  end)
+end)
+
+t.skip("stack/peek")
+```
+
+The fourth test is wrong on purpose. Run the directory:
+
+```sh
+luascript test -v tests
+```
+
+```text
+tests\stack_test.lsc
+  ok    stack/pops the last value pushed  <1µs
+  ok    stack/keeps its items in order    <1µs
+  ok    stack/refuses to pop when empty   <1µs
+  FAIL  stack/counts what it holds        <1µs
+        tests\stack_test.lsc:34: assert_eq failed: two pushes in before_each
+          expected: 3
+          actual:   2
+  skip  stack/peek
+  3 passed, 1 failed, 1 skipped in 1.06ms
+
+
+1 file, 3 passed, 1 failed, 1 skipped in 1.58ms
+FAIL
+```
+
+A failing assertion raises an error carrying the position of the assertion call. The test is recorded as failed, and the rest of the file keeps running.
+
+## How tests run
+
+**Tests run the moment they're declared.** `t.test(name, fn)` calls `fn` right there. There's no collection phase, so a test file executes top to bottom like any other script, and tests run in declaration order on the VM goroutine.
+
+| Function | Description |
+| -------- | ----------- |
+| `t.test(name, fn)` | Declare and immediately run one test. |
+| `t.it(name, fn)` | Alias for `t.test`, for names that read as a sentence: `t.it("pops in order", ...)`. |
+| `t.describe(name, fn)` | Group the tests declared in `fn` under a name scope. Scopes nest. |
+| `t.skip(name [, fn])` | Record a test as skipped without running it. The body is optional and ignored. |
+| `t.before_each(fn)` | Run `fn` before every test in the current scope and every nested scope. |
+| `t.after_each(fn)` | Run `fn` after every test in the current scope and every nested scope, **including tests that failed**. |
+
+### Names
+
+A test's full name is its enclosing `describe` names plus its own, joined with `/`, like `stack/pops the last value pushed` or `tables/mutation/insert appends`. That full name is what `-run` filters on.
+
+### Hooks
+
+`before_each` hooks run outermost scope first. `after_each` hooks run innermost first. A nested `describe` inherits its parents' hooks, so per-test fixtures built in an outer `before_each` are fresh for the inner tests too.
+
+Because `after_each` also runs after a failing test, it's the right place for cleanup such as closing a file or a database handle. If a `before_each` hook raises, the test body is skipped and the test fails with a `before_each:` prefix.
+
+An error raised by a `describe` body itself, outside any test, is recorded as a failure against that scope. One broken group doesn't abort the file.
+
+## Assertions
+
+Every assertion takes an optional trailing message, which is printed after the assertion name when it fails.
+
+| Assertion | Fails unless |
+| --------- | ------------ |
+| `t.assert_eq(got, want [, msg])` | `got == want`, using `==` semantics (`__eq` included, so `1` equals `1.0`). |
+| `t.assert_ne(got, unwanted [, msg])` | `got ~= unwanted`. |
+| `t.assert_deep_eq(got, want [, msg])` | The two values are structurally equal: tables are compared key by key, recursively, and cycles terminate. A table with an `__eq` metamethod is compared with it instead. |
+| `t.assert_true(v [, msg])` | `v` is truthy (anything but `nil` and `false`). |
+| `t.assert_false(v [, msg])` | `v` is `nil` or `false`. |
+| `t.assert_nil(v [, msg])` | `v` is `nil`. `false` doesn't count. |
+| `t.assert_not_nil(v [, msg])` | `v` isn't `nil`. `false` passes. |
+| `t.assert_near(got, want [, eps] [, msg])` | `\|got - want\| <= eps`. `eps` defaults to `1e-9`. A string in third position is taken as the message. |
+| `t.assert_type(v, typename [, msg])` | `type(v) == typename`. |
+| `t.assert_len(v, n [, msg])` | `#v == n`. `v` must be a string or a table. |
+| `t.assert_contains(haystack, needle [, msg])` | A string contains the substring `needle`, or a table contains the value `needle`. |
+| `t.assert_match(s, pattern [, msg])` | `s` matches the [Lua pattern](/docs/strings/) `pattern`. |
+| `t.assert_error(fn [, pattern [, msg]])` | Calling `fn` raises. If you pass `pattern`, the error message must also match it. **Returns the error value.** |
+| `t.assert_no_error(fn [, msg])` | Calling `fn` doesn't raise. **Returns whatever `fn` returned.** |
+| `t.fail([msg])` | Always fails, with `msg` or `"test failed"`. Use it to mark a branch that should be unreachable. |
+
+```luascript
+local t = require("test")
+
+t.test("equality", function()
+  t.assert_eq(1, 1.0)                        -- == semantics: 1 == 1.0
+  t.assert_ne({ 1, 2 }, { 1, 2 })            -- two tables: identity differs
+  t.assert_deep_eq({ 1, { x = 2 } }, { 1, { x = 2 } })
+end)
+
+t.test("numbers", function()
+  t.assert_near(0.1 + 0.2, 0.3)              -- eps defaults to 1e-9
+  t.assert_near(math.pi, 3.14, 0.01)
+  t.assert_near(0.1 * 3, 0.3, "a string here is the message")
+end)
+
+t.test("errors", function()
+  local err = t.assert_error(function() error("disk is full") end, "disk")
+  t.assert_match(tostring(err), "full$")
+  local a, b = t.assert_no_error(function() return 1, 2 end)
+  t.assert_eq(a + b, 3)
+end)
+```
+
+```text
+ok    equality (<1µs)
+ok    numbers (<1µs)
+ok    errors (<1µs)
+```
+
+<Callout type="tip">
+`assert_nil` and `assert_false` aren't interchangeable. A function that returns `false` and one that returns nothing look the same to a truthiness check, but `assert_not_nil(returns_false())` passes and `assert_nil(returns_nothing())` passes. That distinction catches real bugs.
+</Callout>
+
+Failure messages show what was compared:
+
+```text
+FAIL  deep
+      fail_demo.lsc:3: assert_deep_eq failed
+        expected: {1, 2, 4}
+        actual:   {1, 2, 3}
+FAIL  contains
+      fail_demo.lsc:6: assert_contains failed
+        haystack: "luascript"
+        needle:   "python"
+FAIL  unreachable
+      fail_demo.lsc:9: should never get here
+```
+
+## The `luascript test` runner
+
+```sh
+luascript test [flags] [path...]
+```
+
+The runner walks each path (the current directory by default) and runs every file ending in `_test.lsc`. A path that names a file directly is run whether or not it has that suffix. Directories starting with `.` or `_`, `node_modules`, and the package manager's modules directory are skipped.
+
+| Flag | Effect |
+| ---- | ------ |
+| `-v` | Report every test, not just failures. |
+| `-run PATTERN` | Run only tests whose full name contains `PATTERN` as a substring or matches it as a Lua pattern. |
+| `-list` | Print the tests that would run without running them. |
+| `-failfast` | Stop at the first failure. Remaining tests and files are skipped. |
+| `-no-color` | Disable ANSI colour in the report. Colour is on automatically when stdout is a terminal. |
+
+Without `-v`, you get one line per file plus the details of any failure:
+
+```sh
+luascript test examples/tests
+```
+
+```text
+ok    examples\tests\math_test.lsc                          10 passed, 1 skipped in 1.04ms
+ok    examples\tests\table_test.lsc                         12 passed in 555.6µs
+
+2 files, 22 passed, 1 skipped in 1.60ms
+PASS
+```
+
+Filter by name with `-run`:
+
+```sh
+luascript test -v -run "rounds" examples/tests
+```
+
+```text
+examples\tests\math_test.lsc
+  ok    math library/rounds down  <1µs
+  ok    math library/rounds up    <1µs
+  2 passed in 1.17ms
+
+
+2 files, 2 passed in 1.68ms
+PASS
+```
+
+`-list` still executes each file, since that's how tests are declared, but it records every test without running its body. Code at the top level of the file and inside `describe` bodies does run.
+
+The exit status is `0` when everything passed, `1` when any test failed or a file failed to compile or run, and `2` for usage errors or when no `_test.lsc` files were found.
+
+### One VM per file
+
+Every test file is compiled and run in its **own fresh VM**, with all native modules registered and the file's directory on the `require` path. Globals a file sets, modules it caches in `package.loaded`, and metatables it changes stay in that file, so test files can't affect each other through shared state. Within a file, all tests share one VM, so isolate state between them with `before_each`, as in the example above.
+
+## Running a test file directly
+
+Since a test file is an ordinary chunk, you can also run it like any other script:
+
+```sh
+luascript tests/stack_test.lsc
+```
+
+```text
+ok    stack/pops the last value pushed (<1µs)
+ok    stack/keeps its items in order (<1µs)
+ok    stack/refuses to pop when empty (<1µs)
+FAIL  stack/counts what it holds
+      tests/stack_test.lsc:34: assert_eq failed: two pushes in before_each
+        expected: 3
+        actual:   2
+skip  stack/peek
+```
+
+Each test prints one line as it runs. You don't get a summary, but the exit status still reflects the result: `1` when any test failed (or the file failed to compile or run), `0` otherwise. A program bundled with `luascript build` behaves the same way. `luascript test` is still the better fit for CI, since it adds the summary, `-run` filtering and `-failfast`.
+
+## See also
+
+- [`examples/56_testing.lsc`](https://github.com/HilthonTT/LuaScript/blob/main/examples/56_testing.lsc), a tour of the whole module (one test fails on purpose).
+- [`examples/tests/`](https://github.com/HilthonTT/LuaScript/tree/main/examples/tests), a small real suite for the runner.
+- `luascript doc test` prints the offline reference.
+- [Errors](/docs/errors/) covers `pcall`, `error` and `try`/`catch`, which are what `assert_error` builds on.
+- [CLI](/docs/cli/) lists the other subcommands.

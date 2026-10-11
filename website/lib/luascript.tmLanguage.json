@@ -1,0 +1,304 @@
+{
+  "name": "luascript",
+  "displayName": "LuaScript",
+  "scopeName": "source.luascript",
+  "fileTypes": ["lsc"],
+  "patterns": [{ "include": "#statements" }],
+  "repository": {
+    "statements": {
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#directive" },
+        { "include": "#type-declaration" },
+        { "include": "#struct-declaration" },
+        { "include": "#enum-declaration" },
+        { "include": "#function-declaration" },
+        { "include": "#local-attribute" },
+        { "include": "#strings" },
+        { "include": "#numbers" },
+        { "include": "#keywords" },
+        { "include": "#constants" },
+        { "include": "#type-annotation" },
+        { "include": "#builtins" },
+        { "include": "#calls" },
+        { "include": "#operators" },
+        { "include": "#punctuation" }
+      ]
+    },
+
+    "directive": {
+      "match": "\\A--!(strict|nonstrict|nocheck)\\b",
+      "name": "keyword.other.directive.luascript"
+    },
+
+    "comments": {
+      "patterns": [
+        {
+          "begin": "--\\[(=*)\\[",
+          "end": "\\]\\1\\]",
+          "name": "comment.block.luascript"
+        },
+        {
+          "match": "--.*$",
+          "name": "comment.line.double-dash.luascript"
+        }
+      ]
+    },
+
+    "strings": {
+      "patterns": [
+        {
+          "begin": "\"",
+          "end": "\"",
+          "name": "string.quoted.double.luascript",
+          "patterns": [{ "include": "#escapes" }]
+        },
+        {
+          "begin": "'",
+          "end": "'",
+          "name": "string.quoted.single.luascript",
+          "patterns": [{ "include": "#escapes" }]
+        },
+        {
+          "begin": "`",
+          "end": "`",
+          "name": "string.interpolated.luascript",
+          "patterns": [
+            { "include": "#escapes" },
+            {
+              "begin": "\\{",
+              "beginCaptures": { "0": { "name": "punctuation.section.interpolation.begin.luascript" } },
+              "end": "\\}",
+              "endCaptures": { "0": { "name": "punctuation.section.interpolation.end.luascript" } },
+              "contentName": "meta.embedded.luascript",
+              "patterns": [{ "include": "#statements" }]
+            }
+          ]
+        },
+        {
+          "begin": "\\[(=*)\\[",
+          "end": "\\]\\1\\]",
+          "name": "string.quoted.other.multiline.luascript"
+        }
+      ]
+    },
+
+    "escapes": {
+      "match": "\\\\(?:[abfnrtvz\\\\\"'`{}\\n]|x\\h{2}|\\d{1,3}|u\\{\\h+\\})",
+      "name": "constant.character.escape.luascript"
+    },
+
+    "numbers": {
+      "patterns": [
+        {
+          "match": "\\b0[xX](?:\\h+(?:\\.\\h*)?|\\.\\h+)(?:[pP][+-]?\\d+)?\\b",
+          "name": "constant.numeric.hex.luascript"
+        },
+        {
+          "match": "(?<![\\w.])(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?\\b",
+          "name": "constant.numeric.luascript"
+        }
+      ]
+    },
+
+    "keywords": {
+      "patterns": [
+        {
+          "match": "\\b(if|then|else|elseif|end|for|in|while|do|repeat|until|break|continue|goto|return|match|try|catch|throw|defer)\\b",
+          "name": "keyword.control.luascript"
+        },
+        {
+          "match": "\\b(local|function|impl)\\b",
+          "name": "storage.type.luascript"
+        },
+        {
+          "match": "\\b(and|or|not)\\b",
+          "name": "keyword.operator.logical.luascript"
+        },
+        {
+          "match": "::[A-Za-z_]\\w*::",
+          "name": "entity.name.label.luascript"
+        }
+      ]
+    },
+
+    "constants": {
+      "patterns": [
+        { "match": "\\b(nil|true|false)\\b", "name": "constant.language.luascript" },
+        { "match": "\\.\\.\\.", "name": "constant.language.vararg.luascript" },
+        { "match": "\\bself\\b", "name": "variable.language.self.luascript" }
+      ]
+    },
+
+    "local-attribute": {
+      "match": "<\\s*(const|close)\\s*>",
+      "captures": { "1": { "name": "storage.modifier.luascript" } }
+    },
+
+    "type-declaration": {
+      "begin": "^\\s*(export\\s+)?(type|interface)\\s+([A-Za-z_]\\w*)",
+      "beginCaptures": {
+        "1": { "name": "storage.modifier.luascript" },
+        "2": { "name": "storage.type.luascript" },
+        "3": { "name": "entity.name.type.luascript" }
+      },
+      "end": "(?=^\\s*(?:local|function|type|interface|struct|enum|impl|print|return|if|for|while|do|--)\\b)|(?=^\\s*$)",
+      "patterns": [{ "include": "#type-body" }]
+    },
+
+    "struct-declaration": {
+      "begin": "^\\s*(struct)\\s+([A-Za-z_]\\w*)",
+      "beginCaptures": {
+        "1": { "name": "storage.type.luascript" },
+        "2": { "name": "entity.name.type.luascript" }
+      },
+      "end": "\\}",
+      "patterns": [{ "include": "#type-body" }]
+    },
+
+    "enum-declaration": {
+      "match": "^\\s*(enum)\\s+([A-Za-z_]\\w*)",
+      "captures": {
+        "1": { "name": "storage.type.luascript" },
+        "2": { "name": "entity.name.type.luascript" }
+      }
+    },
+
+    "type-body": {
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#strings" },
+        { "include": "#numbers" },
+        { "include": "#constants" },
+        {
+          "match": "\\b([A-Za-z_]\\w*)\\s*(\\??)\\s*(?=:)",
+          "captures": {
+            "1": { "name": "variable.other.property.luascript" },
+            "2": { "name": "keyword.operator.optional.luascript" }
+          }
+        },
+        { "include": "#type-names" },
+        { "match": "->|[|&?=]", "name": "keyword.operator.type.luascript" },
+        { "match": "[{}()<>\\[\\],:]", "name": "punctuation.luascript" }
+      ]
+    },
+
+    "type-names": {
+      "patterns": [
+        {
+          "match": "\\b(number|string|boolean|any|unknown|never|nil|thread|table|integer|float)\\b",
+          "name": "support.type.primitive.luascript"
+        },
+        {
+          "match": "\\b[A-Z]\\w*\\b",
+          "name": "entity.name.type.luascript"
+        },
+        { "match": "\\btypeof\\b", "name": "support.function.luascript" },
+        { "match": "\\bfunction\\b", "name": "storage.type.luascript" }
+      ]
+    },
+
+    "type-annotation": {
+      "comment": "`name: T` in parameters/locals, `): T` after a parameter list, and `x :: T` assertions.",
+      "patterns": [
+        {
+          "begin": "(::)(?=\\s*[A-Za-z_{(])",
+          "beginCaptures": { "1": { "name": "keyword.operator.assertion.luascript" } },
+          "end": "(?=[,)=\\]}\\n]|\\b(?:then|do|and|or)\\b)",
+          "patterns": [{ "include": "#type-expr" }]
+        },
+        {
+          "begin": "(?<=[\\w\\)\\]])\\s*(:)(?=\\s*(?:[A-Za-z_]\\w*\\s*(?:[<?|&,)=\\]\\n]|->|$)|\\{|\\(|\"))",
+          "beginCaptures": { "1": { "name": "punctuation.separator.type.luascript" } },
+          "end": "(?=[,)=\\]\\n]|\\s(?:->)|\\bdo\\b)",
+          "patterns": [{ "include": "#type-expr" }]
+        }
+      ]
+    },
+
+    "type-expr": {
+      "patterns": [
+        {
+          "begin": "\\{",
+          "end": "\\}",
+          "patterns": [{ "include": "#type-body" }]
+        },
+        {
+          "begin": "\\(",
+          "end": "\\)",
+          "patterns": [{ "include": "#type-expr" }, { "match": ",", "name": "punctuation.luascript" }]
+        },
+        {
+          "begin": "<",
+          "end": ">",
+          "patterns": [{ "include": "#type-expr" }, { "match": ",", "name": "punctuation.luascript" }]
+        },
+        { "include": "#strings" },
+        { "include": "#type-names" },
+        { "match": "\\b[a-z_]\\w*\\b", "name": "entity.name.type.luascript" },
+        { "match": "->|[|&?]", "name": "keyword.operator.type.luascript" }
+      ]
+    },
+
+    "function-declaration": {
+      "match": "\\b(function)\\s+((?:[A-Za-z_]\\w*\\s*[.:]\\s*)*)([A-Za-z_]\\w*)\\s*(<[^>(]*>)?",
+      "captures": {
+        "1": { "name": "storage.type.function.luascript" },
+        "2": { "name": "entity.name.namespace.luascript" },
+        "3": { "name": "entity.name.function.luascript" },
+        "4": { "name": "entity.name.type.parameter.luascript" }
+      }
+    },
+
+    "builtins": {
+      "patterns": [
+        {
+          "match": "\\b(print|require|pairs|ipairs|next|select|type|typeof|sizeof|tostring|tonumber|pcall|xpcall|error|assert|setmetatable|getmetatable|rawget|rawset|rawequal|rawlen|unpack|load|dofile|collectgarbage)\\b(?=\\s*[(\"'{`])",
+          "name": "support.function.builtin.luascript"
+        },
+        {
+          "match": "\\b(math|string|table|coroutine|os|io|utf8|package|debug)\\b(?=\\s*\\.)",
+          "name": "support.class.library.luascript"
+        }
+      ]
+    },
+
+    "calls": {
+      "patterns": [
+        {
+          "match": "\\b([A-Za-z_]\\w*)\\s*(?=[(\"'{`])",
+          "name": "entity.name.function.call.luascript"
+        }
+      ]
+    },
+
+    "operators": {
+      "patterns": [
+        {
+          "match": "\\|>|\\?\\?|\\?\\.|\\?\\[|\\?:|->|=>",
+          "name": "keyword.operator.special.luascript"
+        },
+        {
+          "match": "(?:\\+|-|\\*|//?|%|\\^|\\.\\.|&|\\||~|<<|>>)=",
+          "name": "keyword.operator.assignment.compound.luascript"
+        },
+        {
+          "match": "==|~=|<=|>=|<|>",
+          "name": "keyword.operator.comparison.luascript"
+        },
+        {
+          "match": "\\+|-|\\*|//|/|%|\\^|#|&|\\||~|<<|>>|\\.\\.",
+          "name": "keyword.operator.luascript"
+        },
+        { "match": "=", "name": "keyword.operator.assignment.luascript" }
+      ]
+    },
+
+    "punctuation": {
+      "patterns": [
+        { "match": "[,;]", "name": "punctuation.separator.luascript" },
+        { "match": "[.:]", "name": "punctuation.accessor.luascript" }
+      ]
+    }
+  }
+}

@@ -1,0 +1,169 @@
+export const metadata = { title: "Installation" };
+
+# Installation
+
+LuaScript ships as a single self-contained `luascript` binary: the compiler, the VM, every native module, the REPL and all the tooling. You can download a prebuilt release, install it with the Go toolchain, or build it from source.
+
+## Prebuilt binaries
+
+Every tagged release on the [GitHub releases page](https://github.com/HilthonTT/LuaScript/releases) carries archives for five platforms:
+
+| Platform | Archive |
+| --- | --- |
+| Linux x86-64 | `luascript-linux-amd64.tar.gz` |
+| Linux ARM64 | `luascript-linux-arm64.tar.gz` |
+| macOS Intel | `luascript-darwin-amd64.tar.gz` |
+| macOS Apple silicon | `luascript-darwin-arm64.tar.gz` |
+| Windows x86-64 | `luascript-windows-amd64.zip` |
+
+Each archive holds the binary (named after the archive, for example `luascript-linux-amd64` or `luascript-windows-amd64.exe`) together with `LICENSE` and `README.md`. A matching `.sha256` file sits next to each archive so you can verify the download.
+
+```sh
+# Linux example
+sha256sum -c luascript-linux-amd64.sha256   # optional: verify the archive
+tar xzf luascript-linux-amd64.tar.gz
+mv luascript-linux-amd64 ~/.local/bin/luascript
+```
+
+Rename the binary to `luascript` (or `luascript.exe` on Windows) and put it somewhere on your `PATH`.
+
+<Callout type="info">
+Release binaries are built with `CGO_ENABLED=0` on the [release workflow](https://github.com/HilthonTT/LuaScript/blob/main/.github/workflows/release.yml). Everything ships except the two cgo-gated modules: the `ui` desktop module is a headless stub, and `plugin` reports `supported = false`. See [Optional build tags](#optional-build-tags) if you need them.
+</Callout>
+
+## Prerequisites for building
+
+To build or install from source you need **Go 1.27 or newer** (the version declared in [`go.mod`](https://github.com/HilthonTT/LuaScript/blob/main/go.mod)). Nothing else is required for the default build: no C compiler and no system libraries. The `db` module's SQLite driver is the pure-Go `modernc.org/sqlite`, so the standard build is cgo-free and cross-compiles cleanly.
+
+If your installed Go is older, `go build` tells you so. With the default `GOTOOLCHAIN=auto` setting, Go downloads the required toolchain automatically.
+
+## Install with `go install`
+
+```sh
+go install github.com/hilthontt/luascript/v2/cmd/luascript@latest
+```
+
+This builds the latest release and places `luascript` in `$GOBIN` (by default `$HOME/go/bin`, or `%USERPROFILE%\go\bin` on Windows). Make sure that directory is on your `PATH`. To try unreleased changes, use `@main` instead of `@latest`.
+
+Note the module path, `github.com/hilthontt/luascript/v2`. It is lowercase, unlike the repository's display name `HilthonTT/LuaScript`, and it ends in `/v2`, the major-version suffix Go requires for 2.x releases.
+
+<Callout type="info">
+Leaving out the `/v2` (`github.com/hilthontt/luascript/cmd/luascript@latest`) installs the old 1.x line. The `v2.0.0` tag predates the `/v2` module path, so it cannot be installed with `go install`; use a prebuilt binary or build that tag from source.
+</Callout>
+
+## Build from source
+
+```sh
+git clone https://github.com/HilthonTT/LuaScript
+cd LuaScript
+go build -o luascript ./cmd/luascript
+```
+
+The result is a `luascript` binary (add `.exe` on Windows) in the repository root. You can also run the interpreter straight from the source tree without building:
+
+```sh
+go run ./cmd/luascript                          # start the REPL
+go run ./cmd/luascript examples/01_basics.lsc   # run a script
+```
+
+### Makefile targets
+
+A `Makefile` wraps the common workflows. It is a thin layer over `go`, so every target has a plain `go` equivalent.
+
+| Target | What it runs |
+| --- | --- |
+| `make` / `make build` | `go build -o luascript ./cmd/luascript` (`luascript.exe` on Windows) |
+| `make install` | `go install ./cmd/luascript` into `$GOBIN` |
+| `make run FILE=path.lsc` | `go run ./cmd/luascript path.lsc` (defaults to `examples/01_basics.lsc`) |
+| `make repl` | `go run ./cmd/luascript -i` |
+| `make test` | `go test ./...` |
+| `make check` | gofmt check, `go vet ./...` and `go test ./...` |
+| `make clean` | `go clean` and remove the binary and coverage output |
+| `make help` | List every target |
+
+See [Contributing](/docs/contributing/) for the test, coverage, fuzz and benchmark targets.
+
+### Profile-guided builds
+
+[`scripts/build-pgo.sh`](https://github.com/HilthonTT/LuaScript/blob/main/scripts/build-pgo.sh) does a three-step PGO build: it builds the interpreter, runs `luascript profile` against a workload to collect a CPU profile, and rebuilds with `go build -pgo=...`. It needs bash.
+
+```sh
+scripts/build-pgo.sh                     # profiles examples/02_functions.lsc
+scripts/build-pgo.sh path/to/script.lsc  # profiles your own workload
+```
+
+## Optional build tags
+
+Two build tags switch in cgo-backed implementations. Both require `CGO_ENABLED=1` and a working C toolchain.
+
+| Tag | Effect | Extra requirements |
+| --- | --- | --- |
+| `luascript_ui` | Builds the real `ui` module on top of [Fyne](https://fyne.io). Without the tag, `require("ui")` still resolves but errors as soon as a script constructs a widget. | OpenGL development headers |
+| `luascript_sqlite_cgo` | Swaps the pure-Go SQLite driver for `github.com/mattn/go-sqlite3`. | None beyond a C compiler |
+
+```sh
+CGO_ENABLED=1 go build -tags luascript_ui -o luascript ./cmd/luascript
+```
+
+The `plugin` module, which loads Go packages at run time, needs no tag but only works in a cgo build on Linux, macOS or FreeBSD. It cannot run on Windows at all; there `require("plugin")` resolves but reports `supported = false`. Use WSL if you need it on a Windows machine.
+
+## Verify the installation
+
+```sh
+luascript -v
+```
+
+```text
+Version: 2.0.0, GitCommit: 936ac38, BuildTime: 2026-10-11T20:30:25Z
+```
+
+Release binaries carry the commit and build time they were made from. A `go build` from a git checkout reports the checkout's commit and commit time instead (with `-dirty` if the tree has uncommitted changes), and builds without that information print `unknown`.
+
+Then run a one-line script:
+
+```luascript title="hello.lsc"
+print("Hello, LuaScript!")
+```
+
+```sh
+luascript hello.lsc
+```
+
+```text
+Hello, LuaScript!
+```
+
+Running `luascript` with no arguments opens the REPL. `luascript -h` lists every flag and subcommand.
+
+## Editor support: VS Code
+
+The repository includes a VS Code extension in [`client/`](https://github.com/HilthonTT/LuaScript/tree/main/client). It is a thin client: it launches `luascript lsp` and forwards Language Server Protocol traffic over stdio. The server provides diagnostics, hover, completion, document symbols and formatting for `.lsc` files, and the extension adds a TextMate grammar for syntax highlighting.
+
+The extension is built from source with [Bun](https://bun.sh):
+
+```sh
+cd client
+bun install            # install client dependencies (once)
+bun run build:server   # go build -> ./bin/luascript.exe
+bun run compile        # compile the TypeScript client to ./out
+```
+
+To try it, open the `client/` folder in VS Code and press <Kbd>F5</Kbd> (the "Run Extension" launch configuration). An Extension Development Host opens; open any `.lsc` file to activate the extension.
+
+To produce an installable package:
+
+```sh
+bun x @vscode/vsce package
+```
+
+This writes a `.vsix` file you can install with **Extensions: Install from VSIX...** in VS Code. The `vscode:prepublish` step rebuilds the server binary and compiles the client first.
+
+### Using your own `luascript` binary
+
+By default the extension starts the server binary bundled in its `bin/` directory. To point it at another executable, for example one installed with `go install`, set the `luascript.server.path` setting to the absolute path of that binary.
+
+<Callout type="tip">
+The `build:server` script always writes `bin/luascript.exe`, but on Linux and macOS the extension looks for `bin/luascript`. On those platforms, rename the file or set `luascript.server.path` to a `luascript` binary on your system.
+</Callout>
+
+See [CLI & tooling](/docs/cli/#language-server) for more on the language server.

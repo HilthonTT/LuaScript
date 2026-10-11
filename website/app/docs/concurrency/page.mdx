@@ -1,0 +1,387 @@
+export const metadata = { title: "Jobs & channels" };
+
+# Jobs & channels
+
+`require("queue")` gives you two tools for structuring work over time: a **priority job queue** (priorities, delays, retries with backoff, ids, capacity limits, start deadlines, metrics) and **Go-backed channels** that carry Lua values, with timeouts on both ends.
+
+Before the API, one rule. It shapes everything else on this page.
+
+## The one rule
+
+**Lua code runs only on the VM goroutine, one call at a time.**
+
+This isn't a policy that could be relaxed later. The VM has no locks: the globals table is a plain map, open upvalues point into the VM stack, and the global-lookup inline cache writes back into shared instructions. Running Lua on two goroutines at once would be a data race, not a speedup.
+
+The `queue` module is built around that invariant by splitting **scheduling** from **execution**:
+
+- The scheduler is thread-safe and runs nothing. It keeps two heaps: ready jobs, ordered by priority and then FIFO, and delayed jobs, ordered by when they become due.
+- `q:run()` and `q:poll()` drain the scheduler on the VM goroutine. They are the **only** places a job is ever called, and every call is protected, so a failing job can't leave the VM in a broken state.
+- Goroutines exist only inside `queue.after` and `queue.tick`. They feed a channel from a Go timer and never touch the VM.
+
+So a queue gives you **ordering, delays, retries, backpressure, deadline-shedding and metrics, but not parallelism.** Two consequences follow:
+
+- `timeout_ms` is a deadline on **starting** a job. A job still waiting when its deadline passes is dropped unrun. A job that has already started can't be preempted.
+- A job that blocks (a long loop, a blocking `receive`) blocks the whole queue, because there's no second goroutine to pick up the next job.
+
+<Callout type="info">
+The design rationale lives in [DESIGN.md, "Concurrency: the one rule"](https://github.com/HilthonTT/LuaScript/blob/main/DESIGN.md#concurrency-the-one-rule). Don't "improve" the module with a worker pool that calls Lua: that was the original bug.
+</Callout>
+
+## Job queues
+
+```luascript
+local queue = require("queue")
+
+local q = queue.new()
+q:push(function() print("cleanup") end)
+q:push(function() print("page the on-call") end, { priority = 100 })
+q:push(function() print("flush metrics") end, { priority = 10 })
+q:push(function() print("also cleanup") end)
+
+print(#q, tostring(q))
+print("ran", q:run())
+```
+
+```text
+4	queue(pending=4)
+page the on-call
+flush metrics
+cleanup
+also cleanup
+ran	4
+```
+
+Higher priorities run first. Jobs with the same priority run in the order you pushed them. `q:run()` drains the queue on the calling goroutine, sleeping through any delays, and returns the number of jobs it ran.
+
+### `queue.new` options
+
+| Option | Meaning |
+| ------ | ------- |
+| `capacity` | Maximum number of pending jobs. `0` (the default) means unbounded. |
+| `on_error` | `function(msg, info)`, called when a job fails for good (after its retries) or expires. |
+
+The `info` table passed to `on_error` has `id`, `priority`, `attempts`, `retries`, `expired` and, if you set one, `payload`.
+
+### `q:push` options
+
+`q:push(fn [, opts])` returns the job id, or `nil` and an error message.
+
+| Option | Meaning |
+| ------ | ------- |
+| `priority` | Integer. Higher runs first. Defaults to `0`. |
+| `delay_ms` | Don't start the job before this many milliseconds have passed. |
+| `timeout_ms` | Deadline for **starting** the job, measured from when it becomes due. An expired job is dropped unrun and reported to `on_error` with `info.expired = true`. |
+| `retries` | How many times to re-run the job after it raises. |
+| `backoff_ms` | Fixed delay before each retry. |
+| `args` | An array whose elements are passed to `fn` as arguments. |
+| `id` | Your own job id. Without one, ids are `job-1`, `job-2`, and so on. |
+| `payload` | Any value. It's passed back to `on_error` as `info.payload`. |
+
+```luascript
+local queue = require("queue")
+local q = queue.new()
+
+local id = q:push(function(name, n)
+  print("hello " .. name .. " x" .. n)
+end, { args = { "ada", 3 }, id = "greet" })
+print(id)
+
+print(q:push(function() end))   -- auto id
+print(q:poll())                 -- runs what is due, returns the count
+```
+
+```text
+greet
+job-1
+hello ada x3
+2
+```
+
+### Queue methods
+
+| Method | Description |
+| ------ | ----------- |
+| `q:push(fn [, opts])` | Schedule a job. Returns its id, or `nil, err`. |
+| `q:run()` | Drain the queue, waiting out delays. Blocks until the queue is empty or `q:stop()` is called. Returns the number of jobs run. |
+| `q:poll([max])` | Run only the jobs that are already due, at most `max` of them. Never sleeps. Returns the count. |
+| `q:stop()` | Stop the queue. A blocked `run` returns after the current job, and later pushes fail. |
+| `q:is_stopped()` | Whether `stop` has been called. |
+| `q:size()` / `#q` | Number of pending jobs. |
+| `q:empty()` | Whether no jobs are pending. |
+| `q:clear()` | Discard every pending job. Returns how many were discarded. |
+| `q:metrics()` | A counters-and-timings table (see [Metrics](#metrics)). |
+
+`q:push` is safe to call from inside a running job. That's how you build an event loop: a job that re-schedules itself with a delay.
+
+```luascript
+local queue = require("queue")
+local q = queue.new()
+local ticks = 0
+local function tick()
+  ticks = ticks + 1
+  print("tick " .. ticks)
+  if ticks < 3 then q:push(tick, { delay_ms = 10 }) end
+end
+q:push(tick)
+print("ran", q:run())
+```
+
+```text
+tick 1
+tick 2
+tick 3
+ran	3
+```
+
+`run` waits out each delay instead of spinning, so this finishes in about 20ms.
+
+### Retries and backoff
+
+```luascript
+local queue = require("queue")
+
+local q = queue.new{
+  on_error = function(msg, info)
+    print(string.format("%s failed (attempts=%d, expired=%s): %s",
+      info.id, info.attempts, tostring(info.expired), msg))
+  end,
+}
+
+local tries = 0
+q:push(function()
+  tries = tries + 1
+  if tries < 3 then error("connection reset") end
+  print("synced on attempt " .. tries)
+end, { id = "sync", retries = 3, backoff_ms = 10 })
+
+q:push(function() error("disk full") end, { id = "cache", retries = 1 })
+
+q:run()
+
+local m = q:metrics()
+print(m.processed, m.succeeded, m.failed, m.retried)
+```
+
+```text
+cache failed (attempts=2, expired=false): retry.lsc:17: disk full
+synced on attempt 3
+5	1	1	3
+```
+
+A failed job goes back into the delayed heap, due `backoff_ms` later, so other jobs can run while it waits. That's why `cache` gives up before `sync` finally succeeds. `on_error` fires only once a job has used up its retries. Intermediate failures just count as `retried`.
+
+### Deadlines
+
+Because a running job can't be interrupted, a slow job makes the jobs behind it late. `timeout_ms` lets those jobs give up instead of running stale:
+
+```luascript
+local queue = require("queue")
+local q = queue.new{
+  on_error = function(msg, info) print(msg, info.expired) end,
+}
+
+-- The first job hogs the VM for 50ms...
+q:push(function()
+  local t = os.clock()
+  while os.clock() - t < 0.05 do end
+end, { priority = 10 })
+
+-- ...so this one misses its 10ms start deadline and is shed unrun.
+q:push(function() print("never printed") end, { timeout_ms = 10 })
+
+q:run()
+print("expired:", q:metrics().expired)
+```
+
+```text
+job "job-2" expired before it ran	true
+expired:	1
+```
+
+### Capacity and backpressure
+
+A bounded queue refuses work instead of growing without limit. Refusal is a return value, not an error:
+
+```luascript
+local queue = require("queue")
+local small = queue.new{ capacity = 2 }
+print(small:push(function() end))
+print(small:push(function() end))
+print(small:push(function() end))
+small:stop()
+print(small:push(function() end))
+print(small, small:is_stopped())
+```
+
+```text
+job-1
+job-2
+nil	queue is full
+nil	queue is stopped
+queue(pending=2, stopped)	true
+```
+
+### Metrics
+
+`q:metrics()` returns a snapshot table:
+
+| Field | Meaning |
+| ----- | ------- |
+| `enqueued` | Jobs accepted by `push`. |
+| `processed` | Job **attempts** executed, retries included. |
+| `succeeded` / `failed` | Jobs that finished without error, or failed for good. |
+| `retried` | Failed attempts that were re-scheduled. |
+| `expired` | Jobs shed because they missed their `timeout_ms` deadline. |
+| `dropped` | Pushes refused because the queue was at capacity. |
+| `pending` | Jobs still waiting. |
+| `avg_wait_ms` / `max_wait_ms` | Time between becoming due and starting. |
+| `avg_exec_ms` / `max_exec_ms` | Time spent running. |
+
+## Channels
+
+`queue.channel([capacity])` creates a real Go channel that carries Lua values. A capacity of `0` (the default) makes it unbuffered.
+
+```luascript
+local queue = require("queue")
+
+local ch = queue.channel(2)          -- buffered, capacity 2
+print(ch:send("a"))
+print(ch:send("b"))
+print(ch:send("c", 50))              -- buffer full: waits 50ms
+print(ch:try_send("c"))
+print(#ch, ch:cap(), tostring(ch))
+
+print(ch:receive())
+print(ch:try_receive())
+print(ch:receive(20))                -- empty: times out
+
+ch:send("last")
+ch:close()
+print(ch:receive())                  -- buffered values still drain
+print(ch:receive())                  -- then "closed"
+print(ch:try_send("x"))
+print(pcall(ch.send, ch, "x"))
+```
+
+```text
+true
+true
+false	timeout
+false	full
+2	2	channel(2/2)
+a	true
+b	true
+nil	false	timeout
+last	true
+nil	false	closed
+false	closed
+false	channels.lsc:19: channel:send: send on closed channel
+```
+
+| Method | Returns | Description |
+| ------ | ------- | ----------- |
+| `ch:send(v [, timeout_ms])` | `true` \| `false, "timeout"` | Blocks until there's room or the timeout expires. Raises on a closed channel. `v` can't be `nil`, so send `false` or a sentinel instead. |
+| `ch:try_send(v)` | `true` \| `false, "full"\|"closed"` | Sends only if it can happen right away. Never raises on a closed channel. |
+| `ch:receive([timeout_ms])` | `v, true` \| `nil, false, "timeout"\|"closed"` | Blocks until a value arrives, the timeout expires, or the channel is closed and drained. |
+| `ch:try_receive()` | same as `receive` | Receives only if a value is already waiting. |
+| `ch:close()` | | Marks the channel closed. Buffered values can still be received. |
+| `ch:is_closed()` | `boolean` | Whether `close` has been called. |
+| `ch:len()` / `#ch` | `number` | How many values are buffered. |
+| `ch:cap()` | `number` | The buffer capacity. |
+| `ch:stop()` | | Only on `queue.tick` channels. Stops the ticker goroutine. |
+
+A receive that times out doesn't raise. It returns `nil, false, "timeout"`, so a `receive` loop ends cleanly with `if not ok then break end`.
+
+### Buffered vs unbuffered
+
+An unbuffered channel hands a value over only when a sender and a receiver meet. Since all your Lua code runs on one goroutine, nothing can be waiting on the other end of a send you make from Lua, so the send can only time out (or block forever without a timeout):
+
+```luascript
+local queue = require("queue")
+local ch = queue.channel()     -- unbuffered
+print(ch:cap())
+-- Nobody else is running Lua, so nothing can receive: the send can only time out.
+print(ch:send("ping", 20))
+print(ch:try_send("ping"))
+```
+
+```text
+0
+false	timeout
+false	full
+```
+
+<Callout type="warn">
+Between Lua code, use a **buffered** channel sized for the values in flight. Unbuffered channels are useful only when a Go goroutine is on the other end, like the timer channels below.
+</Callout>
+
+A common pattern is having jobs produce into a buffered channel and draining it once the queue is done:
+
+```luascript
+local queue = require("queue")
+local q = queue.new()
+local results = queue.channel(16)
+
+-- Jobs produce, the main chunk consumes once the queue drains.
+for i = 1, 3 do
+  q:push(function() results:send(i * i) end, { delay_ms = 10 * (4 - i) })
+end
+q:run()
+results:close()
+
+while true do
+  local v, ok = results:receive()
+  if not ok then break end
+  print("got", v)
+end
+```
+
+```text
+got	9
+got	4
+got	1
+```
+
+### Timers
+
+`queue.after` and `queue.tick` are the one place a goroutine gets involved. The goroutine runs a Go timer and pushes into a channel. It never runs Lua, so it's safe.
+
+| Function | Description |
+| -------- | ----------- |
+| `queue.after(ms [, value])` | A channel that receives `value` (default `true`) once, after `ms` milliseconds, and then closes. |
+| `queue.tick(ms)` | A channel that receives `true` every `ms` milliseconds. Call `:stop()` on it to shut the goroutine down. |
+
+```luascript
+local queue = require("queue")
+
+local done = queue.after(30, "elapsed")
+print(done:receive(1000))
+
+local ticker = queue.tick(10)
+for i = 1, 3 do
+  ticker:receive(1000)
+  print("tick", i)
+end
+ticker:stop()
+print(ticker:is_closed())
+```
+
+```text
+elapsed	true
+tick	1
+tick	2
+tick	3
+true
+```
+
+Always stop a ticker when you're done with it. Otherwise its goroutine keeps running until the process exits.
+
+## Relation to coroutines and `httpserver`
+
+- **[Coroutines](/docs/coroutines/)** are for structuring control flow: generators, pipelines, state machines. They're implemented on goroutines, but they follow the same rule: exactly one runs at a time, and control passes only at an explicit `resume` or `yield`. Use coroutines when a computation needs to pause and resume. Use a queue when *when* and *in what order* work runs matters (priorities, delays, retries, deadlines).
+- **`httpserver`** follows the same shape as the queue. `:listen` blocks on the VM goroutine and hands requests to your handlers one at a time through a buffered channel. Handlers are therefore serialised and should be quick. Push long work into a queue instead. See [Native modules](/docs/native-modules/).
+
+## Reference
+
+- `luascript doc queue`, `luascript doc queue.jobqueue` and `luascript doc queue.channel` print the offline reference.
+- [`examples/54_queue_module.lsc`](https://github.com/HilthonTT/LuaScript/blob/main/examples/54_queue_module.lsc) is a runnable tour of everything on this page.
