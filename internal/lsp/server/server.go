@@ -237,7 +237,7 @@ func Run(ctx context.Context, logger *slog.Logger, in io.ReadCloser, out io.Writ
 	}
 	srv := NewServer(logger)
 	stream := jsonrpc2.NewStream(stdrwc{in: in, out: out})
-	ctx, conn, _ := protocol.NewServer(ctx, srv, stream, logger)
+	_, conn, _ := protocol.NewServer(ctx, srv, stream, logger)
 	<-conn.Done()
 	return conn.Err()
 }

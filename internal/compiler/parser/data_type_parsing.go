@@ -88,7 +88,6 @@ func (p *Parser) parseIdent() ast.Expression {
 
 func (p *Parser) parseStringLiteral() ast.Expression {
 	tok := p.curToken
-	raw := p.curToken.Literal
 
 	if tok.Type != token.InterpString {
 		exp := &ast.StringLiteral{BaseNode: baseAt(p.curToken), Value: p.curToken.Literal}
@@ -96,7 +95,7 @@ func (p *Parser) parseStringLiteral() ast.Expression {
 		return exp
 	}
 
-	raw = tok.Raw
+	raw := tok.Raw
 	if raw == "" {
 		raw = tok.Literal
 	}

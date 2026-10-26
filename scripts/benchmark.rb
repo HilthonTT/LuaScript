@@ -122,7 +122,6 @@ abort "no such dir: #{opts[:dir]}" unless Dir.exist?(opts[:dir])
 
 if opts[:compare]
   # Group files by basename: fib.lsc, fib.lua, fib.rb -> one "fib" row group.
-  exts = [opts[:ext], *RUNNERS.keys]
   groups = Dir.glob(File.join(opts[:dir], "*")).group_by { |f| File.basename(f, ".*") }
   groups = groups.sort.to_h
 

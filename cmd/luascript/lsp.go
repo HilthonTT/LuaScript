@@ -29,7 +29,11 @@ func runLSP(argv []string) int {
 		if err != nil {
 			logger.Error("open log file", slog.Any("error", err))
 		} else {
-			defer f.Close()
+			defer func() {
+				if err := f.Close(); err != nil {
+					fmt.Fprintf(os.Stderr, "luascript lsp: closing log file: %v\n", err)
+				}
+			}()
 			logger = slog.New(slog.NewTextHandler(f, &slog.HandlerOptions{Level: slog.LevelDebug}))
 		}
 	}
