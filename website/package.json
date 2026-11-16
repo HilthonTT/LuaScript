@@ -12,9 +12,9 @@
   "dependencies": {
     "@mdx-js/loader": "^3.1.1",
     "@mdx-js/react": "^3.1.1",
-    "@next/mdx": "^16.4.5",
-    "lucide-react": "^1.70.0",
-    "next": "^16.4.5",
+    "@next/mdx": "^16.4.6",
+    "lucide-react": "^1.72.0",
+    "next": "^16.4.6",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "rehype-pretty-code": "^0.14.6",
@@ -23,7 +23,7 @@
     "shiki": "^4.6.0"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4.3.4",
+    "@tailwindcss/postcss": "^4.3.5",
     "@tailwindcss/typography": "^0.5.20",
     "@types/mdx": "^2.0.14",
     "@types/node": "^26",
