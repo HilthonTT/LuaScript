@@ -196,3 +196,35 @@ func TestRandomIntRejectsBadBound(t *testing.T) {
 		t.Fatal("crypto.random_int(0) succeeded; want an error")
 	}
 }
+
+// A stored hash is data: its cost parameters must not be able to make
+// password_verify allocate unbounded memory (m=4294967295 is a 4 TiB request,
+// a fatal out-of-memory that pcall cannot catch) or spin for hours.
+func TestPasswordVerifyRejectsHostileCostParameters(t *testing.T) {
+	v := runCrypto(t, `
+		local crypto = require("crypto")
+		local s = "$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAA"
+		hugeMem = crypto.password_verify("x", "$argon2id$v=19$m=4294967295,t=1,p=1" .. s)
+		hugeTime = crypto.password_verify("x", "$argon2id$v=19$m=8,t=4294967295,p=1" .. s)
+	`)
+	eq(t, v, "hugeMem", false)
+	eq(t, v, "hugeTime", false)
+}
+
+func TestPasswordHashRejectsOversizedOptions(t *testing.T) {
+	for _, opt := range []string{"memory = 4294967295", "time = 1e6", "key_length = 4294967296", "salt_length = 1e9"} {
+		chunks, err := compiler.CompileToInstructions(`
+			local crypto = require("crypto")
+			crypto.password_hash("pw", { `+opt+` })
+		`, parser.NormalMode)
+		if err != nil {
+			t.Fatalf("compile error: %v", err)
+		}
+		v := vm.New()
+		nativecrypto.RegisterCryptoPreload(v)
+		e := v.Run(chunks[0])
+		if e == nil || !strings.Contains(e.Error(), "must be at most") {
+			t.Errorf("password_hash with { %s } = %v, want a must-be-at-most error", opt, e)
+		}
+	}
+}

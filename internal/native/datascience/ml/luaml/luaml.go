@@ -183,6 +183,9 @@ func parseConfig(site string, t *vm.Table) *ml.Config {
 	if wt, ok := tableField(t, "weight"); ok {
 		c.Weight = weightFromTable(site, wt)
 	}
+	if err := c.Validate(); err != nil {
+		panic(vm.Errorf("%s: %s", site, err.Error()))
+	}
 	return c
 }
 

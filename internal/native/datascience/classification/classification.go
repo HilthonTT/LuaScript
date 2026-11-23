@@ -52,6 +52,9 @@ func newBayesObject(clf *Classifier) *vm.Table {
 	methods.Set("learn", &vm.GoFunc{Name: "naivebayes:learn", Fn: func(_ *vm.VM, a []vm.Value) []vm.Value {
 		doc := stringList("naivebayes:learn", 2, a)
 		class := Class(vm.StringArg("naivebayes:learn", 3, a))
+		if _, known := clf.datas[class]; !known {
+			panic(vm.Errorf("naivebayes:learn: unknown class %q", string(class)))
+		}
 		clf.Learn(doc, class)
 		return nil
 	}})

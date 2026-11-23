@@ -1,6 +1,7 @@
 package ndarray
 
 import (
+	"math"
 	"sync"
 
 	"github.com/hilthontt/luascript/v3/internal/vm"
@@ -182,14 +183,31 @@ func arange(args []vm.Value) *ndarray {
 	if step == 0 {
 		panic(vm.Errorf("ndarray.arange: step must be non-zero"))
 	}
+	// Bound the loop before running it: an infinite stop, or a step too small
+	// to change start (arange(1e17, 1e17+100, 1)), would otherwise append
+	// forever until the process runs out of memory.
+	if span := (stop - start) / step; span > 0 {
+		if math.IsInf(span, 0) || span > maxNDElems {
+			panic(vm.Errorf("ndarray.arange: range exceeds %d elements", maxNDElems))
+		}
+		if start+step == start {
+			panic(vm.Errorf("ndarray.arange: step %g is too small to advance from %g", step, start))
+		}
+	}
 	var vals []float64
 	if step > 0 {
 		for x := start; x < stop; x += step {
 			vals = append(vals, x)
+			if len(vals) > maxNDElems {
+				panic(vm.Errorf("ndarray.arange: range exceeds %d elements", maxNDElems))
+			}
 		}
 	} else {
 		for x := start; x > stop; x += step {
 			vals = append(vals, x)
+			if len(vals) > maxNDElems {
+				panic(vm.Errorf("ndarray.arange: range exceeds %d elements", maxNDElems))
+			}
 		}
 	}
 	a := newND([]int{len(vals)})

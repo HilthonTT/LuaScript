@@ -34,6 +34,9 @@ func (r Result) String() string {
 	}
 }
 
+// maxChannelCapacity bounds a channel's preallocated buffer.
+const maxChannelCapacity = 1 << 24
+
 func NewChannel(capacity int) *Channel {
 	if capacity < 0 {
 		capacity = 0

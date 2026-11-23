@@ -204,6 +204,17 @@ func normalize(result vm.Value) resp {
 	case *vm.Table:
 		out := resp{status: http.StatusOK, headers: map[string]string{}}
 		if s, ok := v.Get("status").(int64); ok {
+			// net/http panics on a status outside 100..999, which drops the
+			// connection with no response; report the handler bug instead.
+			if s < 100 || s > 999 {
+				return resp{
+					status: http.StatusInternalServerError,
+					body:   fmt.Sprintf("server handler returned invalid status %d\n", s),
+					headers: map[string]string{
+						"Content-Type": "text/plain; charset=utf-8",
+					},
+				}
+			}
 			out.status = int(s)
 		}
 		if b, ok := v.Get("body").(string); ok {

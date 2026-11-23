@@ -275,6 +275,11 @@ func addBarSeries(f *figure, site string, args []vm.Value, base int) {
 	f.series = append(f.series, &series{kind: "bar", xs: xs, ys: ys, label: label, color: color})
 }
 
+// maxHistogramBins bounds the per-bin allocation: bins comes straight from
+// the script, and make([]float64, 1e13) is a fatal out-of-memory, not an
+// error pcall can catch.
+const maxHistogramBins = 1 << 20
+
 func addHistogram(f *figure, site string, args []vm.Value, base int) {
 	vals := numsFromTable(site, vm.TableArg(site, base, args))
 	bins := 10
@@ -283,8 +288,8 @@ func addHistogram(f *figure, site string, args []vm.Value, base int) {
 			bins = int(bi)
 		}
 	}
-	if bins < 1 {
-		panic(vm.Errorf("%s: bins must be >= 1", site))
+	if bins < 1 || bins > maxHistogramBins {
+		panic(vm.Errorf("%s: bins must be between 1 and %d", site, maxHistogramBins))
 	}
 	if len(vals) == 0 {
 		f.series = append(f.series, &series{kind: "bar", color: f.nextColor()})

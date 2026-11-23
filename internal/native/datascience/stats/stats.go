@@ -94,8 +94,8 @@ func statsLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
 		xs := floats("stats.histogram", vm.TableArg("stats.histogram", 1, args))
 		requireNonEmpty("stats.histogram", xs)
 		bins := int(vm.OptInt("stats.histogram", 2, args, 10))
-		if bins < 1 {
-			panic(vm.Errorf("stats.histogram: bins must be >= 1, got %d", bins))
+		if bins < 1 || bins > maxHistogramBins {
+			panic(vm.Errorf("stats.histogram: bins must be between 1 and %d, got %d", maxHistogramBins, bins))
 		}
 		lo, hi := minOf(xs), maxOf(xs)
 		if lo == hi {
@@ -174,7 +174,7 @@ func statsLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
 		xs := floats("stats.quantile", vm.TableArg("stats.quantile", 1, args))
 		requireNonEmpty("stats.quantile", xs)
 		q := vm.FloatArg("stats.quantile", 2, args)
-		if q < 0 || q > 1 {
+		if !(q >= 0 && q <= 1) {
 			panic(vm.Errorf("stats.quantile: q must be in [0, 1], got %g", q))
 		}
 		return []vm.Value{quantileSorted(sortedCopy(xs), q)}
@@ -184,7 +184,7 @@ func statsLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
 		xs := floats("stats.percentile", vm.TableArg("stats.percentile", 1, args))
 		requireNonEmpty("stats.percentile", xs)
 		p := vm.FloatArg("stats.percentile", 2, args)
-		if p < 0 || p > 100 {
+		if !(p >= 0 && p <= 100) {
 			panic(vm.Errorf("stats.percentile: p must be in [0, 100], got %g", p))
 		}
 		return []vm.Value{quantileSorted(sortedCopy(xs), p/100)}
@@ -212,6 +212,11 @@ func statsLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
 	m.SetMetatable(mt)
 	return []vm.Value{m}
 }
+
+// maxHistogramBins bounds the per-bin allocation: bins comes straight from
+// the script, and make([]float64, 1e13) is a fatal out-of-memory, not an
+// error pcall can catch.
+const maxHistogramBins = 1 << 20
 
 func sum(xs []float64) float64 {
 	var s, c float64

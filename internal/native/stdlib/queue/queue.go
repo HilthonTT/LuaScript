@@ -37,6 +37,11 @@ func queueLoader(_ *vm.VM, _ []vm.Value) []vm.Value {
 
 	methods.Set("channel", &vm.GoFunc{Name: "queue:channel", Fn: func(_ *vm.VM, args []vm.Value) []vm.Value {
 		capacity := vm.OptInt("queue.channel", 1, args, 0)
+		// The buffer is allocated up front: make(chan, 1e12) is a fatal
+		// out-of-memory that pcall cannot catch.
+		if capacity > maxChannelCapacity {
+			panic(vm.Errorf("queue.channel: capacity must be at most %d, got %d", int64(maxChannelCapacity), capacity))
+		}
 		return []vm.Value{wrapChannel(NewChannel(int(capacity)), nil)}
 	}})
 

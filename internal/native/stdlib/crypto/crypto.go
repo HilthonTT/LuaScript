@@ -235,18 +235,32 @@ func defaultArgonParams() argonParams {
 	return argonParams{time: 3, memory: 64 * 1024, threads: 4, keyLen: 32, saltLen: 16}
 }
 
+// Upper bounds on argon2id cost parameters. argon2 allocates memory KiB up
+// front, and password_verify takes the parameters from the stored hash, so an
+// unbounded value there is a crash-the-process input (m=4294967295 asks for
+// 4 TiB, which is a fatal out-of-memory, not a recoverable error).
+const (
+	maxArgonTime    = 1 << 10
+	maxArgonMemory  = 1 << 20 // KiB, i.e. 1 GiB
+	maxArgonKeyLen  = 1 << 10
+	maxArgonSaltLen = 1 << 10
+)
+
 func argonParamsFrom(t *vm.Table, p argonParams) argonParams {
-	getPositive := func(key string, dflt uint32) uint32 {
+	getPositive := func(key string, dflt uint32, limit int64) uint32 {
 		n, ok := vm.ToInteger(t.Get(key))
 		if !ok || n < 1 {
 			return dflt
 		}
+		if n > limit {
+			panic(vm.Errorf("crypto.password_hash: %s must be at most %d, got %d", key, limit, n))
+		}
 		return uint32(n)
 	}
-	p.time = getPositive("time", p.time)
-	p.memory = getPositive("memory", p.memory)
-	p.keyLen = getPositive("key_length", p.keyLen)
-	p.saltLen = getPositive("salt_length", p.saltLen)
+	p.time = getPositive("time", p.time, maxArgonTime)
+	p.memory = getPositive("memory", p.memory, maxArgonMemory)
+	p.keyLen = getPositive("key_length", p.keyLen, maxArgonKeyLen)
+	p.saltLen = getPositive("salt_length", p.saltLen, maxArgonSaltLen)
 	if n, ok := vm.ToInteger(t.Get("threads")); ok && n >= 1 && n <= 255 {
 		p.threads = uint8(n)
 	}
@@ -272,7 +286,8 @@ func decodeArgon(s string) (p argonParams, salt, key []byte, ok bool) {
 	if _, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &p.memory, &p.time, &p.threads); err != nil {
 		return p, nil, nil, false
 	}
-	if p.memory == 0 || p.time == 0 || p.threads == 0 {
+	if p.memory == 0 || p.time == 0 || p.threads == 0 ||
+		p.memory > maxArgonMemory || p.time > maxArgonTime {
 		return p, nil, nil, false
 	}
 	salt, err := base64.RawStdEncoding.DecodeString(parts[4])
@@ -280,7 +295,7 @@ func decodeArgon(s string) (p argonParams, salt, key []byte, ok bool) {
 		return p, nil, nil, false
 	}
 	key, err = base64.RawStdEncoding.DecodeString(parts[5])
-	if err != nil || len(key) == 0 {
+	if err != nil || len(key) == 0 || len(key) > maxArgonKeyLen {
 		return p, nil, nil, false
 	}
 	return p, salt, key, true

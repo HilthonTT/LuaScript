@@ -295,12 +295,12 @@ The returned string carries the version, cost parameters and salt
 alongside the digest, so password_verify needs nothing else and costs
 can be raised later without invalidating existing hashes.
 
-opts may set time (passes, default 3), memory (KiB, default 65536),
-threads (default 4), key_length (default 32) and salt_length
-(default 16).`},
+opts may set time (passes, default 3, at most 1024), memory (KiB,
+default 65536, at most 1048576), threads (default 4), key_length
+(default 32, at most 1024) and salt_length (default 16, at most 1024).`},
 			{Name: "password_verify", Kind: EntryFunction, Signature: "crypto.password_verify(password, encoded): boolean",
 				Summary: "Checks a password against a string produced by password_hash, comparing in constant time.",
-				Detail:  "A malformed or unrecognised encoding returns false rather than raising, so a corrupt stored hash fails the login instead of the request."},
+				Detail:  "A malformed or unrecognised encoding returns false rather than raising, so a corrupt stored hash fails the login instead of the request. Encodings whose cost parameters exceed the limits password_hash accepts are treated as malformed."},
 			{Name: "pbkdf2", Kind: EntryFunction, Signature: "crypto.pbkdf2(password, salt, iterations, keylen [, alg]): string",
 				Summary: "Derives keylen raw bytes from password and salt with PBKDF2. alg defaults to sha256.",
 				Detail:  "For deriving a key of a length some protocol dictates, and for checking against systems that already store PBKDF2 hashes. For new password storage prefer password_hash."},
@@ -520,7 +520,7 @@ q:run()`,
 				Summary: "Creates a job queue. opts.on_error is called with the error value when a job raises; opts.capacity caps pending jobs (push then returns nil, \"queue is full\").",
 				Detail:  "Jobs are ordered by priority (higher first), then FIFO within a priority."},
 			{Name: "channel", Kind: EntryFunction, Signature: "queue.channel([capacity]): channel",
-				Summary: "Creates a channel carrying Lua values. Capacity 0 (the default) makes it unbuffered."},
+				Summary: "Creates a channel carrying Lua values. Capacity 0 (the default) makes it unbuffered; at most 16777216."},
 			{Name: "after", Kind: EntryFunction, Signature: "queue.after(ms [, value]): channel",
 				Summary: "Returns a channel that receives once, after ms milliseconds."},
 			{Name: "tick", Kind: EntryFunction, Signature: "queue.tick(ms): channel",

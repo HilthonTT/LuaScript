@@ -109,6 +109,11 @@ func newTime() *vm.Table {
 }
 
 func unixFromValue(site string, args []vm.Value, idx int) time.Time {
+	if idx > len(args) {
+		// Let IntArg raise the usual "bad argument" error instead of an
+		// index-out-of-range runtime panic.
+		return time.Unix(vm.IntArg(site, idx, args), 0)
+	}
 	if f, ok := args[idx-1].(float64); ok {
 		sec, frac := math.Modf(f)
 		return time.Unix(int64(sec), int64(frac*1e9))

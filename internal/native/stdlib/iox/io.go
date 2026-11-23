@@ -83,6 +83,9 @@ func newIO() *vm.Table {
 			br = bufio.NewReader(f)
 			owned = f
 		} else {
+			if defaultIn.closed || defaultIn.br == nil {
+				panic(vm.Errorf("io.lines: default input is not readable"))
+			}
 			br = defaultIn.br
 		}
 		var once sync.Once
@@ -249,6 +252,9 @@ func newFileTable(h *fileHandle) *vm.Table {
 	})
 	add("lines", func(_ *vm.VM, args []vm.Value) []vm.Value {
 		_ = vm.TableArg("file:lines", 1, args)
+		if h.br == nil {
+			panic(vm.Errorf("file:lines: file is not readable"))
+		}
 		iter := &vm.GoFunc{Name: "file:lines:iter", Fn: func(_ *vm.VM, _ []vm.Value) []vm.Value {
 			if h.closed {
 				return []vm.Value{nil}
