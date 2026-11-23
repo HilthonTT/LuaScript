@@ -35,19 +35,19 @@ func (g *Generator) compileExpression(is *InstructionSet, exp ast.Expression) {
 	case *ast.TableConstructor:
 		g.compileTableConstructor(is, e)
 	case *ast.IndexExpression:
-		if hasOptionalLink(e) {
+		if g.chainHasOptional(e) {
 			g.compileOptionalChain(is, e)
 			return
 		}
 		g.compileIndexLoad(is, e)
 	case *ast.CallExpression:
-		if hasOptionalLink(e) {
+		if g.chainHasOptional(e) {
 			g.compileOptionalChain(is, e)
 			return
 		}
 		g.compileCall(is, e, 1)
 	case *ast.MethodCallExpression:
-		if hasOptionalLink(e) {
+		if g.chainHasOptional(e) {
 			g.compileOptionalChain(is, e)
 			return
 		}
@@ -71,7 +71,7 @@ func (g *Generator) compileExpressionMulti(is *InstructionSet, exp ast.Expressio
 	if exp == nil {
 		return
 	}
-	if hasOptionalLink(exp) {
+	if g.chainHasOptional(exp) {
 		g.compileOptionalChain(is, exp)
 		if nresults > 1 {
 			is.define(LoadNil, exp.Line(), nresults-1)

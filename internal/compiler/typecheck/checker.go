@@ -36,7 +36,8 @@ type checker struct {
 
 	returnsStack [][]*Type
 
-	instDepth int
+	instDepth   int
+	instAborted bool
 
 	builtins map[string]*Type
 
@@ -49,6 +50,8 @@ type checker struct {
 
 	assignedSomewhere map[string]bool
 	upvalMutated      map[string]bool
+
+	chainMemo chainRefinement
 }
 
 func (c *checker) builtinInScope(name string) bool {

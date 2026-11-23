@@ -11,6 +11,29 @@ const (
 	restRecordGlobal = "__rest_record"
 )
 
+// chainHasOptional is hasOptionalLink for the generator's recursive descent.
+// Compiling a.b.c... visits every suffix of the chain, and re-walking the
+// rest of the chain at each step made long chains quadratic. A chain with no
+// optional link has none in its base either, so the base is remembered and
+// answered without a walk when the generator reaches it next.
+func (g *Generator) chainHasOptional(e ast.Expression) bool {
+	if e == nil {
+		return false
+	}
+	if e != g.plainChain && hasOptionalLink(e) {
+		return true
+	}
+	switch n := e.(type) {
+	case *ast.IndexExpression:
+		g.plainChain = n.Object
+	case *ast.MethodCallExpression:
+		g.plainChain = n.Object
+	case *ast.CallExpression:
+		g.plainChain = n.Func
+	}
+	return false
+}
+
 func hasOptionalLink(e ast.Expression) bool {
 	for {
 		switch n := e.(type) {

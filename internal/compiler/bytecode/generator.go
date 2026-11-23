@@ -140,6 +140,10 @@ type Generator struct {
 	nextTryRegion int
 
 	funcNames map[*ast.FunctionExpression]string
+
+	// plainChain is a postfix-chain node already known to contain no `?.`
+	// link (see chainHasOptional).
+	plainChain ast.Expression
 }
 
 func (g *Generator) nameFunc(e ast.Expression, name string) {

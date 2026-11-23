@@ -9,21 +9,61 @@ import (
 
 type refinement map[string]*Type
 
+// maxRefineDepth caps how far refine descends into a condition, so a
+// pathologically nested condition costs bounded work; past the cap a
+// sub-condition simply contributes no narrowing.
+const maxRefineDepth = 4096
+
+// chainRefinement remembers the refinement typeOfBinary derived for the
+// `and`/`or` node it last finished, so that the parent in a left-deep chain
+// (a and b and c ...) reuses it instead of re-walking the whole chain, which
+// made checking such chains quadratic.
+type chainRefinement struct {
+	node     *ast.BinaryExpression
+	positive bool
+	r        refinement
+}
+
+// refineOperand is refine for the left operand of an `and`/`or` whose type
+// was just computed.
+func (c *checker) refineOperand(left ast.Expression, positive bool) refinement {
+	inner := left
+	for {
+		p, ok := inner.(*ast.ParenExpression)
+		if !ok {
+			break
+		}
+		inner = p.Inner
+	}
+	if m := c.chainMemo; m.node != nil && ast.Expression(m.node) == inner && m.positive == positive {
+		c.chainMemo = chainRefinement{}
+		return m.r
+	}
+	return c.refine(left, positive)
+}
+
 func (c *checker) refine(cond ast.Expression, positive bool) refinement {
+	return c.refineAt(cond, positive, 0)
+}
+
+func (c *checker) refineAt(cond ast.Expression, positive bool, depth int) refinement {
+	if depth > maxRefineDepth {
+		return nil
+	}
 	switch n := cond.(type) {
 	case *ast.ParenExpression:
-		return c.refine(n.Inner, positive)
+		return c.refineAt(n.Inner, positive, depth+1)
 
 	case *ast.UnaryExpression:
 		if n.Op == "not" {
-			return c.refine(n.Operand, !positive)
+			return c.refineAt(n.Operand, !positive, depth+1)
 		}
 
 	case *ast.Identifier:
 		return c.refineTruthiness(n.Name, positive)
 
 	case *ast.BinaryExpression:
-		return c.refineBinary(n, positive)
+		return c.refineBinary(n, positive, depth)
 	}
 	return nil
 }
@@ -47,17 +87,17 @@ func (c *checker) refineTruthiness(name string, positive bool) refinement {
 	return refinement{name: falsy}
 }
 
-func (c *checker) refineBinary(n *ast.BinaryExpression, positive bool) refinement {
+func (c *checker) refineBinary(n *ast.BinaryExpression, positive bool, depth int) refinement {
 	switch n.Op {
 	case "and":
 		if positive {
-			return mergeRefine(c.refine(n.Left, true), c.refine(n.Right, true))
+			return mergeRefine(c.refineAt(n.Left, true, depth+1), c.refineAt(n.Right, true, depth+1))
 		}
 		return nil
 
 	case "or":
 		if !positive {
-			return mergeRefine(c.refine(n.Left, false), c.refine(n.Right, false))
+			return mergeRefine(c.refineAt(n.Left, false, depth+1), c.refineAt(n.Right, false, depth+1))
 		}
 		return nil
 

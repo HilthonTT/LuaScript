@@ -18,21 +18,36 @@ func (p *Parser) parseExpressionPrec(minPrec int) ast.Expression {
 		return nil
 	}
 	defer p.leaveDepth()
+	outerHeight := p.exprHeight
+	p.exprHeight = 0
 	left := p.parsePrefix()
 	if left == nil {
 		return nil
 	}
+	height := p.exprHeight + 1
+	// grow folds the height of the operand just parsed into the chain; each
+	// loop iteration wraps left in one more node.
+	grow := func() bool {
+		height = max(height, p.exprHeight) + 1
+		p.exprHeight = 0
+		return p.growHeight(height)
+	}
+	defer func() { p.exprHeight = max(outerHeight, height) }()
+	p.exprHeight = 0
 	for {
 		if precedence.Call > minPrec && p.curTokenIs(token.Question) &&
 			(p.peekTokenIs(token.LBracket) || p.peekTokenIs(token.Colon)) {
 			left = p.parseOptionalSuffix(left)
-			if left == nil {
+			if left == nil || grow() {
 				return nil
 			}
 			continue
 		}
 		if precedence.Call > minPrec && (p.curTokenIs(token.LBrace) || p.curTokenIs(token.String) || p.curTokenIs(token.InterpString)) {
 			left = p.parseCallWithSingleArg(left)
+			if left == nil || grow() {
+				return nil
+			}
 			continue
 		}
 		if p.curTokenIs(token.Label) && p.peekTokenIs(token.Ident) && p.peek2Token().Type == token.Label {
@@ -43,7 +58,7 @@ func (p *Parser) parseExpressionPrec(minPrec int) ast.Expression {
 			break
 		}
 		left = p.parseInfix(left, curPrec)
-		if left == nil {
+		if left == nil || grow() {
 			return nil
 		}
 	}

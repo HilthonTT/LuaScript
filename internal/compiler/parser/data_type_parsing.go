@@ -190,8 +190,10 @@ func (p *Parser) buildInterpolation(tok token.Token, raw string) ast.Expression 
 	}
 
 	var result ast.Expression
+	height := 0
 	for _, pt := range parts {
 		var expr ast.Expression
+		partHeight := 1
 		if pt.isExpr {
 			l := lexer.New(pt.text)
 			sub := New(l)
@@ -215,8 +217,13 @@ func (p *Parser) buildInterpolation(tok token.Token, raw string) ast.Expression 
 				Func:     &ast.Identifier{BaseNode: baseAt(tok), Name: "tostring"},
 				Args:     []ast.Expression{inner},
 			}
+			partHeight = sub.exprHeight + 1
 		} else {
 			expr = &ast.StringLiteral{BaseNode: baseAt(tok), Value: lexer.Unescape(pt.text)}
+		}
+		height = max(height, partHeight) + 1
+		if p.growHeight(height) {
+			return &ast.StringLiteral{BaseNode: baseAt(tok), Value: raw}
 		}
 		if result == nil {
 			result = expr
@@ -232,5 +239,6 @@ func (p *Parser) buildInterpolation(tok token.Token, raw string) ast.Expression 
 	if result == nil {
 		return &ast.StringLiteral{BaseNode: baseAt(tok), Value: ""}
 	}
+	p.exprHeight = max(p.exprHeight, height)
 	return result
 }

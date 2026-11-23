@@ -100,7 +100,7 @@ func (g *Generator) compileStatement(is *InstructionSet, stmt ast.Statement) {
 	case *ast.ThrowStatement:
 		g.compileThrow(is, s)
 	case *ast.ExpressionStatement:
-		if hasOptionalLink(s.Expression) {
+		if g.chainHasOptional(s.Expression) {
 			g.compileOptionalChain(is, s.Expression)
 			is.define(Pop, s.Line(), 1)
 			return

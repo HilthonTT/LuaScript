@@ -50,14 +50,24 @@ func (c *checker) typeBounds(params []ast.TypeParam) map[string]*Type {
 const maxInstantiationDepth = 64
 
 func (c *checker) resolveTypeApplication(app *ast.TypeApplication) *Type {
+	// Once an expansion has hit the depth cap, unwind the whole thing: a type
+	// such as `type L<T> = { n: L<L<T>> }` branches at every level, so merely
+	// stopping at the cap still left an exponential number of expansions.
+	if c.instAborted {
+		return anyT
+	}
 	if c.instDepth >= maxInstantiationDepth {
 		c.errf(app.Line(), "recursive-generic",
 			"generic type %q expands recursively — self-referential generic types are not supported", app.Name)
+		c.instAborted = true
 		return anyT
 	}
 	c.instDepth++
 	defer func() {
 		c.instDepth--
+		if c.instDepth == 0 {
+			c.instAborted = false
+		}
 	}()
 
 	g, ok := c.env.generics[app.Name]

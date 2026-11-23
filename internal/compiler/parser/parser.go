@@ -36,9 +36,19 @@ type Parser struct {
 	enumVariants map[string]bool
 
 	depth int
+
+	// exprHeight accumulates the height of the expressions finished since the
+	// enclosing parseExpressionPrec reset it. Left-associative chains
+	// (a+b+c..., a.b.c..., f()()...) and interpolated strings grow the tree
+	// without recursing in the parser, so depth alone cannot bound them; the
+	// later passes walk the tree recursively and would overflow the Go stack.
+	exprHeight int
 }
 
 const maxParseDepth = 4000
+
+// maxExprHeight bounds the height of a single expression tree.
+const maxExprHeight = 100000
 
 func New(l *lexer.Lexer) *Parser {
 	return &Parser{Lexer: l, Mode: NormalMode}
@@ -57,6 +67,19 @@ func (p *Parser) enterDepth(construct string) bool {
 }
 
 func (p *Parser) leaveDepth() { p.depth-- }
+
+// growHeight records that the expression under construction is now h levels
+// tall, and reports (true) a syntax error when that exceeds maxExprHeight.
+func (p *Parser) growHeight(h int) bool {
+	if h > maxExprHeight {
+		if p.error == nil {
+			p.errorAt(p.curToken, errors.SyntaxError, "expression",
+				"input nests too deeply", "split this expression into smaller pieces")
+		}
+		return true
+	}
+	return false
+}
 
 func (p *Parser) ParseProgram() (program *ast.Program, err *errors.Error) {
 	defer func() {

@@ -212,6 +212,13 @@ func (l *Lexer) nextToken() token.Token {
 		}
 		return token.Token{Type: token.String, Literal: lit, Line: line, Column: l.tokenCol}
 	case 0:
+		if !l.atEOF() {
+			// A NUL byte in the source is not the end of input: treating it
+			// as EOF silently dropped the rest of the script.
+			tok := token.Token{Type: token.Illegal, Literal: "\x00", Line: line, Column: l.tokenCol}
+			l.readChar()
+			return tok
+		}
 		return token.Token{Type: token.EOF, Literal: "", Line: line, Column: l.tokenCol}
 	default:
 		if isLetter(l.ch) {
@@ -320,7 +327,7 @@ func (l *Lexer) absorbComment(line int) (errTok token.Token, ok bool) {
 	if !l.hasYielded && l.ch == '!' && l.ModeDirective == "" {
 		l.readChar()
 		start := l.position
-		for l.ch != '\n' && l.ch != 0 {
+		for l.ch != '\n' && !l.atEOF() {
 			l.readChar()
 		}
 		word := strings.TrimSpace(string(l.input[start:l.position]))
@@ -331,7 +338,7 @@ func (l *Lexer) absorbComment(line int) (errTok token.Token, ok bool) {
 		return token.Token{}, true
 	}
 
-	for l.ch != '\n' && l.ch != 0 {
+	for l.ch != '\n' && !l.atEOF() {
 		l.readChar()
 	}
 	return token.Token{}, true
@@ -389,7 +396,7 @@ func (l *Lexer) readLongString(level int) (lit string, terminated bool) {
 	}
 
 	for {
-		if l.ch == 0 {
+		if l.atEOF() {
 			return b.String(), false
 		}
 		if l.ch == ']' && l.matchLongClose(level) {
@@ -433,12 +440,12 @@ func (l *Lexer) readString(ch rune) (lit, raw string, terminated bool) {
 
 	var b strings.Builder
 	for l.ch != ch {
-		if l.ch == 0 {
+		if l.atEOF() {
 			return b.String(), l.sliceFrom(bodyStart), false
 		}
 		if l.ch == '\\' {
 			l.readChar()
-			if l.ch == 0 {
+			if l.atEOF() {
 				return b.String(), l.sliceFrom(bodyStart), false
 			}
 			l.readEscape(&b)
@@ -460,7 +467,7 @@ func (l *Lexer) readString(ch rune) (lit, raw string, terminated bool) {
 func Unescape(body string) string {
 	l := New(body)
 	var b strings.Builder
-	for l.ch != 0 {
+	for !l.atEOF() {
 		if l.ch == '\\' {
 			l.readChar()
 			l.readEscape(&b)
@@ -600,6 +607,10 @@ func (l *Lexer) readChar() {
 	l.position = l.readPosition
 	l.readPosition++
 }
+
+// atEOF reports whether the lexer has consumed all input. l.ch is 0 both at
+// EOF and on a NUL byte in the source, so it cannot tell the two apart.
+func (l *Lexer) atEOF() bool { return l.position >= len(l.input) }
 
 func (l *Lexer) peekChar() rune {
 	if l.readPosition >= len(l.input) {

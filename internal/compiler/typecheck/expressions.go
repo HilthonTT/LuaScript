@@ -347,16 +347,18 @@ func (c *checker) typeOfBinary(e *ast.BinaryExpression) *Type {
 	switch e.Op {
 	case "??":
 		right = c.typeOfExpression(e.Right)
-	case "and":
+	case "and", "or":
+		positive := e.Op == "and"
+		leftR := c.refineOperand(e.Left, positive)
 		c.env.push()
-		c.applyRefinement(c.refine(e.Left, true))
+		c.applyRefinement(leftR)
 		right = c.typeOfExpression(e.Right)
 		c.env.pop()
-	case "or":
-		c.env.push()
-		c.applyRefinement(c.refine(e.Left, false))
-		right = c.typeOfExpression(e.Right)
-		c.env.pop()
+		c.chainMemo = chainRefinement{
+			node:     e,
+			positive: positive,
+			r:        mergeRefine(leftR, c.refine(e.Right, positive)),
+		}
 	default:
 		right = c.typeOfExpression(e.Right)
 	}
