@@ -24,7 +24,18 @@ func (GitFetcher) Fetch(spec Spec, destDir string) (string, error) {
 		if err := validateRef(spec.Ref); err != nil {
 			return "", err
 		}
-		if err := run("git", "clone", "--depth", "1", "--branch", spec.Ref, url, destDir); err != nil {
+		// A full commit SHA goes straight to checkout: `clone --branch <sha>`
+		// would resolve a branch or tag that happens to carry that name.
+		if isCommitID(spec.Ref) {
+			if err := run("git", "clone", url, destDir); err != nil {
+				_ = os.RemoveAll(destDir)
+				return "", fmt.Errorf("git clone %s: %w", url, err)
+			}
+			if err := run("git", "-C", destDir, "checkout", "--quiet", "--detach", spec.Ref+"^{commit}", "--"); err != nil {
+				_ = os.RemoveAll(destDir)
+				return "", fmt.Errorf("git checkout %s: %w", spec.Ref, err)
+			}
+		} else if err := run("git", "clone", "--depth", "1", "--branch", spec.Ref, url, destDir); err != nil {
 			_ = os.RemoveAll(destDir)
 			if err := run("git", "clone", url, destDir); err != nil {
 				return "", fmt.Errorf("git clone %s: %w", url, err)
@@ -52,6 +63,19 @@ func (GitFetcher) Fetch(spec Spec, destDir string) (string, error) {
 		return "", fmt.Errorf("removing .git from %s: %w", destDir, err)
 	}
 	return commit, nil
+}
+
+// isCommitID reports whether ref is a full SHA-1 or SHA-256 object name.
+func isCommitID(ref string) bool {
+	if len(ref) != 40 && len(ref) != 64 {
+		return false
+	}
+	for _, r := range ref {
+		if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 func validateRef(ref string) error {

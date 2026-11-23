@@ -96,13 +96,24 @@ func (e *Env) Install() error {
 		}
 
 		fetchSpec := spec
+		lockedCommit := ""
 		if locked, ok := lock.Packages[name]; ok && locked.Commit != "" {
 			fetchSpec = Spec{Source: spec.Source, Ref: locked.Commit}
+			lockedCommit = locked.Commit
 		}
 
 		commit, err := e.fetchInto(fetchSpec, name)
 		if err != nil {
 			return err
+		}
+		// The lock file pins an exact commit. If the fetch resolved to
+		// anything else (e.g. upstream created a branch named after the
+		// pinned SHA), refuse it rather than silently re-pinning the lock
+		// to whatever the remote served.
+		if lockedCommit != "" && commit != lockedCommit {
+			_ = os.RemoveAll(e.moduleDir(name))
+			return fmt.Errorf("dependency %q: fetched commit %s does not match locked commit %s",
+				name, shortCommit(commit), shortCommit(lockedCommit))
 		}
 		lock.Packages[name] = LockEntry{
 			Source: spec.Source,

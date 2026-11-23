@@ -141,7 +141,7 @@ func TestAddWithExplicitName(t *testing.T) {
 }
 
 func TestInstallSkipsExistingAndFetchesLockedCommit(t *testing.T) {
-	f := &fakeFetcher{}
+	f := &fakeFetcher{commits: map[string]string{"github.com/alice/router@pinnedcommit99": "pinnedcommit99"}}
 	env := newEnv(t, f)
 
 	m := &Manifest{
