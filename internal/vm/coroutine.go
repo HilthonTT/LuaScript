@@ -24,6 +24,11 @@ type Coroutine struct {
 	// can report it as `false, err` (Lua 5.4). Cleared once reported.
 	diedWithError bool
 	deathErr      Value
+
+	// unwinding is set while the coroutine's goroutine runs the __close
+	// handlers owed after it died. It can no longer be resumed into, so a
+	// yield there must fail instead of parking the goroutine.
+	unwinding bool
 }
 
 type yieldMsg struct {
@@ -40,6 +45,10 @@ func isCloseSignal(r any) bool {
 	return ok
 }
 
+// maxCoroutineNesting bounds how many resumes may be active inside one
+// another, mirroring LUAI_MAXCCALLS.
+const maxCoroutineNesting = 200
+
 func newCoroutine(fn Value) *Coroutine {
 	return &Coroutine{
 		fn:       fn,
@@ -53,6 +62,7 @@ func newCoroutine(fn Value) *Coroutine {
 func (co *Coroutine) goroutineBody(v *VM) {
 	defer func() {
 		if r := recover(); r != nil {
+			co.unwinding = true
 			if isCloseSignal(r) {
 				// coroutine.close abandons the coroutine mid-flight; its
 				// suspended frames still owe their `<close>` variables.
@@ -150,6 +160,14 @@ func builtinCoroutineResume(v *VM, args []Value) []Value {
 	case "running", "normal":
 		return []Value{false, "cannot resume non-suspended coroutine"}
 	}
+	if v.coDepth >= maxCoroutineNesting {
+		// Lua's C-stack limit. Without it, a coroutine that resumes a fresh
+		// coroutine running the same function nests goroutines without
+		// bound (maxCallDepth is per thread, so it never trips).
+		return []Value{false, "C stack overflow"}
+	}
+	v.coDepth++
+	defer func() { v.coDepth-- }()
 
 	prev := v.currentCo
 	prevThread := v.activeThread()
@@ -196,6 +214,9 @@ func builtinCoroutineYield(v *VM, args []Value) []Value {
 		panic(LuaError("attempt to yield from outside a coroutine"))
 	}
 	co := v.currentCo
+	if co.unwinding {
+		panic(LuaError("attempt to yield across a C-call boundary"))
+	}
 	co.yieldCh <- yieldMsg{values: args}
 	resumeArgs := <-co.resumeCh
 	if len(resumeArgs) == 1 && isCloseSignal(resumeArgs[0]) {

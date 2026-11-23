@@ -14,6 +14,8 @@ type VM struct {
 	mainThread *Thread
 	currentCo  *Coroutine
 	mainCo     *Coroutine
+	// coDepth counts coroutine resumes currently nested inside one another.
+	coDepth int
 
 	frames   []*CallFrame
 	openUpvs []*Upvalue

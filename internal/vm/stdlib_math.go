@@ -88,8 +88,17 @@ func buildMathLibrary() *Table {
 		return []Value{math.Mod(x, y)}
 	})
 	add("modf", func(_ *VM, args []Value) []Value {
+		if len(args) > 0 {
+			if i, ok := args[0].(int64); ok {
+				// An integer is its own integer part (Lua 5.4).
+				return []Value{i, 0.0}
+			}
+		}
 		x := FloatArg("math.modf", 1, args)
 		intPart, fracPart := math.Modf(x)
+		if math.IsInf(x, 0) {
+			fracPart = 0.0
+		}
 		return []Value{intPart, fracPart}
 	})
 	add("pow", func(_ *VM, args []Value) []Value {

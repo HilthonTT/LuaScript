@@ -109,6 +109,10 @@ func buildStringLibrary() *Table {
 		if i > j {
 			return nil
 		}
+		if j-i >= 1<<24 {
+			// Same cap as table.unpack: each result is a 16-byte Value.
+			panic(LuaError("string slice too long"))
+		}
 		out := make([]Value, 0, j-i+1)
 		for k := i; k <= j; k++ {
 			out = append(out, int64(s[k-1]))
@@ -268,14 +272,28 @@ func luaFormat(v *VM, format string, args []Value) string {
 		for j < len(format) && strings.IndexByte("-+ #0", format[j]) >= 0 {
 			j++
 		}
+		// Lua 5.4 accepts at most two digits each for width and precision.
+		// Without the cap a short format such as ("%999999d"):rep(n) asks
+		// fmt for gigabytes of padding.
+		digits := 0
 		for j < len(format) && format[j] >= '0' && format[j] <= '9' {
 			j++
+			digits++
 		}
 		if j < len(format) && format[j] == '.' {
 			j++
+			pdigits := 0
 			for j < len(format) && format[j] >= '0' && format[j] <= '9' {
 				j++
+				pdigits++
 			}
+			if pdigits > digits {
+				digits = pdigits
+			}
+		}
+		if digits > 2 {
+			end := min(j+1, len(format))
+			panic(Errorf("invalid conversion '%s' to 'string.format'", format[i:end]))
 		}
 		if j >= len(format) {
 			panic(Errorf("invalid conversion '%s' to 'string.format'", format[i:]))
@@ -293,12 +311,22 @@ func luaFormat(v *VM, format string, args []Value) string {
 			b.WriteString(fmt.Sprintf(replaceVerb(spec, 's'),
 				string(byte(fmtArgInt(nextArg())))))
 		case 'g', 'G':
+			f := fmtArgFloat(nextArg())
+			if math.IsInf(f, 0) || math.IsNaN(f) {
+				b.WriteString(formatNonFinite(spec, f))
+				break
+			}
 			if !strings.Contains(spec, ".") {
 				spec = spec[:len(spec)-1] + ".6" + string(verb)
 			}
-			b.WriteString(fmt.Sprintf(spec, fmtArgFloat(nextArg())))
+			b.WriteString(fmt.Sprintf(spec, f))
 		case 'e', 'E', 'f', 'F':
-			b.WriteString(fmt.Sprintf(spec, fmtArgFloat(nextArg())))
+			f := fmtArgFloat(nextArg())
+			if math.IsInf(f, 0) || math.IsNaN(f) {
+				b.WriteString(formatNonFinite(spec, f))
+				break
+			}
+			b.WriteString(fmt.Sprintf(spec, f))
 		case 'a':
 			b.WriteString(fmt.Sprintf(replaceVerb(spec, 'x'), fmtArgFloat(nextArg())))
 		case 'A':
@@ -312,6 +340,50 @@ func luaFormat(v *VM, format string, args []Value) string {
 		}
 	}
 	return b.String()
+}
+
+// formatNonFinite renders inf/nan for a %e/%f/%g conversion the way C's
+// printf (and so Lua) does -- "inf", "-inf", "nan" -- instead of Go's
+// "+Inf"/"NaN". Width, '-' and '+'/' ' flags are honoured; '0' padding and
+// precision do not apply to non-finite values.
+func formatNonFinite(spec string, f float64) string {
+	body := "inf"
+	if math.IsNaN(f) {
+		body = "nan"
+		if math.Signbit(f) {
+			body = "-nan"
+		}
+	} else if f < 0 {
+		body = "-inf"
+	}
+	flags := spec[1 : len(spec)-1]
+	if body[0] != '-' {
+		if strings.IndexByte(flags, '+') >= 0 {
+			body = "+" + body
+		} else if strings.IndexByte(flags, ' ') >= 0 {
+			body = " " + body
+		}
+	}
+	width := 0
+	for k := 0; k < len(flags); k++ {
+		c := flags[k]
+		if c == '.' {
+			break
+		}
+		if c >= '1' && c <= '9' || (c == '0' && width > 0) {
+			width = width*10 + int(c-'0')
+		}
+	}
+	if v := spec[len(spec)-1]; v == 'E' || v == 'F' || v == 'G' {
+		body = strings.ToUpper(body)
+	}
+	if pad := width - len(body); pad > 0 {
+		if strings.IndexByte(flags, '-') >= 0 {
+			return body + strings.Repeat(" ", pad)
+		}
+		return strings.Repeat(" ", pad) + body
+	}
+	return body
 }
 
 func replaceVerb(spec string, verb byte) string {

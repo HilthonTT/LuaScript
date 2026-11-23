@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"math"
 	"sort"
 	"strings"
 )
@@ -37,20 +38,17 @@ func buildTableLibrary() *Table {
 	add("remove", func(_ *VM, args []Value) []Value {
 		tbl := TableArg("table.remove", 1, args)
 		n := tbl.Len()
-		if n == 0 {
-			return []Value{nil}
-		}
 		pos := OptInt("table.remove", 2, args, n)
-		if pos != n && (pos < 1 || pos > n+1) {
+		// Lua 5.4 ltablib.c tremove: an explicit pos must lie in [1, n+1]
+		// (an empty table therefore also accepts 0).
+		if pos != n && uint64(pos)-1 > uint64(n) {
 			panic(LuaError("bad argument #2 to 'table.remove' (position out of bounds)"))
 		}
 		removed := tbl.Get(pos)
-		for i := pos; i < n; i++ {
-			tbl.Set(i, tbl.Get(i+1))
+		for ; pos < n; pos++ {
+			tbl.Set(pos, tbl.Get(pos+1))
 		}
-		if pos <= n {
-			tbl.Set(n, nil)
-		}
+		tbl.Set(pos, nil)
 		return []Value{removed}
 	})
 	add("concat", func(_ *VM, args []Value) []Value {
@@ -118,6 +116,9 @@ func buildTableLibrary() *Table {
 		if e >= f {
 			if uint64(e)-uint64(f) >= 1<<24 {
 				panic(LuaError("too many elements to move"))
+			}
+			if d > math.MaxInt64-(e-f) {
+				panic(LuaError("bad argument #4 to 'table.move' (destination wrap around)"))
 			}
 			if d > e || d <= f || a1 != a2 {
 				for i := int64(0); i <= e-f; i++ {

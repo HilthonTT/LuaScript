@@ -187,7 +187,27 @@ func (v *VM) toRuntimeError(r any) *RuntimeError {
 	val := v.errorValue(r)
 	return &RuntimeError{
 		Value: val,
-		Msg:   ToStringMM(v, val),
+		Msg:   v.errorMessage(val),
 		Stack: v.Traceback(0),
 	}
+}
+
+// errorMessage renders an uncaught error value. It runs inside a recover
+// handler, so a __tostring that raises (or overflows the stack the error
+// came from) must not escape: that would be a second panic and crash the
+// process. Fall back to what lua.c prints for a non-string error object.
+func (v *VM) errorMessage(val Value) (msg string) {
+	fd, st := len(v.frames), len(v.Stack)
+	defer func() {
+		if r := recover(); r != nil {
+			if isCloseSignal(r) {
+				panic(r)
+			}
+			v.closeUpvaluesAbove(st)
+			v.frames = v.frames[:fd]
+			v.Stack = v.Stack[:st]
+			msg = fmt.Sprintf("(error object is a %s value)", TypeName(val))
+		}
+	}()
+	return ToStringMM(v, val)
 }

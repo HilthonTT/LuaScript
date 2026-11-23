@@ -49,6 +49,9 @@ func IntArg(name string, n int, args []Value) int64 {
 	}
 	x, ok := ToInteger(args[n-1])
 	if !ok {
+		if _, _, _, isNum := ToNumber(args[n-1]); isNum {
+			panic(Errorf("bad argument #%d to '%s' (number has no integer representation)", n, name))
+		}
 		panic(Errorf("bad argument #%d to '%s' (number expected, got %s)", n, name, describeBadArg(args[n-1])))
 	}
 	return x

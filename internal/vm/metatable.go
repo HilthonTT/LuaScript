@@ -350,10 +350,27 @@ func (v *VM) newIndexMM(obj, key, val Value) {
 }
 
 func (v *VM) callMMIfNotFunction(fn Value, args []Value, nresults int) ([]Value, bool) {
-	if mm := v.getMetamethod(fn, metaCall); mm != nil {
-		full := append([]Value{fn}, args...)
-		results := v.CallValue(mm, full, nresults)
-		return results, true
+	mm := v.getMetamethod(fn, metaCall)
+	if mm == nil {
+		return nil, false
 	}
-	return nil, false
+	full := append([]Value{fn}, args...)
+	// A __call handler may itself be a callable table (Lua 5.4 follows the
+	// chain). Walk it iteratively and bound it: recursing through CallValue
+	// on a self-referencing __call never terminates and exhausts the Go stack.
+	for depth := 0; ; depth++ {
+		switch mm.(type) {
+		case *Closure, *GoFunc:
+			return v.CallValue(mm, full, nresults), true
+		}
+		next := v.getMetamethod(mm, metaCall)
+		if next == nil {
+			panic(Errorf("attempt to call a %s value", TypeName(mm)))
+		}
+		if depth >= maxMetaChain {
+			panic(LuaError("'__call' chain too long; possible loop"))
+		}
+		full = append([]Value{mm}, full...)
+		mm = next
+	}
 }

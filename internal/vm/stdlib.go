@@ -243,7 +243,14 @@ func pairsIter(_ *VM, args []Value) []Value {
 	return []Value{k, val}
 }
 
-func builtinPairs(_ *VM, args []Value) []Value {
+func builtinPairs(v *VM, args []Value) []Value {
+	if len(args) > 0 {
+		// Lua 5.4: a __pairs metamethod supplies the iterator triple.
+		if mm := v.getMetamethod(args[0], "__pairs"); mm != nil {
+			res := v.CallValue(mm, []Value{args[0]}, 3)
+			return res
+		}
+	}
 	t := TableArg("pairs", 1, args)
 	return []Value{
 		&GoFunc{Name: "pairs:iter", Fn: pairsIter},

@@ -264,8 +264,12 @@ func (ms *matchState) collectCaptures(sStart, matchEnd int) []Value {
 func (ms *matchState) match(sIdx, pIdx int) int {
 	ms.depth++
 	if ms.depth > patternMaxDepth {
+		// Lua raises here rather than reporting "no match": failing
+		// silently lets the caller keep backtracking, which turns
+		// patterns like ("a?"):rep(n)..("a"):rep(n) into an exponential
+		// search that never finishes.
 		ms.depth--
-		return -1
+		panic(Errorf("pattern too complex"))
 	}
 	defer func() { ms.depth-- }()
 
