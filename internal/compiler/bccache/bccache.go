@@ -71,7 +71,7 @@ func entryPath(src string) (string, bool) {
 		}
 		dir = filepath.Join(base, "luascript", "bytecode")
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", false
 	}
 	h := sha256.New()
