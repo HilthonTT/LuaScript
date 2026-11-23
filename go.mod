@@ -6,12 +6,12 @@ require (
 	fyne.io/fyne/v2 v2.8.2
 	github.com/chzyer/readline v1.5.1
 	github.com/gdamore/tcell/v3 v3.6.0
-	github.com/go-sql-driver/mysql v1.10.1
+	github.com/go-sql-driver/mysql v1.10.2
 	github.com/google/go-cmp v0.7.0
 	github.com/lib/pq v1.12.3
 	github.com/mattn/go-runewidth v0.0.31
 	github.com/mattn/go-sqlite3 v1.14.53
-	github.com/microsoft/go-mssqldb v1.11.2
+	github.com/microsoft/go-mssqldb v1.12.0
 	golang.org/x/crypto v0.59.0
 	modernc.org/sqlite v1.62.0
 )
