@@ -60,6 +60,8 @@ func group(d Doc) Doc {
 	return docGroup{inner: d}
 }
 
+const maxSplice = 16
+
 func concat(parts ...Doc) Doc {
 	flat := make([]Doc, 0, len(parts))
 	for _, p := range parts {
@@ -69,7 +71,10 @@ func concat(parts ...Doc) Doc {
 		if _, ok := p.(docNil); ok {
 			continue
 		}
-		if c, ok := p.(docConcat); ok {
+		// Splice small concats only: copying a large one at every level
+		// made long call/index chains quadratic. The renderer walks nested
+		// concats either way.
+		if c, ok := p.(docConcat); ok && len(c.parts) <= maxSplice {
 			flat = append(flat, c.parts...)
 			continue
 		}

@@ -396,13 +396,20 @@ func (e *emitter) matchStmt(s *ast.MatchStatement, opts Options) Doc {
 			parts = append(parts, text(" if "), e.expr(arm.Guard, opts))
 		}
 		parts = append(parts, text(" -> "), e.statement(arm.Body, opts))
-		if i+1 < len(s.Arms) && patternCanChain(&s.Arms[i+1].Pattern) {
+		if i+1 < len(s.Arms) && (patternCanChain(&s.Arms[i+1].Pattern) || isBareReturn(arm.Body)) {
 			parts = append(parts, text(";"))
 		}
 		lines = append(lines, concat(parts...))
 	}
 	body := nest(opts.indent(), concat(hardLine(), join(hardLine(), lines...)))
 	return concat(head, body, hardLine(), text("end"))
+}
+
+// isBareReturn reports a value-less return: without a separator it would
+// take the next arm's pattern as its return value.
+func isBareReturn(s ast.Statement) bool {
+	r, ok := s.(*ast.ReturnStatement)
+	return ok && len(r.Values) == 0
 }
 
 func patternCanChain(p *ast.MatchPattern) bool {

@@ -4,7 +4,69 @@ import (
 	"strconv"
 
 	"github.com/hilthontt/luascript/v3/internal/compiler/ast"
+	"github.com/hilthontt/luascript/v3/internal/compiler/parser/precedence"
+	"github.com/hilthontt/luascript/v3/internal/compiler/token"
 )
+
+var binaryOpTokens = map[string]token.Type{
+	"+": token.Plus, "-": token.Minus, "*": token.Asterisk, "/": token.Slash,
+	"//": token.FloorDiv, "%": token.Percent, "^": token.Caret, "..": token.Concat,
+	"==": token.Eq, "~=": token.NotEq, "<": token.LT, "<=": token.LTE,
+	">": token.GT, ">=": token.GTE, "&": token.Ampersand, "|": token.Pipe,
+	"~": token.Tilde, "<<": token.LShift, ">>": token.RShift,
+	"and": token.And, "or": token.Or, "??": token.Coalesce,
+}
+
+func binaryPrec(op string) (prec int, rightAssoc bool) {
+	t := binaryOpTokens[op]
+	return precedence.LookupTable[t], precedence.IsRightAssoc(t)
+}
+
+// The parser keeps source parentheses as ParenExpression, but its desugarings
+// (string interpolation, compound assignment) build bare BinaryExpressions.
+// Printing those without parentheses would re-parse with a different shape,
+// so the helpers below parenthesize by precedence.
+
+func (e *emitter) parenthesized(x ast.Expression, opts Options) Doc {
+	return concat(text("("), e.expr(x, opts), text(")"))
+}
+
+// needsPrefixParens reports whether x, as the base of a call, index or method
+// call, must be wrapped in parentheses to re-parse as that base. The parser
+// accepts literals and table constructors bare, so those are left alone.
+func needsPrefixParens(x ast.Expression) bool {
+	switch x.(type) {
+	case *ast.BinaryExpression, *ast.UnaryExpression, *ast.IfExpression,
+		*ast.TypeAssertionExpression:
+		return true
+	}
+	return false
+}
+
+// prefixExpr emits x as the base of a call, index or method call.
+func (e *emitter) prefixExpr(x ast.Expression, opts Options) Doc {
+	if needsPrefixParens(x) {
+		return e.parenthesized(x, opts)
+	}
+	return e.expr(x, opts)
+}
+
+// operand emits x as an operand of a binary operator with precedence prec;
+// left reports which side it sits on.
+func (e *emitter) operand(x ast.Expression, prec int, rightAssoc, left bool, opts Options) Doc {
+	switch v := x.(type) {
+	case *ast.BinaryExpression:
+		cp, _ := binaryPrec(v.Op)
+		if cp < prec || (cp == prec && left == rightAssoc) {
+			return e.parenthesized(x, opts)
+		}
+	case *ast.UnaryExpression:
+		if left && prec >= precedence.Pow {
+			return e.parenthesized(x, opts)
+		}
+	}
+	return e.expr(x, opts)
+}
 
 func (e *emitter) expr(x ast.Expression, opts Options) Doc {
 	switch v := x.(type) {
@@ -29,7 +91,7 @@ func (e *emitter) expr(x ast.Expression, opts Options) Doc {
 		if v.IsLong {
 			return text("[[" + v.Value + "]]")
 		}
-		return text(strconv.Quote(v.Value))
+		return text(quoteLua(v.Value))
 	case *ast.VarargExpression:
 		return text("...")
 	case *ast.Identifier:
@@ -76,10 +138,18 @@ func (e *emitter) ifExpr(ie *ast.IfExpression, opts Options) Doc {
 }
 
 func (e *emitter) unary(u *ast.UnaryExpression, opts Options) Doc {
-	if u.Op == "not" {
-		return concat(text("not "), e.expr(u.Operand, opts))
+	operand := e.expr(u.Operand, opts)
+	if b, ok := u.Operand.(*ast.BinaryExpression); ok && b.Op != "^" {
+		operand = e.parenthesized(u.Operand, opts)
 	}
-	return concat(text(u.Op), e.expr(u.Operand, opts))
+	if u.Op == "not" {
+		return concat(text("not "), operand)
+	}
+	// "- -x" must keep its space: "--x" is a comment.
+	if inner, ok := u.Operand.(*ast.UnaryExpression); ok && u.Op == "-" && inner.Op == "-" {
+		return concat(text("- "), operand)
+	}
+	return concat(text(u.Op), operand)
 }
 
 func (e *emitter) binary(b *ast.BinaryExpression, opts Options) Doc {
@@ -94,14 +164,41 @@ func (e *emitter) binary(b *ast.BinaryExpression, opts Options) Doc {
 	))
 }
 
+// binaryChain flattens a run of the same operator along its associative side
+// (left for most operators, right for .. and ^) into a list of operands.
 func (e *emitter) binaryChain(x ast.Expression, op string, opts Options) []Doc {
-	if b, ok := x.(*ast.BinaryExpression); ok && b.Op == op {
-		return append(
-			e.binaryChain(b.Left, op, opts),
-			e.binaryChain(b.Right, op, opts)...,
-		)
+	prec, rightAssoc := binaryPrec(op)
+	var docs []Doc
+	if rightAssoc {
+		for {
+			b, ok := x.(*ast.BinaryExpression)
+			if !ok || b.Op != op {
+				return append(docs, e.operand(x, prec, true, false, opts))
+			}
+			if l, ok := b.Left.(*ast.BinaryExpression); ok && op == ".." && l.Op == ".." {
+				// Interpolation builds ((a .. b) .. c); string concatenation
+				// is associative, so print it as the flat a .. b .. c.
+				docs = append(docs, e.binaryChain(l, op, opts)...)
+			} else {
+				docs = append(docs, e.operand(b.Left, prec, true, true, opts))
+			}
+			x = b.Right
+		}
 	}
-	return []Doc{e.expr(x, opts)}
+	var rights []Doc
+	for {
+		b, ok := x.(*ast.BinaryExpression)
+		if !ok || b.Op != op {
+			docs = append(docs, e.operand(x, prec, false, true, opts))
+			break
+		}
+		rights = append(rights, e.operand(b.Right, prec, false, false, opts))
+		x = b.Left
+	}
+	for i := len(rights) - 1; i >= 0; i-- {
+		docs = append(docs, rights[i])
+	}
+	return docs
 }
 
 func (e *emitter) index(ix *ast.IndexExpression, opts Options) Doc {
@@ -111,15 +208,15 @@ func (e *emitter) index(ix *ast.IndexExpression, opts Options) Doc {
 	}
 	if ix.IsDot {
 		if s, ok := ix.Index.(*ast.StringLiteral); ok {
-			return concat(e.expr(ix.Object, opts), text(q+"."), text(s.Value))
+			return concat(e.prefixExpr(ix.Object, opts), text(q+"."), text(s.Value))
 		}
 	}
-	return concat(e.expr(ix.Object, opts), text(q+"["), e.expr(ix.Index, opts), text("]"))
+	return concat(e.prefixExpr(ix.Object, opts), text(q+"["), e.expr(ix.Index, opts), text("]"))
 }
 
 func (e *emitter) call(c *ast.CallExpression, opts Options) Doc {
 	args := e.callArgs(c.Args, opts)
-	return concat(e.expr(c.Func, opts), args)
+	return concat(e.prefixExpr(c.Func, opts), args)
 }
 
 func (e *emitter) methodCall(m *ast.MethodCallExpression, opts Options) Doc {
@@ -128,7 +225,7 @@ func (e *emitter) methodCall(m *ast.MethodCallExpression, opts Options) Doc {
 	if m.Optional {
 		sep = "?:"
 	}
-	return concat(e.expr(m.Object, opts), text(sep), text(m.Method), args)
+	return concat(e.prefixExpr(m.Object, opts), text(sep), text(m.Method), args)
 }
 
 func (e *emitter) callArgs(args []ast.Expression, opts Options) Doc {

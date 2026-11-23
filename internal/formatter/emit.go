@@ -133,11 +133,11 @@ func leadsWithParen(e ast.Expression) bool {
 	case *ast.ParenExpression:
 		return true
 	case *ast.CallExpression:
-		return leadsWithParen(n.Func)
+		return needsPrefixParens(n.Func) || leadsWithParen(n.Func)
 	case *ast.MethodCallExpression:
-		return leadsWithParen(n.Object)
+		return needsPrefixParens(n.Object) || leadsWithParen(n.Object)
 	case *ast.IndexExpression:
-		return leadsWithParen(n.Object)
+		return needsPrefixParens(n.Object) || leadsWithParen(n.Object)
 	case *ast.BinaryExpression:
 		return leadsWithParen(n.Left)
 	}
